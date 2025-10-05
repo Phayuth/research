@@ -184,13 +184,10 @@ def example_1():
     import time
     from termcolor import cprint
     import matplotlib.pyplot as plt
-    from util import (
-        plot_2d_tour,
-        generate_ndarray,
-    )
+    import util
 
     stime = time.time()
-    coords = generate_ndarray()
+    coords = util.generate_ndarray()
     tour, length = solve_tsp_nearest_neighbor(
         coords=coords, multi_start="all", use_two_opt=True
     )
@@ -198,34 +195,26 @@ def example_1():
     cprint(f"Time taken: {etime - stime:.4f} seconds", "green")
     cprint(f"Tour: {tour}", "blue")
     cprint(f"Length: {length}", "blue")
-    plot_2d_tour(coords, tour)
+    util.plot_2d_tour(coords, tour)
     plt.show()
 
 
 def example_2():
     import matplotlib.pyplot as plt
-    from util import (
-        expand_tour,
-        generate_linear_tasks_transformation,
-        generate_linear_dual_side_tasks_transformation,
-        generate_linear_grid_tasks_transformation,
-        generate_spiral_task_transformation,
-        make_ndarray_from_task_list,
-        plot_tf_tour,
-    )
+    import util
 
-    # taskH = generate_linear_tasks_transformation()
-    # taskH = generate_linear_dual_side_tasks_transformation()
-    # taskH = generate_linear_grid_tasks_transformation()
-    taskH = generate_spiral_task_transformation()
-    coords = make_ndarray_from_task_list(taskH)
+    # taskH = util.generate_linear_tasks_transformation()
+    # taskH = util.generate_linear_dual_side_tasks_transformation()
+    # taskH = util.generate_linear_grid_tasks_transformation()
+    taskH = util.generate_spiral_task_transformation()
+    coords = util.make_ndarray_from_task_list(taskH)
     tour, length = solve_tsp_nearest_neighbor(
         coords=coords, multi_start="all", use_two_opt=True
     )
     print("Tour:", tour)
     print("Length:", length)
-    tourexap = expand_tour(tour)
-    plot_tf_tour(taskH, names=None, tour=tourexap)
+    tourexap = util.expand_tour(tour)
+    util.plot_tf_tour(taskH, names=None, tour=tourexap)
     plt.show()
 
 

@@ -9,6 +9,5 @@ bias: 0.05
 time_limit: 10.0
 simplify_solution: false
 
-save_planner_data: paper_r6s_snggoal_planner_data
 save_start_goal: paper_r6s_snggoal_start_goal
 save_path: paper_r6s_snggoal_path

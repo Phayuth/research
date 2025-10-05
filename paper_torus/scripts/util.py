@@ -1,48 +1,23 @@
 import numpy as np
 from spatial_geometry.utils import Utils
-from eaik.IK_DH import DhRobot
 from scipy.spatial.transform import Rotation as R
 import matplotlib.pyplot as plt
 from pytransform3d.transformations import plot_transform
 from pytransform3d.plot_utils import make_3d_axis
-from spatialmath import SE3
 import pickle
 import os
 from functools import wraps
 import time
 
+try:
+    from eaik.IK_DH import DhRobot
+    from spatialmath import SE3
+except:
+    print("missing packages; usage limited")
+
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=2000)
 rsrcpath = os.environ["RSRC_DIR"] + "/rnd_torus"
-
-
-def timer(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        # Call the original function
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        time_taken = end_time - start_time
-        # Return both the original result and the time taken
-        return result, time_taken
-
-    return wrapper
-
-
-def option_runner(funclist, default_id="1"):
-    for i, f in enumerate(funclist, start=1):
-        print(f"{i}: {f.__name__}")
-
-    if default_id is not None:
-        arg = default_id
-    else:
-        arg = input("Enter argument number (` to exit): ")
-
-    if arg == "`":
-        print("Exiting...")
-    elif arg.isdigit() and 1 <= int(arg) <= len(funclist):
-        funclist[int(arg) - 1]()
 
 
 def ur5e_dh():
@@ -291,91 +266,6 @@ def generate_gtsp_random_coords():
     return coords, clusters
 
 
-def plot_tf(T, names):
-    ax = make_3d_axis(ax_s=1, unit="m")
-    plot_transform(ax=ax, s=0.5, name="base_frame")  # basis
-    if isinstance(T, list):
-        for i, t in enumerate(T):
-            if names is not None:
-                name = names[i]
-            else:
-                name = f"{i}"
-            plot_transform(ax=ax, A2B=t, s=0.1, name=name)
-    else:
-        plot_transform(ax=ax, A2B=T, s=0.1, name="frame")
-    return ax
-
-
-def plot_tf_tour(T, names, tour):
-    ax = plot_tf(T, names)
-    if tour is not None:
-        for i, j in tour:
-            ax.plot(
-                [T[i][0, 3], T[j][0, 3]],
-                [T[i][1, 3], T[j][1, 3]],
-                [T[i][2, 3], T[j][2, 3]],
-                color="red",
-                linewidth=2,
-            )
-    ax.set_title(f"Tour: {tour}")
-    return ax
-
-
-def plot_2d_tour(coords, tour):
-    """
-    coords: (n,2) array of xy points
-    tour: (n,) array of city indices
-    """
-    ordered_coords = coords[tour]
-
-    # close the loop
-    closed_coords = np.vstack([ordered_coords, ordered_coords[0]])
-
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot(closed_coords[:, 0], closed_coords[:, 1], "-o", markersize=8)
-    for i, (x, y) in enumerate(coords):
-        ax.text(x + 0.02, y + 0.02, str(i), fontsize=9)
-    return ax
-
-
-def plot_2d_tour_coord(coords, tour):
-    """for tsp"""
-    fig, ax = plt.subplots(figsize=(6, 6))
-
-    for i, (x, y) in coords.items():
-        ax.plot(x, y, "bo")
-        ax.text(x + 0.2, y + 0.2, str(i), fontsize=12)
-
-    for i, j in tour:
-        xi, yi = coords[i]
-        xj, yj = coords[j]
-        ax.plot([xi, xj], [yi, yj], "r-")
-
-    ax.set_title(f"Tour: {tour}")
-    ax.axis("equal")
-
-
-def plot_2d_cluster_tour_coord(coords, clusters, tour):
-    """for gtsp"""
-    fig, ax = plt.subplots(figsize=(8, 8))
-    colors = ["r", "g", "b", "c", "m", "y"]
-
-    # Plot all cities by cluster
-    for c, city_ids in clusters.items():
-        for i in city_ids:
-            x, y = coords[i]
-            ax.plot(x, y, "o", color=colors[c % len(colors)])
-            ax.text(x + 0.2, y + 0.2, str(i), fontsize=12)
-
-    for i, j in tour:
-        xi, yi = coords[i]
-        xj, yj = coords[j]
-        ax.plot([xi, xj], [yi, yj], "k-")
-
-    ax.set_title(f"Tour: {tour}")
-    ax.axis("equal")
-
-
 def pickle_dump(obj, filename):
     file = os.path.join(rsrcpath, filename)
     with open(file, "wb") as f:
@@ -569,3 +459,119 @@ def nearest_neighbour_transformation(Hlist, hquery):
     dists = np.linalg.norm(xyz - xyzquery, axis=1)
     nearest_idx = np.argmin(dists)
     return nearest_idx, Hlist[nearest_idx]
+
+
+# ======================== MISC ========================= #
+def timer(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        # Call the original function
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        time_taken = end_time - start_time
+        # Return both the original result and the time taken
+        return result, time_taken
+
+    return wrapper
+
+
+def option_runner(funclist, default_id="1"):
+    for i, f in enumerate(funclist, start=1):
+        print(f"{i}: {f.__name__}")
+
+    if default_id is not None:
+        arg = default_id
+    else:
+        arg = input("Enter argument number (` to exit): ")
+
+    if arg == "`":
+        print("Exiting...")
+    elif arg.isdigit() and 1 <= int(arg) <= len(funclist):
+        funclist[int(arg) - 1]()
+
+
+# ========================= Visualization ======================== #
+def plot_tf(T, names):
+    ax = make_3d_axis(ax_s=1, unit="m")
+    plot_transform(ax=ax, s=0.5, name="base_frame")  # basis
+    if isinstance(T, list):
+        for i, t in enumerate(T):
+            if names is not None:
+                name = names[i]
+            else:
+                name = f"{i}"
+            plot_transform(ax=ax, A2B=t, s=0.1, name=name)
+    else:
+        plot_transform(ax=ax, A2B=T, s=0.1, name="frame")
+    return ax
+
+
+def plot_tf_tour(T, names, tour):
+    ax = plot_tf(T, names)
+    if tour is not None:
+        for i, j in tour:
+            ax.plot(
+                [T[i][0, 3], T[j][0, 3]],
+                [T[i][1, 3], T[j][1, 3]],
+                [T[i][2, 3], T[j][2, 3]],
+                color="red",
+                linewidth=2,
+            )
+    ax.set_title(f"Tour: {tour}")
+    return ax
+
+
+def plot_2d_tour(coords, tour):
+    """
+    coords: (n,2) array of xy points
+    tour: (n,) array of city indices
+    """
+    ordered_coords = coords[tour]
+
+    # close the loop
+    closed_coords = np.vstack([ordered_coords, ordered_coords[0]])
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.plot(closed_coords[:, 0], closed_coords[:, 1], "-o", markersize=8)
+    for i, (x, y) in enumerate(coords):
+        ax.text(x + 0.02, y + 0.02, str(i), fontsize=9)
+    return ax
+
+
+def plot_2d_tour_coord(coords, tour):
+    """for tsp"""
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    for i, (x, y) in coords.items():
+        ax.plot(x, y, "bo")
+        ax.text(x + 0.2, y + 0.2, str(i), fontsize=12)
+
+    for i, j in tour:
+        xi, yi = coords[i]
+        xj, yj = coords[j]
+        ax.plot([xi, xj], [yi, yj], "r-")
+
+    ax.set_title(f"Tour: {tour}")
+    ax.axis("equal")
+
+
+def plot_2d_cluster_tour_coord(coords, clusters, tour):
+    """for gtsp"""
+    fig, ax = plt.subplots(figsize=(8, 8))
+    colors = ["r", "g", "b", "c", "m", "y"]
+
+    # Plot all cities by cluster
+    for c, city_ids in clusters.items():
+        for i in city_ids:
+            x, y = coords[i]
+            ax.plot(x, y, "o", color=colors[c % len(colors)])
+            ax.text(x + 0.2, y + 0.2, str(i), fontsize=12)
+
+    for i, j in tour:
+        xi, yi = coords[i]
+        xj, yj = coords[j]
+        ax.plot([xi, xj], [yi, yj], "k-")
+
+    ax.set_title(f"Tour: {tour}")
+    ax.axis("equal")

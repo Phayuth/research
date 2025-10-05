@@ -82,39 +82,31 @@ def solve_tsp_mip_mtz(coords):
 
 def example_1():
     import matplotlib.pyplot as plt
-    from util import plot_2d_tour_coord, generate_tsp_coords
+    import util
 
-    coords = generate_tsp_coords()
+    coords = util.generate_tsp_coords()
     tour, length = solve_tsp_mip_mtz(coords)
-    plot_2d_tour_coord(coords, tour)
+    util.plot_2d_tour_coord(coords, tour)
     plt.show()
 
 
 def example_2():
     import matplotlib.pyplot as plt
-    from util import (
-        ur5e_dh,
-        generate_random_dh_tasks,
-        plot_tf_tour,
-        generate_linear_grid_tasks_transformation,
-        generate_linear_dual_side_tasks_transformation,
-        simplify_tour,
-        make_coords_from_tasks_list,
-    )
+    import util
 
-    bot = ur5e_dh()
-    taskH = generate_random_dh_tasks(bot, 10)
-    coords = make_coords_from_tasks_list(taskH)
+    bot = util.ur5e_dh()
+    taskH = util.generate_random_dh_tasks(bot, 10)
+    coords = util.make_coords_from_tasks_list(taskH)
     tour, length = solve_tsp_mip_mtz(coords)
-    tour_simp = simplify_tour(tour)
-    plot_tf_tour(taskH, names=None, tour=tour)
+    tour_simp = util.simplify_tour(tour)
+    util.plot_tf_tour(taskH, names=None, tour=tour)
     plt.show()
 
-    taskH = generate_linear_grid_tasks_transformation()
-    coords = make_coords_from_tasks_list(taskH)
+    taskH = util.generate_linear_grid_tasks_transformation()
+    coords = util.make_coords_from_tasks_list(taskH)
     tour, length = solve_tsp_mip_mtz(coords)
-    tour_simp = simplify_tour(tour)
-    plot_tf_tour(taskH, names=None, tour=tour)
+    tour_simp = util.simplify_tour(tour)
+    util.plot_tf_tour(taskH, names=None, tour=tour)
     plt.show()
 
     # TOOK A VERY LONG TIME, UNSOLVABLE WITH MIP
