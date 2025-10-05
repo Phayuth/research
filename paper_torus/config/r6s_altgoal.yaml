@@ -1,0 +1,28 @@
+robot:
+  l1: 0.5
+  l2: 0.5
+  l3: 0.5
+  l4: 0.5
+  l5: 0.5
+  l6: 0.5
+
+env:
+  rectangles:
+    - [-0.7, 1.3, 2.0, 2.2]
+    - [2.0, -2.0, 1.0, 4.0]
+    - [-3.0, -3.0, 1.25, 2.0]
+
+qlimit: [6.28, 6.28, 6.28, 6.28, 6.28, 6.28]
+
+qstart: [3.14, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+qgoal: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+range: 0.3
+bias: 0.05
+time_limit: 10.0
+simplify_solution: false
+
+save_planner_data: paper_r6s_altgoal_planner_data
+save_start_goal: paper_r6s_altgoal_start_goal
+save_path: paper_r6s_altgoal_path

@@ -1,0 +1,24 @@
+robot:
+  urdf_file: "package://paper_sequential_planner/ur5e_extract_calibrated_explicit_path.urdf"
+  srdf_file: "package://paper_sequential_planner/ur5e_extract_calibrated_fixed.srdf"
+
+collision_urdf:
+  - name: "shelf1"
+    urdf_file: "package://paper_sequential_planner/shelf.urdf"
+    pose: [0.0, 0.75, 0.0, 0.0, 0.0, 1.0, 0.0] # xyz qxqyqzqw
+    # no_collision_links: []
+
+  - name: "shelf2"
+    urdf_file: "package://paper_sequential_planner/shelf.urdf"
+    pose: [0.0, -0.75, 0.0, 0.0, 0.0, 0.0, 1.0] # xyz qxqyqzqw
+    # no_collision_links: []
+
+  - name: "shelf3"
+    urdf_file: "package://paper_sequential_planner/shelf.urdf"
+    pose: [-0.75, 0.0, 0.0, 0.0, 0.0, -0.5, 0.5] # xyz qxqyqzqw
+    # no_collision_links: []
+
+  # - name: "plane"
+  #   urdf_file: "package://paper_sequential_planner/plane.urdf"
+  #   pose: [0.0, 0.0, -0.1, 0.0, 0.0, 0.0, 1.0] # Ground plane
+  #   no_collision_links: ["base_link", "base_inertia_link"]
