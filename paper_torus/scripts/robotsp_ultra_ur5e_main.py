@@ -1,11 +1,16 @@
 import numpy as np
 import time
 import util
-from scipy.spatial.transform import Slerp
+from spatialmath.base import qslerp
+from spatialmath import SE3
+from spatial_geometry.utils import Utils
+
+s = SE3()
 
 
 def position_euclidean_distance(p1, p2):
     return np.linalg.norm(p2 - p1)
+
 
 def orientation_quaternion_distance(quat1, quat2):
     dot_product = np.abs(np.dot(quat1, quat2))
@@ -71,3 +76,59 @@ def move_in_taskspace(tasks, taskg, qinit):
     xdot = J(q) * qdot
     qdot = J_inv * xdot
     """
+
+
+bot = util.ur5e_dh()
+
+T = util.generate_random_dh_tasks(bot, 2)
+T1 = T[0]
+T2 = T[1]
+
+
+n1, Q1 = util.solve_ik(bot, T1)
+n2, Q2 = util.solve_ik(bot, T2)
+# the solution is always in the range of -pi to pi
+
+print("T1", T1)
+print("Q1", Q1)
+print("T2", T2)
+print("Q2", Q2)
+
+diffQ = Q2 - Q1
+length = np.linalg.norm(diffQ, axis=1)
+print("length", length)
+
+length_torus = np.zeros(n1)
+for i in range(n1):
+    q1 = Q1[i]
+    q2 = Q2[i]
+    dd = configspace_torus_distance(q1, q2)
+    length_torus[i] = dd
+print("length_torus", length_torus)
+
+l = np.zeros((n1, n2))
+for i in range(n1):
+    for j in range(n2):
+        q1 = Q1[i]
+        q2 = Q2[j]
+        diffq = q2 - q1
+        length = np.linalg.norm(diffq)
+        # print(f"i={i} j={j} length={length:.4f}")
+        l[i, j] = length
+print("l\n", l)
+
+lsort = np.sort(l, axis=None)
+print("lsort", lsort)
+
+
+le = np.zeros((n1, n2))
+for i in range(n1):
+    for j in range(n2):
+        q1 = Q1[i]
+        q2 = Q2[j]
+        dd = configspace_torus_distance(q1, q2)
+        le[i, j] = dd
+print("le\n", le)
+
+lesort = np.sort(le, axis=None)
+print("lesort", lesort)
