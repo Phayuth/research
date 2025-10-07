@@ -2,10 +2,7 @@ import numpy as np
 import time
 import util
 from spatialmath.base import qslerp
-from spatialmath import SE3
 from spatial_geometry.utils import Utils
-
-s = SE3()
 
 
 def position_euclidean_distance(p1, p2):
