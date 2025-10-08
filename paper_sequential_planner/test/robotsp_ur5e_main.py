@@ -2,8 +2,8 @@ from termcolor import cprint
 import numpy as np
 import time
 import util
-from rnd_tsp import solve_tsp_mip_mtz
-from rnd_tsp_nn import solve_tsp_nearest_neighbor
+from robotsp_tsp import solve_tsp_mip_mtz
+from robotsp_tsp_nn import solve_tsp_nearest_neighbor
 from robotsp_dijkstra_solver import robotsp_dijkstra_solve
 
 

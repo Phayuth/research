@@ -12,6 +12,7 @@ import time
 try:
     from eaik.IK_DH import DhRobot
     from spatialmath import SE3
+    from roboticstoolbox import DHRobot, RevoluteDH
 except:
     print("missing packages; usage limited")
 
@@ -26,6 +27,33 @@ def ur5e_dh():
     a = np.array([0, -0.425, -0.3922, 0, 0, 0])
     bot = DhRobot(alpha, a, d)
     return bot
+
+
+def ur5e_rtb_dh():
+    L1 = RevoluteDH(d=0.1625, a=0, alpha=np.pi / 2, qlim=[-2 * np.pi, 2 * np.pi])
+    L2 = RevoluteDH(d=0, a=-0.425, alpha=0, qlim=[-2 * np.pi, 2 * np.pi])
+    L3 = RevoluteDH(d=0, a=-0.3922, alpha=0, qlim=[-np.pi, np.pi])
+    L4 = RevoluteDH(d=0.1333, a=0, alpha=np.pi / 2, qlim=[-2 * np.pi, 2 * np.pi])
+    L5 = RevoluteDH(d=0.0997, a=0, alpha=-np.pi / 2, qlim=[-2 * np.pi, 2 * np.pi])
+    L6 = RevoluteDH(d=0.0996, a=0, alpha=0, qlim=[-2 * np.pi, 2 * np.pi])
+    ur5e = DHRobot([L1, L2, L3, L4, L5, L6], name="UR5e")
+    return ur5e
+
+
+def __verify_bot__():
+
+    bot = ur5e_dh()
+    botrtb = ur5e_rtb_dh()
+
+    Q = np.random.uniform(-np.pi, np.pi, (10, 6))
+    for i in range(Q.shape[0]):
+        q = Q[i]
+        H = botrtb.fkine(q)
+        H1 = solve_fk(bot, q)
+        # print(H.A)
+        # print(H1)
+        print("is equal", np.allclose(H.A, H1))
+        print("-----")
 
 
 def solve_fk(bot, angles):
@@ -459,6 +487,52 @@ def nearest_neighbour_transformation(Hlist, hquery):
     dists = np.linalg.norm(xyz - xyzquery, axis=1)
     nearest_idx = np.argmin(dists)
     return nearest_idx, Hlist[nearest_idx]
+
+
+# ========================
+
+
+def times_zero_to_one(numseg):
+    time = np.linspace(0, 1, num=numseg)
+    return time
+
+
+def plot_joint_times(joint_path, times, joint_path_aux=None):
+    numseg, numjoints = joint_path.shape
+    fig, axs = plt.subplots(numjoints, 1, sharex=True)
+    for i in range(numjoints):
+        axs[i].plot(
+            times,
+            joint_path[:, i],
+            color="blue",
+            marker="o",
+            linestyle="dashed",
+            linewidth=2,
+            markersize=6,
+            label=f"Position",
+        )
+    if joint_path_aux is not None:
+        for i in range(numjoints):
+            axs[i].plot(
+                times,
+                joint_path_aux[:, i],
+                color="orange",
+                marker="o",
+                linestyle="dashed",
+                linewidth=2,
+                markersize=6,
+                label=f"Position (Aux)",
+            )
+
+    # visual setup
+    for i in range(numjoints):
+        axs[i].set_ylabel(f"Joint {i+1}")
+        axs[i].set_xlim(times[0], times[-1])
+        axs[i].set_ylim(-np.pi, np.pi)
+        axs[i].legend(loc="upper right")
+        axs[i].grid(True)
+    axs[-1].set_xlabel("Time")
+    plt.show()
 
 
 # ======================== MISC ========================= #

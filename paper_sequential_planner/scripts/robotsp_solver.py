@@ -73,7 +73,7 @@ def cspace_euclidean_distance(q1, q2):
 
 def cspace_weighted_euclidean_distance(q1, q2, weights):
     diffq = q2 - q1
-    length = np.linalg.norm(weights * diffq)
+    length = weights * np.linalg.norm(diffq)
     return length
 
 
@@ -83,13 +83,13 @@ def cspace_max_euclidean_distance(q1, q2):
     return length
 
 
-def __wraptopi(angles):
+def _wraptopi(angles):
     return (angles + np.pi) % (2 * np.pi) - np.pi
 
 
 def cspace_torus_distance(q1, q2):
-    q1 = __wraptopi(q1)
-    q2 = __wraptopi(q2)
+    q1 = _wraptopi(q1)
+    q2 = _wraptopi(q2)
     delta = np.abs(q1 - q2)
     delta = np.where(delta > np.pi, 2 * np.pi - delta, delta)
     return np.linalg.norm(delta)
@@ -175,6 +175,92 @@ def cspace_collisionfree_tour(optimal_configs):
     return collisionfree_tour, costs
 
 
+def tspace_distance_in_cspace_euclidean(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    if n1 == n2:
+        diffQ = Q2 - Q1
+        dists = np.linalg.norm(diffQ, axis=1)
+        return dists
+    else:
+        print("different number of ik solutions")
+        return None
+
+
+def tspace_distance_in_cspace_torus(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    if n1 == n2:
+        dists = np.zeros(n1)
+        for i in range(n1):
+            q1 = Q1[i]
+            q2 = Q2[i]
+            dd = cspace_torus_distance(q1, q2)
+            dists[i] = dd
+        return dists
+    else:
+        print("different number of ik solutions")
+        return None
+
+
+def tspace_distance_in_cspace_euclidean_dense(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    l = np.zeros((n1, n2))
+    for i in range(n1):
+        for j in range(n2):
+            q1 = Q1[i]
+            q2 = Q2[j]
+            diffq = q2 - q1
+            length = np.linalg.norm(diffq)
+            l[i, j] = length
+    return l
+
+
+def tspace_distance_in_cspace_torus_dense(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    l = np.zeros((n1, n2))
+    for i in range(n1):
+        for j in range(n2):
+            q1 = Q1[i]
+            q2 = Q2[j]
+            dd = cspace_torus_distance(q1, q2)
+            l[i, j] = dd
+    return l
+
+
+def testing():
+
+    bot = util.ur5e_dh()
+
+    T = util.generate_random_dh_tasks(bot, 2)
+    T1 = T[0]
+    T2 = T[1]
+
+    n1, Q1 = util.solve_ik(bot, T1)
+    n2, Q2 = util.solve_ik(bot, T2)
+    # the solution is always in the range of -pi to pi
+
+    print("T1", T1)
+    print("Q1", Q1)
+    print("T2", T2)
+    print("Q2", Q2)
+
+    d1 = tspace_distance_in_cspace_euclidean(T1, T2)
+    print("d1", d1)
+    d2 = tspace_distance_in_cspace_euclidean_dense(T1, T2)
+    print("d2", d2)
+    d3 = tspace_distance_in_cspace_torus(T1, T2)
+    print("d3", d3)
+    d4 = tspace_distance_in_cspace_torus_dense(T1, T2)
+    print("d4", d4)
+
+
 class RoboTSPSolver:
 
     def __init__(self, config):
@@ -254,10 +340,12 @@ class RoboTSPSolver:
 
 
 if __name__ == "__main__":
-    rtspsolver = RoboTSPSolver(None)
-    bot = util.ur5e_dh()
-    H = util.generate_random_dh_tasks(bot, 10)
-    qinit = np.zeros((6,))
+    # rtspsolver = RoboTSPSolver(None)
+    # bot = util.ur5e_dh()
+    # H = util.generate_random_dh_tasks(bot, 10)
+    # qinit = np.zeros((6,))
 
-    rtspsolver.solve(H, qinit)
-    rtspsolver.print_log()
+    # rtspsolver.solve(H, qinit)
+    # rtspsolver.print_log()
+
+    testing()
