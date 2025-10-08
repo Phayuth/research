@@ -1,5 +1,67 @@
 import numpy as np
 import pyomo.environ as pyo
+import matplotlib.pyplot as plt
+
+
+def generate_gtsp_coords():
+    coords = {
+        0: (10, 10),
+        1: (12, 14),
+        2: (14, 10),
+        3: (50, 50),
+        4: (52, 54),
+        5: (54, 50),
+        6: (90, 10),
+        7: (92, 14),
+        8: (94, 10),
+    }
+    clusters = {
+        0: [0, 1, 2],
+        1: [3, 4, 5],
+        2: [6, 7, 8],
+    }
+    return coords, clusters
+
+
+def generate_gtsp_random_coords():
+    num_clusters = 10
+    cities_per_cluster = 3
+    clusters = {}
+    coords = {}
+    city_id = 0
+
+    for c in range(num_clusters):
+        base_x = np.random.uniform(0, 100)
+        base_y = np.random.uniform(0, 100)
+        clusters[c] = []
+        for _ in range(cities_per_cluster):
+            x = base_x + np.random.uniform(-5, 5)
+            y = base_y + np.random.uniform(-5, 5)
+            coords[city_id] = (x, y)
+            clusters[c].append(city_id)
+            city_id += 1
+    return coords, clusters
+
+
+def plot_2d_cluster_tour_coord(coords, clusters, tour):
+    """for gtsp"""
+    fig, ax = plt.subplots(figsize=(8, 8))
+    colors = ["r", "g", "b", "c", "m", "y"]
+
+    # Plot all cities by cluster
+    for c, city_ids in clusters.items():
+        for i in city_ids:
+            x, y = coords[i]
+            ax.plot(x, y, "o", color=colors[c % len(colors)])
+            ax.text(x + 0.2, y + 0.2, str(i), fontsize=12)
+
+    for i, j in tour:
+        xi, yi = coords[i]
+        xj, yj = coords[j]
+        ax.plot([xi, xj], [yi, yj], "k-")
+
+    ax.set_title(f"Tour: {tour}")
+    ax.axis("equal")
 
 
 def solve_gtsp_mip_mtz(coords, clusters):
@@ -107,11 +169,6 @@ def solve_gtsp_mip_mtz(coords, clusters):
 
 def example_1():
     import matplotlib.pyplot as plt
-    from util import (
-        plot_2d_cluster_tour_coord,
-        generate_gtsp_coords,
-        generate_gtsp_random_coords,
-    )
 
     # coords, clusters = generate_gtsp_random_coords()
     coords, clusters = generate_gtsp_coords()

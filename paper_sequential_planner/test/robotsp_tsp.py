@@ -80,11 +80,28 @@ def solve_tsp_mip_mtz(coords):
     return tour, best_tour_length
 
 
+def generate_tsp_coords():
+    coords = {
+        0: (0, 0),
+        1: (1, 5),
+        2: (5, 2),
+        3: (6, 6),
+        4: (8, 3),
+    }
+    return coords
+
+
+def generate_tsp_random_coords():
+    coords = {
+        i: (np.random.uniform(-1, 1), np.random.uniform(-1, 1)) for i in range(30)
+    }
+    return coords
+
+
 def example_1():
     import matplotlib.pyplot as plt
-    import util
 
-    coords = util.generate_tsp_coords()
+    coords = generate_tsp_coords()
     tour, length = solve_tsp_mip_mtz(coords)
     util.plot_2d_tour_coord(coords, tour)
     plt.show()

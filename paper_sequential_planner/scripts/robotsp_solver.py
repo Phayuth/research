@@ -1,54 +1,131 @@
 import numpy as np
-import util
 from python_tsp import exact, heuristics
 import fast_tsp
 import networkx as nx
 import time
 import pprint
+import util
 
 
-def tspace_distance_position_euclidean(H):
+def tspace_distance_position_euclidean(H1, H2):
+    d = np.linalg.norm(H2[:3, 3] - H1[:3, 3])
+    return d
+
+
+def tspace_distance_matrix_position_euclidean(H):
     dists = np.zeros((len(H), len(H)))
-    for i in range(10):
-        for j in range(10):
+    for i in range(len(H)):
+        for j in range(len(H)):
             if i != j:
-                d = np.linalg.norm(H[i][:3, 3] - H[j][:3, 3])
+                d = tspace_distance_position_euclidean(H[j], H[i])
                 dists[i, j] = d
     return dists
 
 
 def tspace_distance_position_euclidean_orient_geodesic(
+    H1,
+    H2,
+    weight_pos=1.0,
+    weight_orient=1.0,
+):
+    dp = np.linalg.norm(H2[:3, 3] - H1[:3, 3])
+    R1 = H1[:3, :3]
+    R2 = H2[:3, :3]
+    dR = R1.T @ R2
+    theta = np.arccos((np.trace(dR) - 1) / 2)
+    d = weight_pos * dp + weight_orient * theta
+    return d
+
+
+def tspace_distance_matrix_position_euclidean_orient_geodesic(
     H,
     weight_pos=1.0,
     weight_orient=1.0,
 ):
-    dists = np.zeros(len(H), len(H))
-    for i in range(10):
-        for j in range(10):
+    dists = np.zeros((len(H), len(H)))
+    for i in range(len(H)):
+        for j in range(len(H)):
             if i != j:
-                dp = np.linalg.norm(H[i][:3, 3] - H[j][:3, 3])
-                R1 = H[i][:3, :3]
-                R2 = H[j][:3, :3]
-                dR = R1.T @ R2
-                theta = np.arccos((np.trace(dR) - 1) / 2)
-                d = weight_pos * dp + weight_orient * theta
+                d = tspace_distance_position_euclidean_orient_geodesic(
+                    H[j],
+                    H[i],
+                    weight_pos,
+                    weight_orient,
+                )
                 dists[i, j] = d
     return dists
 
 
-def tspace_tsp_fast_tsp(dists, method):
+def tspace_distance_in_cspace_euclidean(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    if n1 == n2:
+        diffQ = Q2 - Q1
+        dists = np.linalg.norm(diffQ, axis=1)
+        return dists
+    else:
+        print("different number of ik solutions")
+        return None
+
+
+def tspace_distance_in_cspace_torus(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    if n1 == n2:
+        dists = np.zeros(n1)
+        for i in range(n1):
+            q1 = Q1[i]
+            q2 = Q2[i]
+            dd = cspace_torus_distance(q1, q2)
+            dists[i] = dd
+        return dists
+    else:
+        print("different number of ik solutions")
+        return None
+
+
+def tspace_distance_in_cspace_euclidean_dense(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    l = np.zeros((n1, n2))
+    for i in range(n1):
+        for j in range(n2):
+            q1 = Q1[i]
+            q2 = Q2[j]
+            diffq = q2 - q1
+            length = np.linalg.norm(diffq)
+            l[i, j] = length
+    return l
+
+
+def tspace_distance_in_cspace_torus_dense(H1, H2):
+    bot = util.ur5e_dh()
+    n1, Q1 = util.solve_ik(bot, H1)
+    n2, Q2 = util.solve_ik(bot, H2)
+    l = np.zeros((n1, n2))
+    for i in range(n1):
+        for j in range(n2):
+            q1 = Q1[i]
+            q2 = Q2[j]
+            dd = cspace_torus_distance(q1, q2)
+            l[i, j] = dd
+    return l
+
+
+def tspace_tsp_solver(dists, method):
     if method == "local_solver":
         tour = fast_tsp.find_tour(dists)
+        cost = fast_tsp.compute_cost(tour, dists)
     elif method == "greedy_nearest_neighbor":
         tour = fast_tsp.greedy_nearest_neighbor(dists)
+        cost = fast_tsp.compute_cost(tour, dists)
     elif method == "exact_held_karp":
         tour = fast_tsp.solve_tsp_exact(dists)
-    cost = fast_tsp.compute_cost(tour, dists)
-    return tour, cost
-
-
-def tspace_tsp_python_tsp(dists, method):
-    if method == "exact_brute_force":
+        cost = fast_tsp.compute_cost(tour, dists)
+    elif method == "exact_brute_force":
         tour, cost = exact.solve_tsp_brute_force(dists)
     elif method == "exact_dynamic_programming":
         tour, cost = exact.solve_tsp_dynamic_programming(dists)
@@ -175,97 +252,21 @@ def cspace_collisionfree_tour(optimal_configs):
     return collisionfree_tour, costs
 
 
-def tspace_distance_in_cspace_euclidean(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    if n1 == n2:
-        diffQ = Q2 - Q1
-        dists = np.linalg.norm(diffQ, axis=1)
-        return dists
-    else:
-        print("different number of ik solutions")
-        return None
-
-
-def tspace_distance_in_cspace_torus(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    if n1 == n2:
-        dists = np.zeros(n1)
-        for i in range(n1):
-            q1 = Q1[i]
-            q2 = Q2[i]
-            dd = cspace_torus_distance(q1, q2)
-            dists[i] = dd
-        return dists
-    else:
-        print("different number of ik solutions")
-        return None
-
-
-def tspace_distance_in_cspace_euclidean_dense(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    l = np.zeros((n1, n2))
-    for i in range(n1):
-        for j in range(n2):
-            q1 = Q1[i]
-            q2 = Q2[j]
-            diffq = q2 - q1
-            length = np.linalg.norm(diffq)
-            l[i, j] = length
-    return l
-
-
-def tspace_distance_in_cspace_torus_dense(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    l = np.zeros((n1, n2))
-    for i in range(n1):
-        for j in range(n2):
-            q1 = Q1[i]
-            q2 = Q2[j]
-            dd = cspace_torus_distance(q1, q2)
-            l[i, j] = dd
-    return l
-
-
-def testing():
-
-    bot = util.ur5e_dh()
-
-    T = util.generate_random_dh_tasks(bot, 2)
-    T1 = T[0]
-    T2 = T[1]
-
-    n1, Q1 = util.solve_ik(bot, T1)
-    n2, Q2 = util.solve_ik(bot, T2)
-    # the solution is always in the range of -pi to pi
-
-    print("T1", T1)
-    print("Q1", Q1)
-    print("T2", T2)
-    print("Q2", Q2)
-
-    d1 = tspace_distance_in_cspace_euclidean(T1, T2)
-    print("d1", d1)
-    d2 = tspace_distance_in_cspace_euclidean_dense(T1, T2)
-    print("d2", d2)
-    d3 = tspace_distance_in_cspace_torus(T1, T2)
-    print("d3", d3)
-    d4 = tspace_distance_in_cspace_torus_dense(T1, T2)
-    print("d4", d4)
-
-
 class RoboTSPSolver:
 
-    def __init__(self, config):
-        self.log = {}
+    def __init__(
+        self,
+        tspace_dist_matrix_func=tspace_distance_matrix_position_euclidean,
+        cspace_dist_func=cspace_euclidean_distance,
+        tspace_tsp_solver_func=tspace_tsp_solver,
+        tspace_tsp_solver_method="heuristic_local_search",
+    ):
+        self.tspace_dist_matrix_func = tspace_dist_matrix_func
+        self.cspace_dist_func = cspace_dist_func
+        self.tspace_tsp_solver_func = tspace_tsp_solver_func
+        self.tspace_tsp_solver_method = tspace_tsp_solver_method
 
+        self.log = {}
         self.log["tspace_num"] = None
         self.log["tspace_tour"] = None
         self.log["tspace_tour_cost"] = None
@@ -278,34 +279,39 @@ class RoboTSPSolver:
         self.log["cspace_optimal_config_cost"] = None
 
         self.log["cspace_collisionfree_tour_solvetime"] = None
-        self.log["cspace_collisionfree_tour"] = None
         self.log["cspace_collisionfree_tour_costs"] = None
         self.log["cspace_collisionfree_tour_total_cost"] = None
 
         self.log["total_solvetime"] = None
 
     def print_log(self):
-        pp = pprint.PrettyPrinter(indent=4)
+        pp = pprint.PrettyPrinter(indent=4, compact=True)
         pp.pprint(self.log)
 
-    def solve(self, H, qinit):
-        numsolslist, Qlist = util.solve_ik_bulk(bot, H)
+    def solve(self, Htasks, Hinit, qinit, numsolslist, Qlist):
+        """
+        Htasks: list of task transformation
+        Hinit: initial task transformation got from fk(qinit)
+        qinit: initial configuration of robot
+        numsolslist: list of number of ik solutions per task
+        Qlist: list of ik solutions per task
+        """
         self.log["cspace_candidate_num"] = sum(numsolslist)
         self.log["cspace_candidate_per_task"] = numsolslist
 
-        Hinit = util.solve_fk(bot, qinit)
-        Hnearestid, Hnearest = util.nearest_neighbour_transformation(H, Hinit)
+        # Find nearest task to initial pose to start the tour from there
+        Hnearestid, Hnearest = util.nearest_neighbour_transformation(Htasks, Hinit)
 
         # 1. Solve tsp tour order in task space
         st = time.time()
-        dists_matx = tspace_distance_position_euclidean(H)
-        tour, cost = tspace_tsp_python_tsp(
+        dists_matx = self.tspace_dist_matrix_func(Htasks)
+        tour, cost = self.tspace_tsp_solver_func(
             dists_matx,
-            method="exact_dynamic_programming",
+            method=self.tspace_tsp_solver_method,
         )
         tour = util.rotate_tour_simplifiy_format(tour, Hnearestid)
         et = time.time()
-        self.log["tspace_num"] = len(H)
+        self.log["tspace_num"] = len(Htasks)
         self.log["tspace_tour"] = tour
         self.log["tspace_tour_cost"] = cost
         self.log["tspace_tour_solvetime"] = et - st
@@ -325,12 +331,11 @@ class RoboTSPSolver:
 
         # 3. Solve collision-free tour
         st = time.time()
-        collisionfree_tour, costs = cspace_collisionfree_tour(optimal_config)
+        cf_tour, cf_costs = cspace_collisionfree_tour(optimal_config)
         et = time.time()
         self.log["cspace_collisionfree_tour_solvetime"] = et - st
-        self.log["cspace_collisionfree_tour"] = collisionfree_tour
-        self.log["cspace_collisionfree_tour_costs"] = costs
-        self.log["cspace_collisionfree_tour_total_cost"] = sum(costs)
+        self.log["cspace_collisionfree_tour_costs"] = [float(c) for c in cf_costs]
+        self.log["cspace_collisionfree_tour_total_cost"] = sum(cf_costs)
 
         self.log["total_solvetime"] = (
             self.log["tspace_tour_solvetime"]
@@ -338,14 +343,17 @@ class RoboTSPSolver:
             + self.log["cspace_collisionfree_tour_solvetime"]
         )
 
+        return cf_tour, cf_costs
+
 
 if __name__ == "__main__":
-    # rtspsolver = RoboTSPSolver(None)
-    # bot = util.ur5e_dh()
-    # H = util.generate_random_dh_tasks(bot, 10)
-    # qinit = np.zeros((6,))
+    rtspsolver = RoboTSPSolver()
 
-    # rtspsolver.solve(H, qinit)
-    # rtspsolver.print_log()
+    bot = util.ur5e_dh()
+    Htasks = util.generate_random_dh_tasks(bot, 10)
+    qinit = np.zeros((6,))
+    Hinit = util.solve_fk(bot, qinit)
+    numsolslist, Qlist = util.solve_ik_bulk(bot, Htasks)
 
-    testing()
+    rtspsolver.solve(Htasks, Hinit, qinit, numsolslist, Qlist)
+    rtspsolver.print_log()
