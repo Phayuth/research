@@ -33,17 +33,19 @@ class PlotterConfig:
     pathMarkersize = 7
 
 
-def fig_so2s_snggoal():
+def fig_so2s_snggoal_for_torus_texture():
+    """
+    plan to multiple goals and wrap down to pi for torus texture
+    """
     rsrc = os.environ["RSRC_DIR"] + "/rnd_torus/"
-    graph = nx.read_graphml(rsrc + "paper_so2s_planner_data.graphml")
-    path = np.loadtxt(rsrc + "paper_so2s_path.csv", delimiter=",")
-    state = np.loadtxt(rsrc + "paper_so2s_start_goal.csv", delimiter=",")
+    graph = nx.read_graphml(rsrc + "paper_so2s_snggoal_planner_data.graphml")
+    path = np.loadtxt(rsrc + "paper_so2s_snggoal_path.csv", delimiter=",")
+    state = np.loadtxt(rsrc + "paper_so2s_snggoal_start_goal.csv", delimiter=",")
     colp = np.load(rsrc + "collisionpoint_so2s.npy")
+    limt2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
 
     # plotting
     fig, ax = plt.subplots(1, 1)
-
-    limt2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     # tree
     for u, v in graph.edges:
         u = graph.nodes[u]["coords"].rsplit(",")
@@ -130,8 +132,10 @@ def fig_so2s_snggoal():
 
     ax.set_xlim((-np.pi, np.pi))
     ax.set_ylim((-np.pi, np.pi))
+    ax.set_aspect("equal", adjustable="box")
+    # disable axis for texture
+    ax.axis("off")
     plt.show()
 
-
 if __name__ == "__main__":
-    fig_so2s_snggoal()
+    pass

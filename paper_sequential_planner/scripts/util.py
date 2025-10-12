@@ -40,7 +40,7 @@ def ur5e_rtb_dh():
     return ur5e
 
 
-def __verify_bot__():
+def _verify_bot_():
 
     bot = ur5e_dh()
     botrtb = ur5e_rtb_dh()
@@ -103,6 +103,35 @@ def solve_ik_altconfig_bulk(bot, H):
         num_sols.append(num_sol)
         ik_sols.append(ik_solaltconfig)
     return num_sols, ik_sols
+
+
+def find_altconfig(Q):
+    limt6 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    altconfig = []
+    for i in range(Q.shape[0]):
+        alt = Utils.find_alt_config(Q[i].reshape(6, 1), limt6)
+        altconfig.append(alt)
+    altconfig = np.hstack(altconfig).T
+    return altconfig.shape[0], altconfig
+
+
+def find_altconfig_bulk(Qlist):
+    num_sols = []
+    alt_sols = []
+    for Q in Qlist:
+        num_sol, alt_sol = find_altconfig(Q)
+        num_sols.append(num_sol)
+        alt_sols.append(alt_sol)
+    return num_sols, alt_sols
 
 
 def convert_urdf_to_dh_frame(H):

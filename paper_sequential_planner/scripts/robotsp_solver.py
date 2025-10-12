@@ -227,17 +227,50 @@ def _reorder_Q(Qlist, order):
     return Qreorder
 
 
+def collision_check_individual(q):
+    # fake collision check time
+    for _ in range(100000):
+        1 + 1
+    return np.random.choice([True, False], p=[0.1, 0.9])
+
+
+def collision_check_Qlist(Qlist, check_func=collision_check_individual):
+    QlistCollision = []
+    for Q in Qlist:
+        QCollision = []
+        for q in Q:
+            if check_func(q):
+                QCollision.append(True)
+            else:
+                QCollision.append(False)
+        QlistCollision.append(QCollision)
+    return QlistCollision
+
+
+def remove_collision_Qlist(Qlist, QlistCollision):
+    QlistFree = []
+    for i in range(len(Qlist)):
+        Q = Qlist[i]
+        QC = QlistCollision[i]
+        QFree = []
+        for j in range(len(Q)):
+            if not QC[j]:
+                QFree.append(Q[j])
+        QlistFree.append(np.array(QFree))
+    return QlistFree
+
+
 def query_collisionfree_path(qa, qb):
-    # fake bench time
+    # fake collision check time
     for _ in range(1000000):
         1 + 1
-    fake_path = np.linspace(qa, qb, num=10)
+    path = np.linspace(qa, qb, num=10)
 
     # the cost here is real-world robot movement, so we use euclidean
     cost = 0.0
-    for i in range(len(fake_path) - 1):
-        cost += cspace_euclidean_distance(fake_path[i], fake_path[i + 1])
-    return fake_path, cost
+    for i in range(len(path) - 1):
+        cost += cspace_euclidean_distance(path[i], path[i + 1])
+    return path, cost
 
 
 def cspace_collisionfree_tour(optimal_configs):
@@ -260,11 +293,13 @@ class RoboTSPSolver:
         cspace_dist_func=cspace_euclidean_distance,
         tspace_tsp_solver_func=tspace_tsp_solver,
         tspace_tsp_solver_method="heuristic_local_search",
+        cspace_collisionfree_tour_func=cspace_collisionfree_tour,
     ):
         self.tspace_dist_matrix_func = tspace_dist_matrix_func
         self.cspace_dist_func = cspace_dist_func
         self.tspace_tsp_solver_func = tspace_tsp_solver_func
         self.tspace_tsp_solver_method = tspace_tsp_solver_method
+        self.cspace_collisionfree_tour = cspace_collisionfree_tour_func
 
         self.log = {}
         self.log["tspace_num"] = None
@@ -309,7 +344,9 @@ class RoboTSPSolver:
             dists_matx,
             method=self.tspace_tsp_solver_method,
         )
+        print("OG tour:", tour)
         tour = util.rotate_tour_simplifiy_format(tour, Hnearestid)
+        print("Rotated tour:", tour)
         et = time.time()
         self.log["tspace_num"] = len(Htasks)
         self.log["tspace_tour"] = tour
@@ -331,7 +368,7 @@ class RoboTSPSolver:
 
         # 3. Solve collision-free tour
         st = time.time()
-        cf_tour, cf_costs = cspace_collisionfree_tour(optimal_config)
+        cf_tour, cf_costs = self.cspace_collisionfree_tour(optimal_config)
         et = time.time()
         self.log["cspace_collisionfree_tour_solvetime"] = et - st
         self.log["cspace_collisionfree_tour_costs"] = [float(c) for c in cf_costs]
@@ -355,5 +392,15 @@ if __name__ == "__main__":
     Hinit = util.solve_fk(bot, qinit)
     numsolslist, Qlist = util.solve_ik_bulk(bot, Htasks)
 
-    rtspsolver.solve(Htasks, Hinit, qinit, numsolslist, Qlist)
-    rtspsolver.print_log()
+    # rtspsolver.solve(Htasks, Hinit, qinit, numsolslist, Qlist)
+    # rtspsolver.print_log()
+
+    QlistCollision = collision_check_Qlist(Qlist)
+    print(QlistCollision)
+
+    QlistFree = remove_collision_Qlist(Qlist, QlistCollision)
+    print(QlistFree)
+
+    num, QlistFreeAlt = util.find_altconfig_bulk(QlistFree)
+    print(num)
+    print(QlistFreeAlt)

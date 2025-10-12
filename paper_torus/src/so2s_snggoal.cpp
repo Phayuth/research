@@ -88,7 +88,7 @@ int main() {
     start[0] = qstart[0];
     start[1] = qstart[1];
     ob::ScopedState<ob::CompoundStateSpace> goal(space);
-    goal[0] = qgoal[1];
+    goal[0] = qgoal[0];
     goal[1] = qgoal[1];
     ss.setStartAndGoalStates(start, goal);
 
@@ -99,7 +99,7 @@ int main() {
     ss.setPlanner(planner);
     ob::PlannerStatus solved = ss.solve(time_limit);
 
-    if (solved) {
+    if (solved.EXACT_SOLUTION) {
         std::cout << "Found solution! Printing it out...!" << std::endl;
 
         if (simplify_solution) {

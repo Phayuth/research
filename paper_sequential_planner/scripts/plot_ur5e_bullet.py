@@ -49,6 +49,7 @@ class UR5eBullet:
 
         # load model and properties
         self.load_model()
+        self.models_collision = [self.planeID]
         self.models_others = []
         self.ghost_model = []
         self.numJoints = self.get_num_joints()
@@ -76,7 +77,7 @@ class UR5eBullet:
 
     def load_model(self):
         # self.draw_frame([0, 0, 0], [0, 0, 0, 1], length=1, width=3)
-        self.planeID = p.loadURDF(Constants.plane_urdf, [0, 0, 0])
+        self.planeID = p.loadURDF(Constants.plane_urdf, [0, 0, -0.02])
         self.ur5eID = p.loadURDF(
             Constants.ur5e_urdf,
             [0, 0, 0],
@@ -89,6 +90,7 @@ class UR5eBullet:
         for murdf, mp, mo in model_list:
             mid = p.loadURDF(murdf, mp, mo, useFixedBase=True)
             self.models_others.append(mid)
+        self.models_collision.extend(self.models_others)
         return self.models_others
 
     def load_models_ghost(self, color=None):
@@ -471,6 +473,23 @@ class UR5eBullet:
         else:
             return False
 
+    def collision_check_all(self):
+        self.collisioncheck()
+        for mid in self.models_collision:
+            cp = self.contact_point(mid)
+            if len(cp) > 0:
+                return True
+        return False
+
+    def collision_check_at_config(self, q):
+        self.reset_array_joint_state(q)
+        self.collisioncheck()
+        for mid in self.models_collision:
+            cp = self.contact_point(mid)
+            if len(cp) > 0:
+                return True
+        return False
+
     def reset_array_joint_state(self, targetValues):
         for i in range(6):
             p.resetJointState(
@@ -535,7 +554,11 @@ def collision_check():
             keys = p.getKeyboardEvents()
             if qKey in keys and keys[qKey] & p.KEY_WAS_TRIGGERED:
                 break
-            iscollide = robot.collsion_check(model_id[0])
+            # iscollide = robot.collsion_check(model_id[0])
+            iscollide = robot.collision_check_all()
+            # iscollide = robot.collision_check_at_config(
+            #     [0.0, np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
+            # )
             print(f"Collision: {iscollide}")
             p.stepSimulation()
 
@@ -714,4 +737,4 @@ if __name__ == "__main__":
         visualize_analytical_ik_pose,
     ]
 
-    option_runner(func, default_id="7")
+    option_runner(func, default_id="3")

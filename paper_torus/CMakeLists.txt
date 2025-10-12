@@ -23,9 +23,9 @@ target_link_libraries(r2s_altgoal PUBLIC ompl robot spatial_geometry yaml-cpp)
 add_executable(r2s_cartgoal src/r2s_cartgoal.cpp)
 target_link_libraries(r2s_cartgoal PUBLIC ompl robot spatial_geometry yaml-cpp)
 
-find_package(Boost REQUIRED COMPONENTS serialization)
-add_executable(r2s_prm src/r2s_prm.cpp)
-target_link_libraries(r2s_prm PUBLIC ompl robot spatial_geometry yaml-cpp Boost::serialization)
+# find_package(Boost REQUIRED COMPONENTS serialization)
+# add_executable(r2s_prm src/r2s_prm.cpp)
+# target_link_libraries(r2s_prm PUBLIC ompl robot spatial_geometry yaml-cpp Boost::serialization)
 
 add_executable(r2s_snggoal src/r2s_snggoal.cpp)
 target_link_libraries(r2s_snggoal PUBLIC ompl robot spatial_geometry yaml-cpp)
@@ -50,5 +50,5 @@ add_executable(so2s_snggoal src/so2s_snggoal.cpp)
 target_link_libraries(so2s_snggoal PUBLIC ompl robot spatial_geometry yaml-cpp)
 
 # bindings
-find_package(pybind11 REQUIRED)
-pybind11_add_module(my_module test/bindpy.cpp)
+# find_package(pybind11 REQUIRED)
+# pybind11_add_module(my_module test/bindpy.cpp)
