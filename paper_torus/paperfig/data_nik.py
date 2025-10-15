@@ -37,16 +37,32 @@ def distance_on_torus(qa, qb):
     return np.abs(deltat)
 
 
+# distance of original value in euclidean
+deul = distance_on_euclidean(qs, qenik)
+# distance of original value on torus
+dtorus = distance_on_torus(qs, qenik)
+
+
+# distance of alternative values on torus and euclidean
 difftorus = np.zeros_like(qalt)
 diffeul = np.zeros_like(qalt)
 for i in range(qalt.shape[0]):
     difftorus[i, :] = distance_on_torus(qs, qalt[i, :])
     diffeul[i, :] = distance_on_euclidean(qs, qalt[i, :])
 
-deul = distance_on_euclidean(qs, qenik)
-dtorus = distance_on_torus(qs, qenik)
-
 print("deul", deul)
 print("dtorus", dtorus)
 print("diffeul", diffeul)
 print("difftorus", difftorus)
+
+totdeul = np.sum(deul)
+totdtorus = np.sum(dtorus)
+totdiffeul = np.sum(diffeul, axis=1)
+totdifftorus = np.sum(difftorus, axis=1)
+
+print("totdeul", totdeul)
+print("totdtorus", totdtorus)
+print("totdiffeul", totdiffeul)
+print("totdifftorus", totdifftorus)
+
+# on torus, the minimum distance will always be the same as original

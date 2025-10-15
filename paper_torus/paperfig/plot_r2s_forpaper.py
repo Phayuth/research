@@ -18,11 +18,11 @@ class PlotterConfig:
     treeMarker = None
     treeMarkersize = None
 
-    stateStartColor = "blue"
+    stateStartColor = "black"
     stateStartFaceColor = "yellow"
-    stateAppColor = "blue"
+    stateAppColor = "black"
     stateAppFaceColor = "green"
-    stateGoalColor = "blue"
+    stateGoalColor = "black"
     stateGoalFaceColor = "red"
     stateMarkersize = 7
     stateMarker = "o"
@@ -31,6 +31,76 @@ class PlotterConfig:
     pathFaceColor = "plum"
     pathMarker = "o"
     pathMarkersize = 7
+
+
+def fig_r2s_workspace_view():
+    def fk_link(q):
+        l1 = 2.0
+        l2 = 2.0
+        x0 = 0
+        y0 = 0
+        x1 = l1 * np.cos(q[0])
+        y1 = l1 * np.sin(q[0])
+        x2 = x1 + l2 * np.cos(q[0] + q[1])
+        y2 = y1 + l2 * np.sin(q[0] + q[1])
+        return np.array([[x0, y0], [x1, y1], [x2, y2]])
+
+    rectangle = {
+        # x, y, h, w
+        "r0": [-0.7, 1.3, 2.0, 2.2],
+        "r1": [2.0, -2.0, 1.0, 4.0],
+        "r2": [-3.0, -3.0, 1.25, 2.0],
+    }
+
+    links_s = fk_link([-0.3, -np.pi / 2])
+    links_g = fk_link([np.pi / 2, np.pi / 2])
+
+    rsrc = os.environ["RSRC_DIR"] + "/rnd_torus/"
+    path = np.loadtxt(rsrc + "paper_r2s_snggoal_path.csv", delimiter=",")
+
+    fig, ax = plt.subplots(1, 1, figsize=(1.7431, 1.7431))
+    ax.axhline(y=0, color="black", linestyle="--", alpha=1, linewidth=1)
+    ax.axvline(x=0, color="black", linestyle="--", alpha=1, linewidth=1)
+    # obstacles
+    for key in rectangle.keys():
+        r = plt.Rectangle(
+            (rectangle[key][0], rectangle[key][1]),
+            rectangle[key][3],
+            rectangle[key][2],
+            color=PlotterConfig.obstColor,
+        )
+        ax.add_patch(r)
+
+    # links_s
+    ax.plot(
+        links_s[:, 0],
+        links_s[:, 1],
+        color="black",
+        linewidth=3,
+        marker="o",
+        markerfacecolor="yellow",
+        markersize=5,
+    )
+    # links_g
+    ax.plot(
+        links_g[:, 0],
+        links_g[:, 1],
+        color="black",
+        linewidth=3,
+        marker="o",
+        markerfacecolor="red",
+        markersize=5,
+    )
+
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlim((-3, 3))
+    ax.set_ylim((-3, 3))
+    ax.set_xticks([-3, -2, -1, 0, 1, 2, 3])
+    ax.set_yticks([-3, -2, -1, 0, 1, 2, 3])
+    ax.set_xticklabels(["-3", "-2", "-1", "0", "1", "2", "3"])
+    ax.set_yticklabels(["-3", "-2", "-1", "0", "1", "2", "3"])
+    fig.tight_layout(pad=0)
+    plt.show()
 
 
 def fig_r2s_snggoal_altgoals():
@@ -49,20 +119,36 @@ def fig_r2s_snggoal_altgoals():
     path2hack[3, :] = path2[1, :]
     path2hack[4, :] = path2[2, :]
 
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(1, 1, figsize=(2.4403, 2.4403))
     # tree
-    for u, v in graph.edges:
-        u = graph.nodes[u]["coords"].rsplit(",")
-        v = graph.nodes[v]["coords"].rsplit(",")
-        ax.plot(
-            [float(u[0]), float(v[0])],
-            [float(u[1]), float(v[1])],
-            color=PlotterConfig.treeColor,
-            linewidth=PlotterConfig.globalLinewidth,
-            marker=PlotterConfig.treeMarker,
-            markerfacecolor=PlotterConfig.treeFaceColor,
-            markersize=PlotterConfig.treeMarkersize,
-        )
+    # for u, v in graph.edges:
+    #     u = graph.nodes[u]["coords"].rsplit(",")
+    #     v = graph.nodes[v]["coords"].rsplit(",")
+    #     ax.plot(
+    #         [float(u[0]), float(v[0])],
+    #         [float(u[1]), float(v[1])],
+    #         color=PlotterConfig.treeColor,
+    #         linewidth=PlotterConfig.globalLinewidth,
+    #         marker=PlotterConfig.treeMarker,
+    #         markerfacecolor=PlotterConfig.treeFaceColor,
+    #         markersize=PlotterConfig.treeMarkersize,
+    #         alpha=0.4,
+    #     )
+
+    # fake tree
+    r = plt.Rectangle((-5, -7), 6, 14, color=PlotterConfig.treeColor, alpha=0.4)
+    ax.add_patch(r)
+
+    # collision
+    ax.plot(
+        colp[:, 0],
+        colp[:, 1],
+        color="darkcyan",
+        linewidth=0,
+        marker="o",
+        markerfacecolor="darkcyan",
+        markersize=1.5,
+    )
 
     # path
     ax.plot(
@@ -70,18 +156,12 @@ def fig_r2s_snggoal_altgoals():
         path[:, 1],
         color=PlotterConfig.pathColor,
         linewidth=PlotterConfig.globalLinewidth,
-        marker=PlotterConfig.pathMarker,
-        markerfacecolor=PlotterConfig.pathFaceColor,
-        markersize=PlotterConfig.pathMarkersize,
     )
     ax.plot(
         path2hack[:, 0],
         path2hack[:, 1],
         color=PlotterConfig.pathColor,
         linewidth=PlotterConfig.globalLinewidth,
-        marker=PlotterConfig.pathMarker,
-        markerfacecolor=PlotterConfig.pathFaceColor,
-        markersize=PlotterConfig.pathMarkersize,
     )
 
     # state start
@@ -105,25 +185,21 @@ def fig_r2s_snggoal_altgoals():
         markersize=PlotterConfig.stateMarkersize,
     )
 
-    ax.plot(
-        colp[:, 0],
-        colp[:, 1],
-        color="darkcyan",
-        linewidth=0,
-        marker="o",
-        markerfacecolor="darkcyan",
-        markersize=1.5,
-    )
+    ax.set_xticks([-2 * np.pi, -np.pi, 0, np.pi, 2 * np.pi])
+    ax.set_xticklabels(["$-2\\pi$", "$-\\pi$", "$\\theta_1$", "$\\pi$", "$2\\pi$"])
+    ax.set_yticks([-2 * np.pi, -np.pi, 0, np.pi, 2 * np.pi])
+    ax.set_yticklabels(["$-2\\pi$", "$-\\pi$", "$\\theta_2$", "$\\pi$", "$2\\pi$"])
 
     ax.set_xlim((-2 * np.pi, 2 * np.pi))
     ax.set_ylim((-2 * np.pi, 2 * np.pi))
-    ax.axhline(y=0, color="green", alpha=0.4, linestyle=":", linewidth=5)
-    ax.axvline(x=0, color="green", alpha=0.4, linestyle=":", linewidth=5)
-    ax.axhline(y=2 * np.pi, color="red", alpha=0.4, linestyle="--", linewidth=5)
-    ax.axhline(y=-2 * np.pi, color="red", alpha=0.4, linestyle="--", linewidth=5)
-    ax.axvline(x=2 * np.pi, color="red", alpha=0.4, linestyle="--", linewidth=5)
-    ax.axvline(x=-2 * np.pi, color="red", alpha=0.4, linestyle="--", linewidth=5)
+    ax.axhline(y=0, color="green", linestyle=":", linewidth=3)
+    ax.axvline(x=0, color="green", linestyle=":", linewidth=3)
+    ax.axhline(y=2 * np.pi, color="red", linestyle="-", linewidth=3)
+    ax.axhline(y=-2 * np.pi, color="red", linestyle="-", linewidth=3)
+    ax.axvline(x=2 * np.pi, color="red", linestyle="-", linewidth=3)
+    ax.axvline(x=-2 * np.pi, color="red", linestyle="-", linewidth=3)
     ax.set_aspect("equal", adjustable="box")
+    fig.tight_layout(pad=0)
     plt.show()
 
 
@@ -171,6 +247,7 @@ def fig_so2s_snggoal_for_torus_texture():
             marker=PlotterConfig.treeMarker,
             markerfacecolor=PlotterConfig.treeFaceColor,
             markersize=PlotterConfig.treeMarkersize,
+            alpha=0.4,
         )
         ax.plot(
             [v[0], qvuw[0]],
@@ -180,7 +257,19 @@ def fig_so2s_snggoal_for_torus_texture():
             marker=PlotterConfig.treeMarker,
             markerfacecolor=PlotterConfig.treeFaceColor,
             markersize=PlotterConfig.treeMarkersize,
+            alpha=0.4,
         )
+
+    # collision
+    ax.plot(
+        colp[:, 0],
+        colp[:, 1],
+        color="darkcyan",
+        linewidth=0,
+        marker="o",
+        markerfacecolor="darkcyan",
+        markersize=1.5,
+    )
 
     # path
     for i in range(path.shape[0] - 1):
@@ -193,18 +282,12 @@ def fig_so2s_snggoal_for_torus_texture():
             [u[1], quvw[1]],
             color=PlotterConfig.pathColor,
             linewidth=PlotterConfig.globalLinewidth,
-            marker=PlotterConfig.pathMarker,
-            markerfacecolor=PlotterConfig.pathFaceColor,
-            markersize=PlotterConfig.pathMarkersize,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
             color=PlotterConfig.pathColor,
             linewidth=PlotterConfig.globalLinewidth,
-            marker=PlotterConfig.pathMarker,
-            markerfacecolor=PlotterConfig.pathFaceColor,
-            markersize=PlotterConfig.pathMarkersize,
         )
     # path2
     for i in range(path2.shape[0] - 1):
@@ -217,18 +300,12 @@ def fig_so2s_snggoal_for_torus_texture():
             [u[1], quvw[1]],
             color="red",
             linewidth=PlotterConfig.globalLinewidth,
-            marker=PlotterConfig.pathMarker,
-            markerfacecolor=PlotterConfig.pathFaceColor,
-            markersize=PlotterConfig.pathMarkersize,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
             color="red",
             linewidth=PlotterConfig.globalLinewidth,
-            marker=PlotterConfig.pathMarker,
-            markerfacecolor=PlotterConfig.pathFaceColor,
-            markersize=PlotterConfig.pathMarkersize,
         )
 
     # state start
@@ -253,28 +330,24 @@ def fig_so2s_snggoal_for_torus_texture():
         markersize=PlotterConfig.stateMarkersize,
     )
 
-    ax.plot(
-        colp[:, 0],
-        colp[:, 1],
-        color="darkcyan",
-        linewidth=0,
-        marker="o",
-        markerfacecolor="darkcyan",
-        markersize=1.5,
-    )
-
     ax.set_xlim((-np.pi, np.pi))
     ax.set_ylim((-np.pi, np.pi))
     ax.set_aspect("equal", adjustable="box")
     # disable axis for texture
     ax.axis("off")
-    ax.axhline(y=0, color="red", linestyle="--", linewidth=5)
-    ax.axvline(x=0, color="red", linestyle="--", linewidth=5)
+    ax.axhline(y=0, color="red", linestyle="-", linewidth=3)
+    ax.axvline(x=0, color="red", linestyle="-", linewidth=3)
     ax.axhline(y=0, color="green", linestyle=":", linewidth=3)
     ax.axvline(x=0, color="green", linestyle=":", linewidth=3)
     plt.show()
 
 
+def fig_generate_labels():
+    pass
+
+
 if __name__ == "__main__":
-    fig_r2s_snggoal_altgoals()
-    fig_so2s_snggoal_for_torus_texture()
+    fig_r2s_workspace_view()
+    # fig_r2s_snggoal_altgoals()
+    # fig_so2s_snggoal_for_torus_texture()
+    # fig_generate_labels()
