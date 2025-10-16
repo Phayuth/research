@@ -20,7 +20,7 @@ class Constants:
     )
 
     model_list = [
-        (table_urdf, [0, 0, 0], [0, 0, 0, 1]),
+        # (table_urdf, [0, 0, 0], [0, 0, 0, 1]),
         (pole_urdf, [0.3, 0.3, 0], [0, 0, 0, 1]),
         (pole_urdf, [-0.3, 0.3, 0], [0, 0, 0, 1]),
         (pole_urdf, [-0.3, -0.3, 0], [0, 0, 0, 1]),
@@ -31,6 +31,10 @@ class Constants:
         (shelf_urdf, [0, 0.75, 0], [0, 0, 1, 0]),
         (shelf_urdf, [0, -0.75, 0], [0, 0, 0, 1]),
         (shelf_urdf, [-0.75, 0, 0], [0, 0, -0.5, 0.5]),
+    ]
+
+    model_box_strong_obstacle = [
+        (pole_urdf, [0.3, 0, 0], [0, 0, 0, 1]),
     ]
 
 
@@ -156,12 +160,12 @@ class UR5eBullet:
         self.blueSlider = p.addUserDebugParameter("blue", 0, 1, 0)
         self.alphaSlider = p.addUserDebugParameter("alpha", 0, 1, 0.5)
 
-        self.j1s = p.addUserDebugParameter("joint_1", -np.pi, np.pi, 0)
-        self.j2s = p.addUserDebugParameter("joint_2", -np.pi, np.pi, 0)
-        self.j3s = p.addUserDebugParameter("joint_3", -np.pi, np.pi, 0)
-        self.j4s = p.addUserDebugParameter("joint_4", -np.pi, np.pi, 0)
-        self.j5s = p.addUserDebugParameter("joint_5", -np.pi, np.pi, 0)
-        self.j6s = p.addUserDebugParameter("joint_6", -np.pi, np.pi, 0)
+        self.j1s = p.addUserDebugParameter("joint_1", -2 * np.pi, 2 * np.pi, 0)
+        self.j2s = p.addUserDebugParameter("joint_2", -2 * np.pi, 2 * np.pi, 0)
+        self.j3s = p.addUserDebugParameter("joint_3", -2 * np.pi, 2 * np.pi, 0)
+        self.j4s = p.addUserDebugParameter("joint_4", -2 * np.pi, 2 * np.pi, 0)
+        self.j5s = p.addUserDebugParameter("joint_5", -2 * np.pi, 2 * np.pi, 0)
+        self.j6s = p.addUserDebugParameter("joint_6", -2 * np.pi, 2 * np.pi, 0)
 
     def read_slider(self):
         red = p.readUserDebugParameter(self.redSlider)
@@ -433,7 +437,7 @@ class UR5eBullet:
         )
         return link_trn, link_rot
 
-    def inverse_kin(self, positions, quaternions):
+    def inverse_kin(self, positions, quaternions, q0):
         joint_angles = p.calculateInverseKinematics(
             self.ur5eID,
             self.gripperlinkid,
@@ -443,7 +447,7 @@ class UR5eBullet:
             upperLimits=self.upper_limits,
             jointRanges=self.joint_ranges,
             jointDamping=self.joint_damp,
-            restPoses=self.rest_poses,
+            currentPositions=q0,
         )
         return joint_angles
 
@@ -509,11 +513,43 @@ class UR5eBullet:
 
 def collision_check():
     robot = UR5eBullet("gui")
-    # model_id = robot.load_models_other(Constants.model_list)
-    model_id = robot.load_models_other(Constants.model_list_shelf)
+    model_id = robot.load_models_other(Constants.model_list)
+    # model_id = robot.load_models_other(Constants.model_list_shelf)
+    # model_id = robot.load_models_other(Constants.model_box_strong_obstacle)
+    # robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
+    # robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
+    robot.load_slider()
 
+    qs = (
+        0.39683294296264565,
+        -0.9920818805694598,
+        1.5873310565948522,
+        -0.8928737640380842,
+        1.8518865108490026,
+        -3.141592741012566,
+    )
+    # qg = robot.inverse_kin(
+    #     positions=[0.3, -0.3, 0.5],
+    #     quaternions=p.getQuaternionFromEuler([0, np.pi, 0]),
+    #     q0=qs,
+    # )
+    qg = (
+        -3.6376335620880056,
+        -1.7857475280761683,
+        -1.7196087837219274,
+        -2.1825799942016664,
+        -1.9180250167846644,
+        -0.2645549774169931,
+    )
+
+    print(f"qs: {qs}")
+    print(f"qg: {qg}")
+
+    # robot.reset_array_joint_state(qs)
+    # robot.reset_array_joint_state_ghost(qs, robot.ghost_model[0])
+    # robot.reset_array_joint_state_ghost(qg, robot.ghost_model[1])
     robot.set_visualizer_camera(*Constants.camera_exp3)
-    robot.draw_frame([1, 1, 1], [0, 0, 0, 1])
+    # robot.draw_frame([1, 1, 1], [0, 0, 0, 1])
 
     try:
         while True:
@@ -521,12 +557,16 @@ def collision_check():
             keys = p.getKeyboardEvents()
             if qKey in keys and keys[qKey] & p.KEY_WAS_TRIGGERED:
                 break
+            q = robot.read_joint_slider()
+            robot.control_array_motors(q)
             # iscollide = robot.collsion_check(model_id[0])
-            iscollide = robot.collision_check_all()
+            # iscollide = robot.collision_check_all()
             # iscollide = robot.collision_check_at_config(
             #     [0.0, np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
             # )
-            print(f"Collision: {iscollide}")
+            # print(f"Collision: {iscollide}")
+            q = robot.get_array_joint_positions()
+            print(f"Current joint: {q}")
             p.stepSimulation()
 
     except KeyboardInterrupt:
@@ -537,38 +577,48 @@ def joint_trajectory_visualize_ghost():
     robot = UR5eBullet("gui")
     robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
     robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
+    robot.load_models_other(Constants.model_box_strong_obstacle)
 
     # camera for exp3
     robot.set_visualizer_camera(*Constants.camera_exp3)
 
     # path exp 2
-    qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
-    qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    qg2_long = [-1.12 + 2 * np.pi, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    n_steps = 1000
-    path_short = np.linspace(qs, qg1_short, n_steps)
-    path_long = np.linspace(qs, qg2_long, n_steps)
+    # qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
+    # qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
+    # n_steps = 1000
+    # path_short = np.linspace(qs, qg1_short, n_steps)
+    # path = path_short
 
-    # initialize ghost model joint state
-    path = path_short
-    robot.reset_array_joint_state(path[0])
-    robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
-    robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
+    import pandas as pd
 
-    try:
-        j = 0
-        while True:
-            nkey = ord("n")
-            keys = p.getKeyboardEvents()
-            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
-                q = path[j % n_steps]
-                robot.reset_array_joint_state(q)
-                j += 1
-                p.stepSimulation()
+    # df_path = pd.read_csv("data_so2_path.csv")
+    for i in range(32):
+        df_path = pd.read_csv(
+            "./paths/data_euclidean_path_goal_" + str(i) + ".csv"
+        )
+        path = df_path.to_numpy()
+        n_steps = path.shape[0]
 
-    except KeyboardInterrupt:
-        p.disconnect()
+        # initialize ghost model joint state
+        robot.reset_array_joint_state(path[0])
+        robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
+        robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
+
+        try:
+            j = 0
+            while True:
+                nkey = ord("n")
+                keys = p.getKeyboardEvents()
+                if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
+                    q = path[j % n_steps]
+                    robot.reset_array_joint_state(q)
+                    j += 1
+                    p.stepSimulation()
+
+        except KeyboardInterrupt:
+            p.disconnect()
 
 
 if __name__ == "__main__":
-    pass
+    collision_check()
+    # joint_trajectory_visualize_ghost()

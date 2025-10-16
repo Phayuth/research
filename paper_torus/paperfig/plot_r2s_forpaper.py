@@ -4,6 +4,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from spatial_geometry.utils import Utils
 
+plt.rcParams["svg.fonttype"] = "none"  # Render text as text, not paths
+
 
 class PlotterConfig:
     globalLinewidth = 1
@@ -52,13 +54,13 @@ def fig_r2s_workspace_view():
         "r2": [-3.0, -3.0, 1.25, 2.0],
     }
 
-    links_s = fk_link([-0.3, -np.pi / 2])
-    links_g = fk_link([np.pi / 2, np.pi / 2])
+    links_s = fk_link([-1.20, 0.0])
+    links_g = fk_link([2.16, -0.5])
 
     rsrc = os.environ["RSRC_DIR"] + "/rnd_torus/"
     path = np.loadtxt(rsrc + "paper_r2s_snggoal_path.csv", delimiter=",")
 
-    fig, ax = plt.subplots(1, 1, figsize=(1.7431, 1.7431))
+    fig, ax = plt.subplots(1, 1, figsize=(2.30, 0.8 * 2.30))
     ax.axhline(y=0, color="black", linestyle="--", alpha=1, linewidth=1)
     ax.axvline(x=0, color="black", linestyle="--", alpha=1, linewidth=1)
     # obstacles
@@ -92,14 +94,18 @@ def fig_r2s_workspace_view():
         markersize=5,
     )
 
-    ax.set_aspect("equal", adjustable="box")
+    # ax.set_aspect("equal", adjustable="box")
     ax.set_xlim((-3, 3))
-    ax.set_ylim((-3, 3))
+    ax.set_ylim((-4, 4))
     ax.set_xticks([-3, -2, -1, 0, 1, 2, 3])
-    ax.set_yticks([-3, -2, -1, 0, 1, 2, 3])
-    ax.set_xticklabels(["-3", "-2", "-1", "0", "1", "2", "3"])
-    ax.set_yticklabels(["-3", "-2", "-1", "0", "1", "2", "3"])
+    ax.set_yticks([-4, -3, -2, -1, 0, 1, 2, 3, 4])
+    ax.set_xticklabels(["-3", "-2", "-1", "$x$", "1", "2", "3"])
+    ax.set_yticklabels(["-4", "-3", "-2", "-1", "$y$", "1", "2", "3", "4"])
     fig.tight_layout(pad=0)
+
+    plt.savefig(
+        "/home/r2s_workspace_view.svg", format="svg", bbox_inches="tight"
+    )
     plt.show()
 
 
@@ -148,6 +154,7 @@ def fig_r2s_snggoal_altgoals():
         marker="o",
         markerfacecolor="darkcyan",
         markersize=1.5,
+        rasterized=True,  # Render as image for dense data
     )
 
     # path
@@ -155,13 +162,13 @@ def fig_r2s_snggoal_altgoals():
         path[:, 0],
         path[:, 1],
         color=PlotterConfig.pathColor,
-        linewidth=PlotterConfig.globalLinewidth,
+        linewidth=PlotterConfig.globalLinewidth + 2,
     )
     ax.plot(
         path2hack[:, 0],
         path2hack[:, 1],
-        color=PlotterConfig.pathColor,
-        linewidth=PlotterConfig.globalLinewidth,
+        color="indigo",
+        linewidth=PlotterConfig.globalLinewidth + 2,
     )
 
     # state start
@@ -200,6 +207,9 @@ def fig_r2s_snggoal_altgoals():
     ax.axvline(x=-2 * np.pi, color="red", linestyle="-", linewidth=3)
     ax.set_aspect("equal", adjustable="box")
     fig.tight_layout(pad=0)
+
+    # Save as SVG with text rendering enabled
+    plt.savefig("/home/r2s_snggoal_altgoals.svg", format="svg", bbox_inches="tight")
     plt.show()
 
 
@@ -248,6 +258,7 @@ def fig_so2s_snggoal_for_torus_texture():
             markerfacecolor=PlotterConfig.treeFaceColor,
             markersize=PlotterConfig.treeMarkersize,
             alpha=0.4,
+            rasterized=True,  # Render tree edges as image for performance
         )
         ax.plot(
             [v[0], qvuw[0]],
@@ -258,6 +269,7 @@ def fig_so2s_snggoal_for_torus_texture():
             markerfacecolor=PlotterConfig.treeFaceColor,
             markersize=PlotterConfig.treeMarkersize,
             alpha=0.4,
+            rasterized=True,  # Render tree edges as image for performance
         )
 
     # collision
@@ -269,6 +281,7 @@ def fig_so2s_snggoal_for_torus_texture():
         marker="o",
         markerfacecolor="darkcyan",
         markersize=1.5,
+        rasterized=True,  # Render as image for dense data
     )
 
     # path
@@ -281,13 +294,13 @@ def fig_so2s_snggoal_for_torus_texture():
             [u[0], quvw[0]],
             [u[1], quvw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
     # path2
     for i in range(path2.shape[0] - 1):
@@ -298,14 +311,14 @@ def fig_so2s_snggoal_for_torus_texture():
         ax.plot(
             [u[0], quvw[0]],
             [u[1], quvw[1]],
-            color="red",
-            linewidth=PlotterConfig.globalLinewidth,
+            color="indigo",
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
-            color="red",
-            linewidth=PlotterConfig.globalLinewidth,
+            color="indigo",
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
 
     # state start
@@ -339,6 +352,7 @@ def fig_so2s_snggoal_for_torus_texture():
     ax.axvline(x=0, color="red", linestyle="-", linewidth=3)
     ax.axhline(y=0, color="green", linestyle=":", linewidth=3)
     ax.axvline(x=0, color="green", linestyle=":", linewidth=3)
+
     plt.show()
 
 
@@ -347,7 +361,7 @@ def fig_generate_labels():
 
 
 if __name__ == "__main__":
-    fig_r2s_workspace_view()
-    # fig_r2s_snggoal_altgoals()
+    # fig_r2s_workspace_view()
+    fig_r2s_snggoal_altgoals()
     # fig_so2s_snggoal_for_torus_texture()
     # fig_generate_labels()

@@ -1,6 +1,6 @@
 import numpy as np
 from spatial_geometry.utils import Utils
-
+import pandas as pd
 
 limt6 = np.array(
     [
@@ -12,8 +12,26 @@ limt6 = np.array(
         [-2 * np.pi, 2 * np.pi],
     ]
 )
-qs = np.array([0.0, -2, 2, 2, -2, 1.2])
-qenik = np.array([-1, -1, 3, 2, 2, 2])
+qs = np.array(
+    [
+        0.39683294296264565,
+        -0.9920818805694598,
+        1.5873310565948522,
+        -0.8928737640380842,
+        1.8518865108490026,
+        -3.141592741012566,
+    ]
+)
+qenik = np.array(
+    [
+        -3.6376335620880056,
+        -1.7857475280761683,
+        -1.7196087837219274,
+        -2.1825799942016664,
+        -1.9180250167846644,
+        -0.2645549774169931,
+    ]
+)
 qalt = Utils.find_alt_config(qenik.reshape(-1, 1), limt6, filterOriginalq=False).T
 
 
@@ -55,10 +73,10 @@ print("dtorus", dtorus)
 print("diffeul", diffeul)
 print("difftorus", difftorus)
 
-totdeul = np.sum(deul)
-totdtorus = np.sum(dtorus)
-totdiffeul = np.sum(diffeul, axis=1)
-totdifftorus = np.sum(difftorus, axis=1)
+totdeul = np.linalg.norm(deul)
+totdtorus = np.linalg.norm(dtorus)
+totdiffeul = np.linalg.norm(diffeul, axis=1)
+totdifftorus = np.linalg.norm(difftorus, axis=1)
 
 print("totdeul", totdeul)
 print("totdtorus", totdtorus)
@@ -66,3 +84,12 @@ print("totdiffeul", totdiffeul)
 print("totdifftorus", totdifftorus)
 
 # on torus, the minimum distance will always be the same as original
+
+
+# wirte Qalt to csv
+df = pd.DataFrame(qalt)
+df.to_csv("data_nik_qalt.csv", index=False)
+
+# write totdiffeul and totdifftorus to csv
+df_dist = pd.DataFrame({"totdiffeul": totdiffeul, "totdifftorus": totdifftorus})
+df_dist.to_csv("data_nik_dist.csv", index=False)

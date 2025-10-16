@@ -4,6 +4,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from spatial_geometry.utils import Utils
 
+plt.rcParams["svg.fonttype"] = "none"  # Render text as text, not paths
+
 
 class PlotterConfig:
     globalLinewidth = 1
@@ -80,6 +82,7 @@ def fig_so2s_snggoal():
         marker="o",
         markerfacecolor="darkcyan",
         markersize=1,
+        rasterized=True,  # Render as image for dense data
     )
 
     # path
@@ -92,13 +95,13 @@ def fig_so2s_snggoal():
             [u[0], quvw[0]],
             [u[1], quvw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
     # state start
     ax.plot(
@@ -131,6 +134,9 @@ def fig_so2s_snggoal():
     ax.set_ylim((-np.pi, np.pi))
     ax.set_aspect("equal", adjustable="box")
     fig.tight_layout(pad=0)
+    plt.savefig(
+        "/home/so2_cspace_view.svg", format="svg", bbox_inches="tight"
+    )
     plt.show()
 
 
@@ -183,6 +189,7 @@ def fig_so2s_snggoal_for_torus_texture():
         marker="o",
         markerfacecolor="darkcyan",
         markersize=1.5,
+        rasterized=True,  # Render as image for dense data
     )
 
     # path
@@ -195,13 +202,13 @@ def fig_so2s_snggoal_for_torus_texture():
             [u[0], quvw[0]],
             [u[1], quvw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
         ax.plot(
             [v[0], qvuw[0]],
             [v[1], qvuw[1]],
             color=PlotterConfig.pathColor,
-            linewidth=PlotterConfig.globalLinewidth,
+            linewidth=PlotterConfig.globalLinewidth + 2,
         )
 
     # state start
@@ -387,7 +394,7 @@ def fig_so2s_snggoal_path_2():
     limt2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
 
     # plotting
-    fig, axes = plt.subplots(2, 1, figsize=(3.4861, 0.7 * 3.4861), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(3.4861, 0.8 * 3.4861), sharex=True)
 
     # process data
     xpath = path.copy()
@@ -488,10 +495,10 @@ def fig_so2s_snggoal_path_2():
         ["$-2\\pi$", "$-\\pi$", "$\\theta_2$", "$\\pi$", "$2\\pi$"]
     )
 
-    axes[0].set_xticks([0, 1])
-    axes[0].set_xticklabels(["0", "1"])
-    axes[1].set_xticks([0, 1])
-    axes[1].set_xticklabels(["0", "1"])
+    axes[0].set_xticks([0, 0.2, 0.4, 0.5, 0.6, 0.8, 1])
+    axes[0].set_xticklabels(["0", "0.2", "0.4", "$t$", "0.6", "0.8", "1"])
+    axes[1].set_xticks([0, 0.2, 0.4, 0.5, 0.6, 0.8, 1])
+    axes[1].set_xticklabels(["0", "0.2", "0.4", "$t$", "0.6", "0.8", "1"])
 
     axes[1].set_xlim((0.0, 1.0))
     axes[0].set_ylim((-2 * np.pi, 2 * np.pi))
@@ -501,6 +508,7 @@ def fig_so2s_snggoal_path_2():
     axes[1].legend(loc="upper left")
     fig.tight_layout(pad=0)
 
+    plt.savefig("/home/so2_path_plot.svg", format="svg", bbox_inches="tight")
     plt.show()
 
 
@@ -544,7 +552,7 @@ def fig_generate_labels():
     ax.plot(
         [1, 2],
         [1.5, 1.5],
-        color="red",
+        color="indigo",
         linewidth=PlotterConfig.globalLinewidth,
         label="Path $\\sigma_2$",
     )
@@ -581,11 +589,12 @@ def fig_generate_labels():
     )
 
     ax.legend()
+    plt.savefig("/home/legend_labels.svg", format="svg", bbox_inches="tight")
     plt.show()
 
 
 if __name__ == "__main__":
     # fig_so2s_snggoal()
     # fig_so2s_snggoal_for_torus_texture()
-    fig_so2s_snggoal_path_2()
-    # fig_generate_labels()
+    # fig_so2s_snggoal_path_2()
+    fig_generate_labels()
