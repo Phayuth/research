@@ -148,8 +148,8 @@ class OMPLPlanner:
         self.ss.setStartAndGoalStates(start, goal)
         status = self.ss.solve(10.0)
         print("EXACT") if status.EXACT_SOLUTION else print("INEXACT")
-        if status:
-            self.ss.simplifySolution()
+        if status.EXACT_SOLUTION:
+            # self.ss.simplifySolution()
             path = self.ss.getSolutionPath()
             # Option 1: Use path length (simpler)
             path_cost = path.length()
@@ -248,9 +248,9 @@ if __name__ == "__main__":
             if result is not None:
                 path, path_cost = result
                 cost.append(path_cost)
-                cost_manual = compute_path_cost(path)
+                # cost_manual = compute_path_cost(path)
                 print(f"Path cost for goal {i}: {path_cost}")
-                print(f"Manual computed path cost for goal {i}: {cost_manual}")
+                # print(f"Manual computed path cost for goal {i}: {cost_manual}")
                 # save path to csv per file
                 df_path = pd.DataFrame(path, columns=[f"q{i}" for i in range(6)])
                 df_path.to_csv(

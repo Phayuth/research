@@ -39,7 +39,7 @@ def solve_ik(bot, h):
 
 
 # inside pi
-qs = np.array(
+qs_inpi = np.array(
     (
         0.06613874435424827,
         -1.1243596076965368,
@@ -50,7 +50,7 @@ qs = np.array(
     )
 )
 # outside pi
-qs = np.array(
+qs_outpi = np.array(
     (
         0.06613874435424827 - 2 * np.pi,
         -1.1243596076965368 + 2 * np.pi,
@@ -60,6 +60,15 @@ qs = np.array(
         0.1984162330627437 - 2 * np.pi,
     )
 )
+
+# qs_outpi = np.random.uniform(-np.pi, np.pi, size=(6,))
+# for i in range(6):
+#     if qs_outpi[i] <= np.pi:
+#         qs_outpi[i] += 2 * np.pi
+#     else:
+#         qs_outpi[i] -= 2 * np.pi
+
+
 bot = ur5e_dh()
 q = np.array(
     (
@@ -72,153 +81,390 @@ q = np.array(
     )
 )
 
+
 h = solve_fk(bot, q)
 ns, Qik = solve_ik(bot, h)
 
-dist = np.linalg.norm(Qik - qs, axis=1)
-print("dist=", dist)
-print("min dist=", np.min(dist), " at index ", np.argmin(dist))
 
-# Create bar plot for d values
-fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-x_positions = np.arange(dist.shape[0])
-ax.bar(x_positions, dist, width=0.8, label="Euclidean", alpha=0.7)
-ax.set_xlabel("Index")
-ax.set_ylabel("Norm Difference")
-ax.set_title("Bar Graph of Norm Differences")
-ax.set_xticks(x_positions)
-ax.grid(True, alpha=0.3)
-ax.legend()
-plt.tight_layout()
-plt.show()
-
-QaikAlt1 = Utils.find_alt_config(Qik[0].reshape(6, 1), limt6).T
-QaikAlt2 = Utils.find_alt_config(Qik[1].reshape(6, 1), limt6).T
-QaikAlt3 = Utils.find_alt_config(Qik[2].reshape(6, 1), limt6).T
-QaikAlt4 = Utils.find_alt_config(Qik[3].reshape(6, 1), limt6).T
-QaikAlt5 = Utils.find_alt_config(Qik[4].reshape(6, 1), limt6).T
-QaikAlt6 = Utils.find_alt_config(Qik[5].reshape(6, 1), limt6).T
-QaikAlt7 = Utils.find_alt_config(Qik[6].reshape(6, 1), limt6).T
-QaikAlt8 = Utils.find_alt_config(Qik[7].reshape(6, 1), limt6).T
-
-Deul1 = np.linalg.norm(QaikAlt1 - qs, axis=1)
-Deul2 = np.linalg.norm(QaikAlt2 - qs, axis=1)
-Deul3 = np.linalg.norm(QaikAlt3 - qs, axis=1)
-Deul4 = np.linalg.norm(QaikAlt4 - qs, axis=1)
-Deul5 = np.linalg.norm(QaikAlt5 - qs, axis=1)
-Deul6 = np.linalg.norm(QaikAlt6 - qs, axis=1)
-Deul7 = np.linalg.norm(QaikAlt7 - qs, axis=1)
-Deul8 = np.linalg.norm(QaikAlt8 - qs, axis=1)
-
-min1 = np.min(Deul1)
-min2 = np.min(Deul2)
-min3 = np.min(Deul3)
-min4 = np.min(Deul4)
-min5 = np.min(Deul5)
-min6 = np.min(Deul6)
-min7 = np.min(Deul7)
-min8 = np.min(Deul8)
-
-minall = np.min(
-    [min1, min2, min3, min4, min5, min6, min7, min8]
-)  # minimum distance among all alternative configurations
-print("min1=", min1)
-print("min2=", min2)
-print("min3=", min3)
-print("min4=", min4)
-print("min5=", min5)
-print("min6=", min6)
-print("min7=", min7)
-print("min8=", min8)
-print("minall=", minall)
+def distance_on_euclidean_branches(qstart, Qendbranches):
+    diff = Qendbranches - qstart
+    dists = np.linalg.norm(diff, axis=1)
+    min_dist = np.min(dists)
+    min_index = np.argmin(dists)
+    return dists, min_dist, min_index
 
 
-# Collect all distance data for 8 IK branches (each has 32 alt configs)
-dist_data = [Deul1, Deul2, Deul3, Deul4, Deul5, Deul6, Deul7, Deul8]
+def distance_on_torus_branches(qstart, Qendbranches):
+    dists = []
+    for i in range(Qendbranches.shape[0]):
+        dist = Utils.minimum_dist_torus(
+            qstart.reshape(-1, 1), Qendbranches[i, :].reshape(-1, 1)
+        )
+        dists.append(dist)
+    dists = np.array(dists)
+    min_dist = np.min(dists)
+    min_index = np.argmin(dists)
+    return dists, min_dist, min_index
 
-# Create grouped bar plot
-fig, ax = plt.subplots(1, 1, figsize=(16, 8))
 
-ax.axhline(y=minall, color="r", linestyle="--", label="Minimum Distance")
+def distance_on_euclidean_altconfig(qstart, qend):
+    Qendalt = Utils.find_alt_config(qend.reshape(-1, 1), limt6).T
+    diff = Qendalt - qstart
+    dists = np.linalg.norm(diff, axis=1)
+    min_dist = np.min(dists)
+    min_index = np.argmin(dists)
+    return dists, min_dist, min_index
 
-# Parameters for grouping
-n_branches = 8
-n_configs = 32
-branch_ids = np.arange(1, n_branches + 1)
-group_width = 0.8  # Total width for each group
-bar_width = group_width / n_configs  # Width of individual bars
-group_spacing = 1.0  # Spacing between groups
 
-# Plot bars for each IK branch
-colors = plt.cm.Set3(np.linspace(0, 1, n_branches))
-for branch_idx, (branch_id, distances) in enumerate(zip(branch_ids, dist_data)):
-    # Calculate x positions for this branch's bars
-    branch_center = branch_id * group_spacing
-    x_positions = branch_center + np.linspace(
-        -group_width / 2, group_width / 2, n_configs
+def compare_euclidean_branches():
+    # the distance qs in pi with always smaller than qs out pi because solution
+    # of analytical IK are always all in -pi to pi
+    disteul_inpi, mindist_eul_inpi, minidx_eul_inpi = (
+        distance_on_euclidean_branches(qs_inpi, Qik)
+    )
+    disteul_outpi, mindist_eul_outpi, minidx_eul_outpi = (
+        distance_on_euclidean_branches(qs_outpi, Qik)
+    )
+    disttor_inpi, mindist_tor_inpi, minidx_tor_inpi = distance_on_torus_branches(
+        qs_inpi, Qik
     )
 
-    # Plot bars for this branch
-    bars = ax.bar(
-        x_positions,
-        distances,
-        width=bar_width,
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    y_positions = np.arange(disteul_inpi.shape[0])
+    ax.barh(
+        y_positions, disteul_inpi, height=0.8, label="Euclidean In PI", alpha=0.7
+    )
+    ax.barh(
+        y_positions, disteul_outpi, height=0.4, label="Euclidean Out PI", alpha=0.7
+    )
+    ax.barh(y_positions, disttor_inpi, height=0.4, label="Torus In PI", alpha=0.7)
+    ax.set_ylabel("Index")
+    ax.set_xlabel("Norm Difference")
+    ax.set_title("Horizontal Bar Graph of Norm Differences")
+    ax.set_yticks(y_positions)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def compare_euclidean_alt():
+    qaik = Qik[3]
+    disteul_alt_inpi, mindist_eul_alt_inpi, minidx_eul_alt_inpi = (
+        distance_on_euclidean_altconfig(qs_inpi, qaik)
+    )
+    disteul_alt_outpi, mindist_eul_alt_outpi, minidx_eul_alt_outpi = (
+        distance_on_euclidean_altconfig(qs_outpi, qaik)
+    )
+    disttor = Utils.minimum_dist_torus(qs_inpi.reshape(-1, 1), qaik.reshape(-1, 1))
+
+    distog = np.linalg.norm(qaik - qs_inpi)
+    print("Distance on original configuration:", distog)
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    y_positions = np.arange(disteul_alt_inpi.shape[0])
+    ax.barh(
+        y_positions,
+        disteul_alt_inpi,
+        height=0.8,
+        label="Euclidean In PI",
         alpha=0.7,
-        color=colors[branch_idx],
-        label=f"IK Branch {branch_id}",
+    )
+    ax.barh(
+        y_positions,
+        disteul_alt_outpi,
+        height=0.4,
+        label="Euclidean Out PI",
+        alpha=0.7,
+    )
+    ax.barh(y_positions, disttor, height=0.4, label="Torus", alpha=0.7)
+    ax.set_ylabel("Index")
+    ax.set_xlabel("Norm Difference")
+    ax.set_title("Norm Differences (Alt Configs) of 1 of 8 IK Branches")
+    ax.set_yticks(y_positions)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def compare_branches_altconfig():
+    Deul1, min_dist1, min_index1 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[0, :]
+    )
+    Deul2, min_dist2, min_index2 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[1, :]
+    )
+    Deul3, min_dist3, min_index3 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[2, :]
+    )
+    Deul4, min_dist4, min_index4 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[3, :]
+    )
+    Deul5, min_dist5, min_index5 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[4, :]
+    )
+    Deul6, min_dist6, min_index6 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[5, :]
+    )
+    Deul7, min_dist7, min_index7 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[6, :]
+    )
+    Deul8, min_dist8, min_index8 = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[7, :]
+    )
+    dist_data = [Deul1, Deul2, Deul3, Deul4, Deul5, Deul6, Deul7, Deul8]
+    mindata_per = np.array(
+        [
+            min_dist1,
+            min_dist2,
+            min_dist3,
+            min_dist4,
+            min_dist5,
+            min_dist6,
+            min_dist7,
+            min_dist8,
+        ]
     )
 
-# Customize the plot
-ax.set_xlabel("IK Branch ID")
-ax.set_ylabel("Euclidean Distance")
-ax.set_title(
-    "Alternative Configuration Distances by IK Branch\n(32 configurations per branch)"
-)
-
-# Set x-axis ticks at branch centers
-branch_centers = branch_ids * group_spacing
-ax.set_xticks(branch_centers)
-ax.set_xticklabels(branch_ids)
-
-# Add grid and legend
-ax.grid(True, alpha=0.3, axis="y")
-ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-
-plt.tight_layout()
-plt.show()
-
-
-raise Exception("stop")
-
-alt = Utils.find_alt_config(q.reshape(-1, 1), limt6).T
-bin = np.linspace(0, 8, 8)
-
-diff = alt - qs
-print("alt=\n", alt)
-print("diff alt=\n", diff)
-
-d = np.linalg.norm(diff, axis=1)
-print("norm diff alt=", d)
-print("d shape:", d.shape)
-
-dtorus = []
-for i in range(alt.shape[0]):
-    dtorus.append(
-        Utils.minimum_dist_torus(qs.reshape(6, 1), alt[i, :].reshape(6, 1))
+    Dtor1 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[0, :].reshape(-1, 1)
     )
-print("dtorus=", dtorus)
+    Dtor2 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[1, :].reshape(-1, 1)
+    )
+    Dtor3 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[2, :].reshape(-1, 1)
+    )
+    Dtor4 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[3, :].reshape(-1, 1)
+    )
+    Dtor5 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[4, :].reshape(-1, 1)
+    )
+    Dtor6 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[5, :].reshape(-1, 1)
+    )
+    Dtor7 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[6, :].reshape(-1, 1)
+    )
+    Dtor8 = Utils.minimum_dist_torus(
+        qs_inpi.reshape(-1, 1), Qik[7, :].reshape(-1, 1)
+    )
+    dist_tor_data = [Dtor1, Dtor2, Dtor3, Dtor4, Dtor5, Dtor6, Dtor7, Dtor8]
+
+    fig, ax = plt.subplots(1, 1, figsize=(16, 8))
+
+    # Parameters for grouping
+    n_branches = 8
+    n_configs = 32
+    branch_ids = np.arange(1, n_branches + 1)
+    group_height = 0.8  # Total height for each group
+    bar_height = group_height / n_configs  # Height of individual bars
+    group_spacing = 1.0  # Spacing between groups
+
+    # Plot horizontal bars for each IK branch
+    colors = plt.cm.Set3(np.linspace(0, 1, n_branches))
+    for branch_idx, (branch_id, distances, torus_distances) in enumerate(
+        zip(branch_ids, dist_data, dist_tor_data)
+    ):
+        # Calculate y positions for this branch's bars
+        branch_center = branch_id * group_spacing
+        y_positions = branch_center + np.linspace(
+            -group_height / 2, group_height / 2, n_configs
+        )
+
+        # Plot horizontal bars for this branch
+        bars = ax.barh(
+            y_positions,
+            distances,
+            height=bar_height,
+            alpha=1.0,
+            color=colors[branch_idx],
+            label=f"IK Branch {branch_id}",
+        )
+        ax.barh(
+            y_positions,
+            torus_distances,
+            height=bar_height,
+            alpha=0.5,
+            # color=colors[branch_idx],
+        )
+    mineul = np.min(mindata_per)
+    mintor = np.min(mindata_per)
+    print("Minimum Euclidean Distance among all branches:", mineul)
+    print("Minimum Torus Distance among all branches:", mintor)
+    ax.axvline(
+        x=np.min(mindata_per),
+        color="r",
+        linestyle="--",
+        label="Minimum Euclidean Distance",
+        linewidth=2,
+    )
+
+    ax.axvline(
+        x=np.min(mindata_per),
+        color="b",
+        linestyle="--",
+        label="Minimum Torus Distance",
+    )
+    ax.set_ylabel("IK Branch ID")
+    ax.set_xlabel("Distance")
+    branch_centers = branch_ids * group_spacing
+    ax.set_yticks(branch_centers)
+    ax.set_yticklabels(branch_ids)
+    ax.grid(True, alpha=0.3, axis="x")
+    # ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+    plt.tight_layout()
+    plt.show()
 
 
-# Create bar plot for d values
-fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-x_positions = np.arange(len(d))  # Integer positions from 0 to 31
-ax.bar(x_positions, d, width=0.8, label="Euclidean", alpha=0.7)
-ax.bar(x_positions, dtorus, width=0.4, alpha=0.7, label="Torus")
-ax.set_xlabel("Index")
-ax.set_ylabel("Norm Difference")
-ax.set_title("Bar Graph of Norm Differences")
-ax.set_xticks(x_positions)
-ax.grid(True, alpha=0.3)
-ax.legend()
-plt.tight_layout()
-plt.show()
+def compare_numerical():
+    de_inpi, mine_inpi, minide_inpi = distance_on_euclidean_branches(qs_inpi, Qik)
+    de_alt1_inpi, mde_alt1_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[0, :]
+    )
+    de_alt2_inpi, mde_alt2_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[1, :]
+    )
+    de_alt3_inpi, mde_alt3_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[2, :]
+    )
+    de_alt4_inpi, mde_alt4_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[3, :]
+    )
+    de_alt5_inpi, mde_alt5_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[4, :]
+    )
+    de_alt6_inpi, mde_alt6_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[5, :]
+    )
+    de_alt7_inpi, mde_alt7_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[6, :]
+    )
+    de_alt8_inpi, mde_alt8_inpi, _ = distance_on_euclidean_altconfig(
+        qs_inpi, Qik[7, :]
+    )
+    print("Distance qs_inpi to 8 branches:", de_inpi)
+    print("Distance qs_inpi to alt of branch 1:", de_alt1_inpi)
+    print("Distance qs_inpi to alt of branch 2:", de_alt2_inpi)
+    print("Distance qs_inpi to alt of branch 3:", de_alt3_inpi)
+    print("Distance qs_inpi to alt of branch 4:", de_alt4_inpi)
+    print("Distance qs_inpi to alt of branch 5:", de_alt5_inpi)
+    print("Distance qs_inpi to alt of branch 6:", de_alt6_inpi)
+    print("Distance qs_inpi to alt of branch 7:", de_alt7_inpi)
+    print("Distance qs_inpi to alt of branch 8:", de_alt8_inpi)
+    # dist_data = [Deul1, Deul2, Deul3, Deul4, Deul5, Deul6, Deul7, Deul8]
+    mindata_per = np.array(
+        [
+            mde_alt1_inpi,
+            mde_alt2_inpi,
+            mde_alt3_inpi,
+            mde_alt4_inpi,
+            mde_alt5_inpi,
+            mde_alt6_inpi,
+            mde_alt7_inpi,
+            mde_alt8_inpi,
+        ]
+    )
+    minofalt_inpi = np.min(mindata_per)
+    print("Minimum of alt configs in pi:", minofalt_inpi)
+
+    print("----- Outside PI -----")
+    de_outpi, mine_outpi, minide_outpi = distance_on_euclidean_branches(
+        qs_outpi, Qik
+    )
+    de_alt1_outpi, mde_alt1_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[0, :]
+    )
+    de_alt2_outpi, mde_alt2_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[1, :]
+    )
+    de_alt3_outpi, mde_alt3_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[2, :]
+    )
+    de_alt4_outpi, mde_alt4_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[3, :]
+    )
+    de_alt5_outpi, mde_alt5_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[4, :]
+    )
+    de_alt6_outpi, mde_alt6_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[5, :]
+    )
+    de_alt7_outpi, mde_alt7_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[6, :]
+    )
+    de_alt8_outpi, mde_alt8_outpi, _ = distance_on_euclidean_altconfig(
+        qs_outpi, Qik[7, :]
+    )
+
+    print("Distance qs_outpi to 8 branches:", de_outpi)
+    print("Distance qs_outpi to alt of branch 1:", de_alt1_outpi)
+    print("Distance qs_outpi to alt of branch 2:", de_alt2_outpi)
+    print("Distance qs_outpi to alt of branch 3:", de_alt3_outpi)
+    print("Distance qs_outpi to alt of branch 4:", de_alt4_outpi)
+    print("Distance qs_outpi to alt of branch 5:", de_alt5_outpi)
+    print("Distance qs_outpi to alt of branch 6:", de_alt6_outpi)
+    print("Distance qs_outpi to alt of branch 7:", de_alt7_outpi)
+    print("Distance qs_outpi to alt of branch 8:", de_alt8_outpi)
+    mindata_per_outpi = np.array(
+        [
+            mde_alt1_outpi,
+            mde_alt2_outpi,
+            mde_alt3_outpi,
+            mde_alt4_outpi,
+            mde_alt5_outpi,
+            mde_alt6_outpi,
+            mde_alt7_outpi,
+            mde_alt8_outpi,
+        ]
+    )
+    minofalt_outpi = np.min(mindata_per_outpi)
+    print("Minimum of alt configs out pi:", minofalt_outpi)
+
+
+def compare_qs_to_256_altconfigs(qs):
+    Deul, minde, minidxe = distance_on_euclidean_branches(qs, Qik)
+    de_alt1, mde_alt1, _ = distance_on_euclidean_altconfig(qs, Qik[0, :])
+    de_alt2, mde_alt2, _ = distance_on_euclidean_altconfig(qs, Qik[1, :])
+    de_alt3, mde_alt3, _ = distance_on_euclidean_altconfig(qs, Qik[2, :])
+    de_alt4, mde_alt4, _ = distance_on_euclidean_altconfig(qs, Qik[3, :])
+    de_alt5, mde_alt5, _ = distance_on_euclidean_altconfig(qs, Qik[4, :])
+    de_alt6, mde_alt6, _ = distance_on_euclidean_altconfig(qs, Qik[5, :])
+    de_alt7, mde_alt7, _ = distance_on_euclidean_altconfig(qs, Qik[6, :])
+    de_alt8, mde_alt8, _ = distance_on_euclidean_altconfig(qs, Qik[7, :])
+    de_altall = np.stack(
+        [
+            de_alt1,
+            de_alt2,
+            de_alt3,
+            de_alt4,
+            de_alt5,
+            de_alt6,
+            de_alt7,
+            de_alt8,
+        ]
+    )
+    de_altall = de_altall.flatten()
+    mindist_altall = np.min(de_altall)
+
+    print("------QS:", qs, "------")
+    print("Distance from qs to 8 branches:", Deul)
+    print("and min distance:", minde, " at index ", minidxe)
+    print("There are {} alt configs in total.".format(de_altall.shape[0]))
+    # print("Distance from qs to all alt configs of 8 branches:", de_altall)
+    print("Minimum distance among all alt configs:", mindist_altall)
+
+
+if __name__ == "__main__":
+    # compare_euclidean_branches()
+    # compare_euclidean_alt()
+    # compare_branches_altconfig()
+    # compare_numerical()
+
+    # qs inside pi
+    compare_qs_to_256_altconfigs(qs_inpi)
+
+    # qs outside pi
+    compare_qs_to_256_altconfigs(qs_outpi)

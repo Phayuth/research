@@ -592,33 +592,95 @@ def joint_trajectory_visualize_ghost():
     import pandas as pd
 
     # df_path = pd.read_csv("data_so2_path.csv")
-    for i in range(32):
-        df_path = pd.read_csv(
-            "./paths/data_euclidean_path_goal_" + str(i) + ".csv"
-        )
-        path = df_path.to_numpy()
-        n_steps = path.shape[0]
+    i = 2
+    # for i in range(32):
+    df_path = pd.read_csv("./paths/data_euclidean_path_goal_" + str(i) + ".csv")
+    path = df_path.to_numpy()
+    n_steps = path.shape[0]
 
-        # initialize ghost model joint state
-        robot.reset_array_joint_state(path[0])
-        robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
-        robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
+    # initialize ghost model joint state
+    robot.reset_array_joint_state(path[0])
+    robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
+    robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
 
-        try:
-            j = 0
-            while True:
-                nkey = ord("n")
-                keys = p.getKeyboardEvents()
-                if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
-                    q = path[j % n_steps]
-                    robot.reset_array_joint_state(q)
-                    j += 1
-                    p.stepSimulation()
+    try:
+        j = 0
+        while True:
+            nkey = ord("n")
+            keys = p.getKeyboardEvents()
+            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
+                q = path[j % n_steps]
+                robot.reset_array_joint_state(q)
+                j += 1
+                p.stepSimulation()
 
-        except KeyboardInterrupt:
-            p.disconnect()
+    except KeyboardInterrupt:
+        p.disconnect()
+
+
+def joint_trajectory_visualize_ghost_perpath():
+    robot = UR5eBullet("gui")
+    robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
+    robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
+    robot.load_models_other(Constants.model_box_strong_obstacle)
+
+    # camera for exp3
+    robot.set_visualizer_camera(*Constants.camera_exp3)
+
+    # path exp 2
+    # qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
+    # qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
+    # n_steps = 1000
+    # path_short = np.linspace(qs, qg1_short, n_steps)
+    # path = path_short
+
+    import pandas as pd
+
+    # df_path = pd.read_csv("data_so2_path.csv")
+    i = 0
+    # for i in range(32):
+    df_path = pd.read_csv("./paths/data_euclidean_path_goal_" + str(i) + ".csv")
+    path = df_path.to_numpy()
+    n_steps = path.shape[0]
+
+    # initialize ghost model joint state
+    robot.reset_array_joint_state(path[0])
+    robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
+    robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
+
+    try:
+        j = 0
+        w = 0
+        while True:
+            nkey = ord("n")
+            mkey = ord("m")
+            keys = p.getKeyboardEvents()
+            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
+                q = path[j % n_steps]
+                robot.reset_array_joint_state(q)
+                j += 1
+                p.stepSimulation()
+            if mkey in keys and keys[mkey] & p.KEY_WAS_TRIGGERED:
+                df_path = pd.read_csv(
+                    "./paths/data_euclidean_path_goal_" + str(w) + ".csv"
+                )
+                path = df_path.to_numpy()
+                n_steps = path.shape[0]
+
+                # initialize ghost model joint state
+                robot.reset_array_joint_state(path[0])
+                robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
+                robot.reset_array_joint_state_ghost(
+                    path[-1], robot.ghost_model[-1]
+                )
+                w += 1
+                print(f"Switched to path goal {w-1}")
+
+    except KeyboardInterrupt:
+        p.disconnect()
 
 
 if __name__ == "__main__":
-    collision_check()
+    # collision_check()
     # joint_trajectory_visualize_ghost()
+    joint_trajectory_visualize_ghost_perpath()
