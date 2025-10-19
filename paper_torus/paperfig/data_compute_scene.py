@@ -22,8 +22,8 @@ class Constants:
     model_list = [
         # (table_urdf, [0, 0, 0], [0, 0, 0, 1]),
         (pole_urdf, [0.3, 0.3, 0], [0, 0, 0, 1]),
-        (pole_urdf, [-0.3, 0.3, 0], [0, 0, 0, 1]),
-        (pole_urdf, [-0.3, -0.3, 0], [0, 0, 0, 1]),
+        # (pole_urdf, [-0.3, 0.3, 0], [0, 0, 0, 1]),
+        # (pole_urdf, [-0.3, -0.3, 0], [0, 0, 0, 1]),
         (pole_urdf, [0.3, -0.3, 0], [0, 0, 0, 1]),
     ]
 
@@ -680,7 +680,72 @@ def joint_trajectory_visualize_ghost_perpath():
         p.disconnect()
 
 
+def view_exp1_aik():
+    import pandas as pd
+
+    robot = UR5eBullet("gui")
+    robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
+    robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
+    robot.load_models_ghost(color=[0, 0, 1, 0.1])  # blue ghost model
+    robot.load_models_ghost(color=[1, 1, 0, 0.1])  # yellow ghost model
+    robot.load_models_ghost(color=[1, 0, 1, 0.1])  # purple ghost model
+    robot.load_models_ghost(color=[0, 1, 1, 0.1])  # cyan ghost model
+    robot.load_models_ghost(color=[1, 1, 1, 0.1])  # white ghost model
+    robot.load_models_ghost(color=[0, 0, 0, 0.1])  # black ghost model
+    robot.load_models_ghost(color=[0.5, 0.5, 0.5, 0.1])  # gray ghost model
+    robot.load_models_other(Constants.model_list)
+
+    # camera for exp3
+    robot.set_visualizer_camera(*Constants.camera_exp3)
+
+    df_qs = pd.read_csv("./data_ur5e_qs.csv")
+    qs = df_qs.to_numpy().reshape(-1)
+
+    df_Qik = pd.read_csv("./data_ur5e_Qik.csv")
+    Qik = df_Qik.to_numpy()
+
+    # initialize ghost model joint state
+    robot.reset_array_joint_state(qs)
+    robot.reset_array_joint_state_ghost(qs, robot.ghost_model[0])
+    robot.reset_array_joint_state_ghost(Qik[0], robot.ghost_model[1])
+    robot.reset_array_joint_state_ghost(Qik[1], robot.ghost_model[2])
+    robot.reset_array_joint_state_ghost(Qik[2], robot.ghost_model[3])
+    robot.reset_array_joint_state_ghost(Qik[3], robot.ghost_model[4])
+    robot.reset_array_joint_state_ghost(Qik[4], robot.ghost_model[5])
+    robot.reset_array_joint_state_ghost(Qik[5], robot.ghost_model[6])
+    robot.reset_array_joint_state_ghost(Qik[6], robot.ghost_model[7])
+    robot.reset_array_joint_state_ghost(Qik[7], robot.ghost_model[8])
+
+    try:
+        j = 0
+        w = 0
+        while True:
+            nkey = ord("n")
+            mkey = ord("m")
+            keys = p.getKeyboardEvents()
+            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
+                q = path[j % n_steps]
+                robot.reset_array_joint_state(q)
+                j += 1
+                p.stepSimulation()
+            if mkey in keys and keys[mkey] & p.KEY_WAS_TRIGGERED:
+                df_path = pd.read_csv(
+                    "./paths_exp1/data_exp1_path_goal_" + str(w) + ".csv"
+                )
+                path = df_path.to_numpy()
+                n_steps = path.shape[0]
+
+                # initialize ghost model joint state
+                robot.reset_array_joint_state(path[0])
+                w += 1
+                print(f"Switched to path goal {w-1}")
+
+    except KeyboardInterrupt:
+        p.disconnect()
+
+
 if __name__ == "__main__":
     # collision_check()
     # joint_trajectory_visualize_ghost()
-    joint_trajectory_visualize_ghost_perpath()
+    # joint_trajectory_visualize_ghost_perpath()
+    view_exp1_aik()

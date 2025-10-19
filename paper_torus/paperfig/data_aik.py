@@ -87,6 +87,7 @@ ns, Qik = solve_ik(bot, h)
 
 
 def distance_on_euclidean_branches(qstart, Qendbranches):
+    """for original 8 branches of IK only"""
     diff = Qendbranches - qstart
     dists = np.linalg.norm(diff, axis=1)
     min_dist = np.min(dists)
@@ -95,6 +96,7 @@ def distance_on_euclidean_branches(qstart, Qendbranches):
 
 
 def distance_on_torus_branches(qstart, Qendbranches):
+    """for original 8 branches of IK only"""
     dists = []
     for i in range(Qendbranches.shape[0]):
         dist = Utils.minimum_dist_torus(
@@ -108,12 +110,29 @@ def distance_on_torus_branches(qstart, Qendbranches):
 
 
 def distance_on_euclidean_altconfig(qstart, qend):
+    """for alternative configurations of 1 out of 8 branches of IK
+    256 alternative configurations in total
+    """
     Qendalt = Utils.find_alt_config(qend.reshape(-1, 1), limt6).T
     diff = Qendalt - qstart
     dists = np.linalg.norm(diff, axis=1)
     min_dist = np.min(dists)
     min_index = np.argmin(dists)
-    return dists, min_dist, min_index
+    return dists, min_dist, min_index, Qendalt, Qendalt[min_index]
+
+
+def distance_on_euclidean_altconfig_excluding_original(qstart, qend):
+    """for alternative configurations of 1 out of 8 branches of IK
+    255 alternative configurations in total, excluding the original one
+    """
+    Qendalt = Utils.find_alt_config(
+        qend.reshape(-1, 1), limt6, filterOriginalq=True
+    ).T
+    diff = Qendalt - qstart
+    dists = np.linalg.norm(diff, axis=1)
+    min_dist = np.min(dists)
+    min_index = np.argmin(dists)
+    return dists, min_dist, min_index, Qendalt, Qendalt[min_index]
 
 
 def compare_euclidean_branches():
@@ -150,12 +169,20 @@ def compare_euclidean_branches():
 
 def compare_euclidean_alt():
     qaik = Qik[3]
-    disteul_alt_inpi, mindist_eul_alt_inpi, minidx_eul_alt_inpi = (
-        distance_on_euclidean_altconfig(qs_inpi, qaik)
-    )
-    disteul_alt_outpi, mindist_eul_alt_outpi, minidx_eul_alt_outpi = (
-        distance_on_euclidean_altconfig(qs_outpi, qaik)
-    )
+    (
+        disteul_alt_inpi,
+        mindist_eul_alt_inpi,
+        minidx_eul_alt_inpi,
+        Qendalt_inpi,
+        Qendalt_min_inpi,
+    ) = distance_on_euclidean_altconfig(qs_inpi, qaik)
+    (
+        disteul_alt_outpi,
+        mindist_eul_alt_outpi,
+        minidx_eul_alt_outpi,
+        Qendalt_outpi,
+        Qendalt_min_outpi,
+    ) = distance_on_euclidean_altconfig(qs_outpi, qaik)
     disttor = Utils.minimum_dist_torus(qs_inpi.reshape(-1, 1), qaik.reshape(-1, 1))
 
     distog = np.linalg.norm(qaik - qs_inpi)
@@ -189,29 +216,29 @@ def compare_euclidean_alt():
 
 
 def compare_branches_altconfig():
-    Deul1, min_dist1, min_index1 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[0, :]
+    Deul1, min_dist1, min_index1, Qendalt1, Qendalt_min1 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[0, :])
     )
-    Deul2, min_dist2, min_index2 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[1, :]
+    Deul2, min_dist2, min_index2, Qendalt2, Qendalt_min2 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[1, :])
     )
-    Deul3, min_dist3, min_index3 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[2, :]
+    Deul3, min_dist3, min_index3, Qendalt3, Qendalt_min3 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[2, :])
     )
-    Deul4, min_dist4, min_index4 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[3, :]
+    Deul4, min_dist4, min_index4, Qendalt4, Qendalt_min4 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[3, :])
     )
-    Deul5, min_dist5, min_index5 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[4, :]
+    Deul5, min_dist5, min_index5, Qendalt5, Qendalt_min5 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[4, :])
     )
-    Deul6, min_dist6, min_index6 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[5, :]
+    Deul6, min_dist6, min_index6, Qendalt6, Qendalt_min6 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[5, :])
     )
-    Deul7, min_dist7, min_index7 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[6, :]
+    Deul7, min_dist7, min_index7, Qendalt7, Qendalt_min7 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[6, :])
     )
-    Deul8, min_dist8, min_index8 = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[7, :]
+    Deul8, min_dist8, min_index8, Qendalt8, Qendalt_min8 = (
+        distance_on_euclidean_altconfig(qs_inpi, Qik[7, :])
     )
     dist_data = [Deul1, Deul2, Deul3, Deul4, Deul5, Deul6, Deul7, Deul8]
     mindata_per = np.array(
@@ -319,121 +346,16 @@ def compare_branches_altconfig():
     plt.show()
 
 
-def compare_numerical():
-    de_inpi, mine_inpi, minide_inpi = distance_on_euclidean_branches(qs_inpi, Qik)
-    de_alt1_inpi, mde_alt1_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[0, :]
-    )
-    de_alt2_inpi, mde_alt2_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[1, :]
-    )
-    de_alt3_inpi, mde_alt3_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[2, :]
-    )
-    de_alt4_inpi, mde_alt4_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[3, :]
-    )
-    de_alt5_inpi, mde_alt5_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[4, :]
-    )
-    de_alt6_inpi, mde_alt6_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[5, :]
-    )
-    de_alt7_inpi, mde_alt7_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[6, :]
-    )
-    de_alt8_inpi, mde_alt8_inpi, _ = distance_on_euclidean_altconfig(
-        qs_inpi, Qik[7, :]
-    )
-    print("Distance qs_inpi to 8 branches:", de_inpi)
-    print("Distance qs_inpi to alt of branch 1:", de_alt1_inpi)
-    print("Distance qs_inpi to alt of branch 2:", de_alt2_inpi)
-    print("Distance qs_inpi to alt of branch 3:", de_alt3_inpi)
-    print("Distance qs_inpi to alt of branch 4:", de_alt4_inpi)
-    print("Distance qs_inpi to alt of branch 5:", de_alt5_inpi)
-    print("Distance qs_inpi to alt of branch 6:", de_alt6_inpi)
-    print("Distance qs_inpi to alt of branch 7:", de_alt7_inpi)
-    print("Distance qs_inpi to alt of branch 8:", de_alt8_inpi)
-    # dist_data = [Deul1, Deul2, Deul3, Deul4, Deul5, Deul6, Deul7, Deul8]
-    mindata_per = np.array(
-        [
-            mde_alt1_inpi,
-            mde_alt2_inpi,
-            mde_alt3_inpi,
-            mde_alt4_inpi,
-            mde_alt5_inpi,
-            mde_alt6_inpi,
-            mde_alt7_inpi,
-            mde_alt8_inpi,
-        ]
-    )
-    minofalt_inpi = np.min(mindata_per)
-    print("Minimum of alt configs in pi:", minofalt_inpi)
-
-    print("----- Outside PI -----")
-    de_outpi, mine_outpi, minide_outpi = distance_on_euclidean_branches(
-        qs_outpi, Qik
-    )
-    de_alt1_outpi, mde_alt1_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[0, :]
-    )
-    de_alt2_outpi, mde_alt2_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[1, :]
-    )
-    de_alt3_outpi, mde_alt3_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[2, :]
-    )
-    de_alt4_outpi, mde_alt4_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[3, :]
-    )
-    de_alt5_outpi, mde_alt5_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[4, :]
-    )
-    de_alt6_outpi, mde_alt6_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[5, :]
-    )
-    de_alt7_outpi, mde_alt7_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[6, :]
-    )
-    de_alt8_outpi, mde_alt8_outpi, _ = distance_on_euclidean_altconfig(
-        qs_outpi, Qik[7, :]
-    )
-
-    print("Distance qs_outpi to 8 branches:", de_outpi)
-    print("Distance qs_outpi to alt of branch 1:", de_alt1_outpi)
-    print("Distance qs_outpi to alt of branch 2:", de_alt2_outpi)
-    print("Distance qs_outpi to alt of branch 3:", de_alt3_outpi)
-    print("Distance qs_outpi to alt of branch 4:", de_alt4_outpi)
-    print("Distance qs_outpi to alt of branch 5:", de_alt5_outpi)
-    print("Distance qs_outpi to alt of branch 6:", de_alt6_outpi)
-    print("Distance qs_outpi to alt of branch 7:", de_alt7_outpi)
-    print("Distance qs_outpi to alt of branch 8:", de_alt8_outpi)
-    mindata_per_outpi = np.array(
-        [
-            mde_alt1_outpi,
-            mde_alt2_outpi,
-            mde_alt3_outpi,
-            mde_alt4_outpi,
-            mde_alt5_outpi,
-            mde_alt6_outpi,
-            mde_alt7_outpi,
-            mde_alt8_outpi,
-        ]
-    )
-    minofalt_outpi = np.min(mindata_per_outpi)
-    print("Minimum of alt configs out pi:", minofalt_outpi)
-
-
 def compare_qs_to_256_altconfigs(qs):
     Deul, minde, minidxe = distance_on_euclidean_branches(qs, Qik)
-    de_alt1, mde_alt1, _ = distance_on_euclidean_altconfig(qs, Qik[0, :])
-    de_alt2, mde_alt2, _ = distance_on_euclidean_altconfig(qs, Qik[1, :])
-    de_alt3, mde_alt3, _ = distance_on_euclidean_altconfig(qs, Qik[2, :])
-    de_alt4, mde_alt4, _ = distance_on_euclidean_altconfig(qs, Qik[3, :])
-    de_alt5, mde_alt5, _ = distance_on_euclidean_altconfig(qs, Qik[4, :])
-    de_alt6, mde_alt6, _ = distance_on_euclidean_altconfig(qs, Qik[5, :])
-    de_alt7, mde_alt7, _ = distance_on_euclidean_altconfig(qs, Qik[6, :])
-    de_alt8, mde_alt8, _ = distance_on_euclidean_altconfig(qs, Qik[7, :])
+    de_alt1, mde_alt1, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[0, :])
+    de_alt2, mde_alt2, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[1, :])
+    de_alt3, mde_alt3, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[2, :])
+    de_alt4, mde_alt4, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[3, :])
+    de_alt5, mde_alt5, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[4, :])
+    de_alt6, mde_alt6, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[5, :])
+    de_alt7, mde_alt7, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[6, :])
+    de_alt8, mde_alt8, _, _, _ = distance_on_euclidean_altconfig(qs, Qik[7, :])
     de_altall = np.stack(
         [
             de_alt1,
@@ -449,12 +371,110 @@ def compare_qs_to_256_altconfigs(qs):
     de_altall = de_altall.flatten()
     mindist_altall = np.min(de_altall)
 
+    mde_altall = np.array(
+        [
+            mde_alt1,
+            mde_alt2,
+            mde_alt3,
+            mde_alt4,
+            mde_alt5,
+            mde_alt6,
+            mde_alt7,
+            mde_alt8,
+        ]
+    )
+
+    de_alt1_excl, mde_alt1_excl, _, _, qemin1 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[0, :])
+    )
+    de_alt2_excl, mde_alt2_excl, _, _, qemin2 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[1, :])
+    )
+    de_alt3_excl, mde_alt3_excl, _, _, qemin3 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[2, :])
+    )
+    de_alt4_excl, mde_alt4_excl, _, _, qemin4 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[3, :])
+    )
+    de_alt5_excl, mde_alt5_excl, _, _, qemin5 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[4, :])
+    )
+    de_alt6_excl, mde_alt6_excl, _, _, qemin6 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[5, :])
+    )
+    de_alt7_excl, mde_alt7_excl, _, _, qemin7 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[6, :])
+    )
+    de_alt8_excl, mde_alt8_excl, _, _, qemin8 = (
+        distance_on_euclidean_altconfig_excluding_original(qs, Qik[7, :])
+    )
+    de_altall_excl = np.stack(
+        [
+            de_alt1_excl,
+            de_alt2_excl,
+            de_alt3_excl,
+            de_alt4_excl,
+            de_alt5_excl,
+            de_alt6_excl,
+            de_alt7_excl,
+            de_alt8_excl,
+        ]
+    )
+    de_altall_excl = de_altall_excl.flatten()
+    mindist_altall_excl = np.min(de_altall_excl)
+
+    mde_altall_excl = np.array(
+        [
+            mde_alt1_excl,
+            mde_alt2_excl,
+            mde_alt3_excl,
+            mde_alt4_excl,
+            mde_alt5_excl,
+            mde_alt6_excl,
+            mde_alt7_excl,
+            mde_alt8_excl,
+        ]
+    )
+
     print("------QS:", qs, "------")
     print("Distance from qs to 8 branches:", Deul)
     print("and min distance:", minde, " at index ", minidxe)
     print("There are {} alt configs in total.".format(de_altall.shape[0]))
+    print("Minimum of each alt config per branch:", mde_altall)
+    print(
+        "There are {} alt configs excluding original in total.".format(
+            de_altall_excl.shape[0]
+        )
+    )
+    print("Minimum of each alt config per b excluding original:", mde_altall_excl)
     # print("Distance from qs to all alt configs of 8 branches:", de_altall)
     print("Minimum distance among all alt configs:", mindist_altall)
+    return [qemin1, qemin2, qemin3, qemin4, qemin5, qemin6, qemin7, qemin8]
+
+
+def compare_qs_to_256_altconfigs_collisionfree(qs_inpi, qs_outpi):
+    # write Qik to csv
+    dfQik = pd.DataFrame(Qik)
+    dfQik.to_csv("./data_ur5e_Qik.csv", index=False)
+
+    # write qs_inpi to csv
+    dfqs = pd.DataFrame(qs_inpi.reshape(1, -1))
+    dfqs.to_csv("./data_ur5e_qs_inpi.csv", index=False)
+    # write qs_outpi to csv
+    dfqs = pd.DataFrame(qs_outpi.reshape(1, -1))
+    dfqs.to_csv("./data_ur5e_qs_outpi.csv", index=False)
+
+    # write parameter to csv
+    qemins_inpi = compare_qs_to_256_altconfigs(qs_inpi)
+    qemins_outpi = compare_qs_to_256_altconfigs(qs_outpi)
+    qemins_inpi = np.stack(qemins_inpi)
+    qemins_outpi = np.stack(qemins_outpi)
+
+    dfqemins_inpi = pd.DataFrame(qemins_inpi)
+    dfqemins_inpi.to_csv("./data_ur5e_qemins_inpi.csv", index=False)
+
+    dfqemins_outpi = pd.DataFrame(qemins_outpi)
+    dfqemins_outpi.to_csv("./data_ur5e_qemins_outpi.csv", index=False)
 
 
 if __name__ == "__main__":
@@ -464,7 +484,9 @@ if __name__ == "__main__":
     # compare_numerical()
 
     # qs inside pi
-    compare_qs_to_256_altconfigs(qs_inpi)
+    # compare_qs_to_256_altconfigs(qs_inpi)
 
     # qs outside pi
-    compare_qs_to_256_altconfigs(qs_outpi)
+    # compare_qs_to_256_altconfigs(qs_outpi)
+
+    compare_qs_to_256_altconfigs_collisionfree(qs_inpi, qs_outpi)

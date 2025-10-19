@@ -4,7 +4,7 @@ from ompl import util as ou
 import numpy as np
 import time
 
-ou.RNG.setSeed(int(time.time() * 1000000) % 2**32)
+ou.RNG.setSeed(int(4.2 * 1000000) % 2**32)
 
 
 class OMPLSO2Planner:
@@ -147,19 +147,15 @@ class OMPLPlanner:
 
         self.ss.setStartAndGoalStates(start, goal)
         status = self.ss.solve(10.0)
-        print("EXACT") if status.EXACT_SOLUTION else print("INEXACT")
-        if status.EXACT_SOLUTION:
-            # self.ss.simplifySolution()
+        (
+            print("EXACT")
+            if status.getStatus() == status.EXACT_SOLUTION
+            else print("Invalid result")
+        )
+        if status.getStatus() == status.EXACT_SOLUTION:
+            self.ss.simplifySolution()
             path = self.ss.getSolutionPath()
-            # Option 1: Use path length (simpler)
             path_cost = path.length()
-
-            # Option 2: Use optimization objective (more flexible)
-            # si = self.ss.getSpaceInformation()
-            # obj = si.getOptimizationObjective()
-            # if obj is None:
-            #     obj = ob.PathLengthOptimizationObjective(si)
-            # path_cost = path.cost(obj).value()
 
             print("Found solution:")
             print(f"Path cost: {path_cost}")
@@ -266,4 +262,58 @@ if __name__ == "__main__":
         df_result = pd.concat([df_qalt, df_cost], axis=1)
         df_result.to_csv("data_planner_results.csv", index=False)
 
-    euclidean_planning()
+    # euclidean_planning()
+    def exp1_planning():
+        robot = UR5eBullet("no_gui")
+        # model_id = robot.load_models_other(Constants.model_list)
+
+        planner = OMPLPlanner(robot.collision_check_at_config)
+
+        exp_param = {
+            "qsinpi_direct": [
+                "data_ur5e_qs_inpi.csv",
+                "data_ur5e_Qik.csv",
+            ],
+            "qsoutpi_direct": [
+                "data_ur5e_qs_outpi.csv",
+                "data_ur5e_Qik.csv",
+            ],
+            "qsinpi_alt": [
+                "data_ur5e_qs_inpi.csv",
+                "data_ur5e_qemins_inpi.csv",
+            ],
+            "qsoutpi_alt": [
+                "data_ur5e_qs_outpi.csv",
+                "data_ur5e_qemins_outpi.csv",
+            ],
+        }
+
+        exp = "qsoutpi_alt"
+
+        qs = pd.read_csv(exp_param[exp][0]).to_numpy().flatten()
+        Qik = pd.read_csv(exp_param[exp][1]).to_numpy()
+
+        cost = []
+        for i in range(Qik.shape[0]):
+            print(f"Planning to goal {i}")
+            qg = Qik[i]
+            print(f"qg: {qg}")
+            result = planner.query_planning(qs, qg)
+            if result is not None:
+                path, path_cost = result
+                print(f"Path cost for goal {i}: {path_cost}")
+                cost.append(path_cost)
+                df_path = pd.DataFrame(path, columns=[f"q{i}" for i in range(6)])
+                df_path.to_csv(
+                    f"./paths_exp1/data_exp1_path_goal_{i}.csv", index=False
+                )
+            else:
+                print(f"No solution found for goal {i}")
+                cost.append(float("inf"))  # or None, depending on your preference
+        # concat Qik and cost and save to csv
+        df_cost = pd.DataFrame(cost, columns=["cost"])
+        df_Qik = pd.DataFrame(Qik, columns=[f"q{i}" for i in range(6)])
+        df_result = pd.concat([df_Qik, df_cost], axis=1)
+        df_result.to_csv(f"data_exp1_planner_results_{exp}.csv", index=False)
+
+    exp1_planning()
