@@ -693,12 +693,12 @@ def view_exp1_aik():
     robot.load_models_ghost(color=[1, 1, 1, 0.1])  # white ghost model
     robot.load_models_ghost(color=[0, 0, 0, 0.1])  # black ghost model
     robot.load_models_ghost(color=[0.5, 0.5, 0.5, 0.1])  # gray ghost model
-    robot.load_models_other(Constants.model_list)
+    # robot.load_models_other(Constants.model_list)
 
     # camera for exp3
     robot.set_visualizer_camera(*Constants.camera_exp3)
 
-    df_qs = pd.read_csv("./data_ur5e_qs.csv")
+    df_qs = pd.read_csv("./data_ur5e_qs_inpi.csv")
     qs = df_qs.to_numpy().reshape(-1)
 
     df_Qik = pd.read_csv("./data_ur5e_Qik.csv")

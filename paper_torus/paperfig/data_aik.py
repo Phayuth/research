@@ -54,7 +54,7 @@ qs_outpi = np.array(
     (
         0.06613874435424827 - 2 * np.pi,
         -1.1243596076965368 + 2 * np.pi,
-        1.8518862724304164 - 2 * np.pi,
+        1.8518862724304164,
         -0.8598046302795428 + 2 * np.pi,
         1.7857480049133336 - 2 * np.pi,
         0.1984162330627437 - 2 * np.pi,
@@ -449,6 +449,15 @@ def compare_qs_to_256_altconfigs(qs):
     print("Minimum of each alt config per b excluding original:", mde_altall_excl)
     # print("Distance from qs to all alt configs of 8 branches:", de_altall)
     print("Minimum distance among all alt configs:", mindist_altall)
+
+    # write direct cost to Qik
+    df_direct_cost = pd.DataFrame(Deul.reshape(1, -1))
+    df_direct_cost.to_csv(f"./data_ur5e_direct_cost{qs}.csv", index=False)
+
+    # write direct cost to the minimum of alt configs of each branch exc original
+    df_altcost_excl = pd.DataFrame(mde_altall_excl.reshape(1, -1))
+    df_altcost_excl.to_csv(f"./data_ur5e_altcost_excl{qs}.csv", index=False)
+
     return [qemin1, qemin2, qemin3, qemin4, qemin5, qemin6, qemin7, qemin8]
 
 
@@ -457,10 +466,9 @@ def compare_qs_to_256_altconfigs_collisionfree(qs_inpi, qs_outpi):
     dfQik = pd.DataFrame(Qik)
     dfQik.to_csv("./data_ur5e_Qik.csv", index=False)
 
-    # write qs_inpi to csv
+    # write qs_inpi, qs_outpi to csv
     dfqs = pd.DataFrame(qs_inpi.reshape(1, -1))
     dfqs.to_csv("./data_ur5e_qs_inpi.csv", index=False)
-    # write qs_outpi to csv
     dfqs = pd.DataFrame(qs_outpi.reshape(1, -1))
     dfqs.to_csv("./data_ur5e_qs_outpi.csv", index=False)
 

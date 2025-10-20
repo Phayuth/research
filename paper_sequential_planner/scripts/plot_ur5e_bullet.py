@@ -737,4 +737,4 @@ if __name__ == "__main__":
         visualize_analytical_ik_pose,
     ]
 
-    option_runner(func, default_id="3")
+    option_runner(func, default_id="6")
