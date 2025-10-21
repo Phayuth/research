@@ -64,6 +64,7 @@ def solve_ik_altconfig_(taskH):
 def solve_fk_(q):
     bot = util.ur5e_dh()
     H = util.solve_fk(bot, q)
+    H = util.convert_dh_to_urdf_frame(H)
     return H
 
 
@@ -95,7 +96,7 @@ def solve_robotsp_altconfig():
     rtspsolver.print_log()
 
 
-def solve_robotsp_normal_collision():
+def solve_robotsp_grocery_picking_normal():
     robot = UR5eBullet("no_gui")
     model_id = robot.load_models_other(Constants.model_list_shelf)
     op = OMPLPlanner(robot.collision_check_at_config)
@@ -104,11 +105,10 @@ def solve_robotsp_normal_collision():
         return robot.collision_check_at_config(q)
 
     def query_collisionfree_path(qa, qb):
-        path = op.query_planning(qa, qb)
-        cost = 0.0
-        for i in range(len(path)):
-            cost += np.linalg.norm(np.array(path[i]) - np.array(path[i - 1]))
-        return path, cost
+        result = op.query_planning(qa, qb)
+        if result is not None:
+            path, cost = result
+            return path, cost
 
     def cspace_collisionfree_tour(optimal_configs):
         collisionfree_tour = []
@@ -132,7 +132,51 @@ def solve_robotsp_normal_collision():
     Hinit = solve_fk_(qinit)
     numsolslist, Qlist = solve_ik_(Htasks)
     QlistCollision = collision_check_Qlist(Qlist, collision_check_individual)
-    QlistFree = remove_collision_Qlist(Qlist, QlistCollision)
+    QlistFree, numsolsfree = remove_collision_Qlist(Qlist, QlistCollision)
+    cf_tour, cf_costs = rtspsolver.solve(
+        Htasks, Hinit, qinit, numsolsfree, QlistFree
+    )
+    rtspsolver.print_log()
+    return cf_tour, cf_costs
+
+
+def solve_robotsp_grocery_picking_altconfig():
+    robot = UR5eBullet("no_gui")
+    model_id = robot.load_models_other(Constants.model_list_shelf)
+    op = OMPLPlanner(robot.collision_check_at_config)
+
+    def collision_check_individual(q):
+        return robot.collision_check_at_config(q)
+
+    def query_collisionfree_path(qa, qb):
+        result = op.query_planning(qa, qb)
+        if result is not None:
+            path, cost = result
+            return path, cost
+
+    def cspace_collisionfree_tour(optimal_configs):
+        collisionfree_tour = []
+        costs = []
+        for i in range(len(optimal_configs) - 1):
+            qa = optimal_configs[i]
+            qb = optimal_configs[i + 1]
+            path, cost = query_collisionfree_path(qa, qb)
+            collisionfree_tour.append(path)
+            costs.append(cost)
+        return collisionfree_tour, costs
+
+    rtspsolver = RoboTSPSolver(
+        cspace_collisionfree_tour_func=cspace_collisionfree_tour
+    )
+
+    Htasks = taskspace_pose()
+    qinit = np.array([3.4, -1.22, 1.25, 0.0, 1.81, 0.0])  # altconfig better
+    # qinit = np.array([0.0, -1.22, 1.25, 0.0, 1.81, 0.0]) # altconfig better
+    # qinit = np.array([7.1, -1.22, 1.25, 0.0, 1.81, 0.0])  # normal config better
+    Hinit = solve_fk_(qinit)
+    numsolslist, Qlist = solve_ik_(Htasks)
+    QlistCollision = collision_check_Qlist(Qlist, collision_check_individual)
+    QlistFree, _ = remove_collision_Qlist(Qlist, QlistCollision)
     numsolsfree, QlistFree = util.find_altconfig_bulk(QlistFree)
     cf_tour, cf_costs = rtspsolver.solve(
         Htasks, Hinit, qinit, numsolsfree, QlistFree
@@ -145,6 +189,7 @@ def visualization():
     # robot
     robot = UR5eBullet("gui")
     model_id = robot.load_models_other(Constants.model_list_shelf)
+    modelghost = robot.load_models_ghost(color=[1, 0, 0, 0.5])
 
     taskH = taskspace_pose()
     pose = []
@@ -154,16 +199,51 @@ def visualization():
     for id, pi in enumerate(pose):
         robot.draw_frame(pi[0], pi[1], 0.1, 2, text=f"task{id}")
 
-    tour = np.load("cf_tour.npy", allow_pickle=True)
-    path = []
-    for i in range(tour.shape[0] - 1):
-        pi = np.linspace(tour[i], tour[i + 1], 10)
-        for px in pi:
-            path.append(px)
-    path = np.vstack(path)
-    # path = tour
+    # tour = np.load("cf_tour.npy", allow_pickle=True)
+    # path = []
+    # for i in range(tour.shape[0] - 1):
+    #     pi = np.linspace(tour[i], tour[i + 1], 10)
+    #     for px in pi:
+    #         path.append(px)
+    # path = np.vstack(path)
+    # robot.reset_array_joint_state(path[0])
+    # robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
+    # try:
+    #     j = 0
+    #     while True:
+    #         nkey = ord("n")
+    #         bkey = ord("b")
+    #         keys = p.getKeyboardEvents()
+    #         if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
+    #             q = path[j % path.shape[0]]
+    #             robot.reset_array_joint_state(q)
+    #             p.stepSimulation()
+    #             j += 1
+    #         elif bkey in keys and keys[bkey] & p.KEY_WAS_TRIGGERED:
+    #             q = path[j % path.shape[0]]
+    #             robot.reset_array_joint_state(q)
+    #             p.stepSimulation()
+    #             j -= 1
+    # except KeyboardInterrupt:
+    #     robot.disconnect()
 
-    robot.reset_array_joint_state(path[0])
+    tour_normal = np.load("cf_tour_normal.npy", allow_pickle=True)
+    tour_altconfig = np.load("cf_tour_altconfig.npy", allow_pickle=True)
+    path_nm = []
+    path_ac = []
+    for i in range(tour_normal.shape[0] - 1):
+        pi_nm = np.linspace(tour_normal[i], tour_normal[i + 1], 10)
+        for px in pi_nm:
+            path_nm.append(px)
+    for i in range(tour_altconfig.shape[0] - 1):
+        pi_ac = np.linspace(tour_altconfig[i], tour_altconfig[i + 1], 10)
+        for px in pi_ac:
+            path_ac.append(px)
+    path_nm = np.vstack(path_nm)
+    path_ac = np.vstack(path_ac)
+
+    robot.reset_array_joint_state(path_nm[0])
+    robot.reset_array_joint_state_ghost(path_ac[0], robot.ghost_model[0])
     try:
         j = 0
         while True:
@@ -171,32 +251,37 @@ def visualization():
             bkey = ord("b")
             keys = p.getKeyboardEvents()
             if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
-                q = path[j % path.shape[0]]
-                robot.reset_array_joint_state(q)
+                q_nm = path_nm[j % path_nm.shape[0]]
+                q_ac = path_ac[j % path_ac.shape[0]]
+                robot.reset_array_joint_state(q_nm)
+                robot.reset_array_joint_state_ghost(q_ac, robot.ghost_model[0])
                 p.stepSimulation()
                 j += 1
             elif bkey in keys and keys[bkey] & p.KEY_WAS_TRIGGERED:
-                q = path[j % path.shape[0]]
-                robot.reset_array_joint_state(q)
+                q_nm = path_nm[j % path_nm.shape[0]]
+                q_ac = path_ac[j % path_ac.shape[0]]
+                robot.reset_array_joint_state(q_nm)
+                robot.reset_array_joint_state_ghost(q_ac, robot.ghost_model[0])
                 p.stepSimulation()
                 j -= 1
     except KeyboardInterrupt:
         robot.disconnect()
 
 
-if __name__ == "__main__":
-    # visualization()
-    # solve_robotsp_normal()
-    # solve_robotsp_altconfig()
-
-    cf_tour, cf_costs = solve_robotsp_normal_collision()
-    print(cf_tour)
+def flatten_tour(cf_tour):
     t = []
     for pp in cf_tour:
         for pi in pp:
             t.append(pi)
-    print("CF", t)
+    return np.array(t)
 
-    # cf_tour = np.array(t)
-    # np.save("cf_tour.npy", cf_tour)
-    # print(cf_tour)
+
+if __name__ == "__main__":
+    visualization()
+    # solve_robotsp_normal()
+    # solve_robotsp_altconfig()
+
+    # cf_tour, cf_costs = solve_robotsp_grocery_picking_normal()
+    # cf_tour, cf_costs = solve_robotsp_grocery_picking_altconfig()
+    # cf_tour = flatten_tour(cf_tour)
+    # np.save("cf_tour_altconfig.npy", cf_tour)

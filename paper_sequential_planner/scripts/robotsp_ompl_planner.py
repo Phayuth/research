@@ -119,25 +119,43 @@ class OMPLPlanner:
         goal[5] = goal_list[5]
 
         self.ss.setStartAndGoalStates(start, goal)
-        status = self.ss.solve(1.0)
-        print("-----------")
-        print(dir(status))
-        print("EXACT") if status.EXACT_SOLUTION else print("INEXACT")
-        print("-----------")
-        if status:
+        status = self.ss.solve(10.0)
+        (
+            print("EXACT")
+            if status.getStatus() == status.EXACT_SOLUTION
+            else print("Invalid result")
+        )
+        if status.getStatus() == status.EXACT_SOLUTION:
             self.ss.simplifySolution()
             path = self.ss.getSolutionPath()
+            path_cost = path.length()
+
             print("Found solution:")
+            print(f"Path cost: {path_cost}")
             print(self.ss.getSolutionPath())
 
             pathlist = []
             for i in range(path.getStateCount()):
                 pi = path.getState(i)
                 pathlist.append([pi[0], pi[1], pi[2], pi[3], pi[4], pi[5]])
-            return pathlist
+            return pathlist, path_cost
         else:
             print("No solution found")
+            return None
 
 
 if __name__ == "__main__":
-    planWithSimpleSetup()
+    from plot_ur5e_bullet import UR5eBullet, Constants
+
+    robot = UR5eBullet("no_gui")
+    model_id = robot.load_models_other(Constants.model_list_shelf)
+
+    planner = OMPLPlanner(robot.collision_check_at_config)
+    qs = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    qg = np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    result = planner.query_planning(qs, qg)
+    if result is not None:
+        pathlist, path_cost = result
+        print("Path list:")
+        print(pathlist)
+        print(f"Path cost: {path_cost}")

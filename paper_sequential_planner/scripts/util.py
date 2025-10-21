@@ -140,6 +140,12 @@ def convert_urdf_to_dh_frame(H):
     return np.linalg.inv(Hdh_to_urdf) @ H
 
 
+def convert_dh_to_urdf_frame(H):
+    "from dh frame to our design task in urdf frame"
+    Hdh_to_urdf = SE3.Rz(np.pi).A
+    return Hdh_to_urdf @ H
+
+
 def generate_random_dh_tasks(bot, num_tasks=10):
     angle = np.random.uniform(-np.pi, np.pi, size=(num_tasks, 6))
     T = []

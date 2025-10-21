@@ -249,6 +249,7 @@ def collision_check_Qlist(Qlist, check_func=collision_check_individual):
 
 def remove_collision_Qlist(Qlist, QlistCollision):
     QlistFree = []
+    numQlistFree = []
     for i in range(len(Qlist)):
         Q = Qlist[i]
         QC = QlistCollision[i]
@@ -256,8 +257,9 @@ def remove_collision_Qlist(Qlist, QlistCollision):
         for j in range(len(Q)):
             if not QC[j]:
                 QFree.append(Q[j])
+        numQlistFree.append(len(QFree))
         QlistFree.append(np.array(QFree))
-    return QlistFree
+    return QlistFree, numQlistFree
 
 
 def query_collisionfree_path(qa, qb):
