@@ -4,7 +4,7 @@ from ompl import util as ou
 import numpy as np
 import time
 
-ou.RNG.setSeed(int(time.time() * 1000000) % 2**32)
+# ou.RNG.setSeed(int(time.time() * 1000000) % 2**32)
 
 
 def planWithSimpleSetup():
@@ -83,6 +83,8 @@ class OMPLPlanner:
         for i in range(6):
             self.bounds.setLow(i, -self.limit6[i])
             self.bounds.setHigh(i, self.limit6[i])
+        self.bounds.setLow(1, -np.pi)
+        self.bounds.setHigh(1, 0)
         self.space.setBounds(self.bounds)
 
         self.ss = og.SimpleSetup(self.space)
@@ -118,8 +120,11 @@ class OMPLPlanner:
         goal[4] = goal_list[4]
         goal[5] = goal_list[5]
 
+        dist = np.linalg.norm(np.array(goal_list) - np.array(start_list))
+
         self.ss.setStartAndGoalStates(start, goal)
-        status = self.ss.solve(10.0)
+        status = self.ss.solve(100.0)
+        print("Plan from ", start_list, " to ", goal_list, "estimate cost:", dist)
         (
             print("EXACT")
             if status.getStatus() == status.EXACT_SOLUTION
@@ -149,10 +154,10 @@ if __name__ == "__main__":
 
     robot = UR5eBullet("no_gui")
     model_id = robot.load_models_other(Constants.model_list_shelf)
-
+    # 4.439302803306453
     planner = OMPLPlanner(robot.collision_check_at_config)
-    qs = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    qg = np.array([1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+    qs = np.array([5.177, -0.957, 0.726, 0.231, 2.036, -3.142])
+    qg = np.array([5.177, -0.56, 1.384, 2.318, 4.248, -6.283])
     result = planner.query_planning(qs, qg)
     if result is not None:
         pathlist, path_cost = result

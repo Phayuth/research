@@ -4,7 +4,10 @@ import fast_tsp
 import networkx as nx
 import time
 import pprint
+import json
+from datetime import datetime
 import util
+from spatial_geometry.utils import Utils
 
 
 def tspace_distance_position_euclidean(H1, H2):
@@ -213,6 +216,81 @@ def cspace_candidate_selection_dijkstra(qinit, Qorder, cspace_dist_func):
     return optimal_config, cost
 
 
+def cspace_candidate_selection_dijkstra_multi_sink(
+    qinit, Qorder, cspace_dist_func
+):
+    limt6 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    Qaltinit = Utils.find_alt_config(qinit.reshape(-1, 1), limt6).T
+    print("Alt init:", Qaltinit)
+    Layer = [qinit] + Qorder + [Qaltinit]
+    G = nx.DiGraph()
+    positions = {}
+    node_id = 0
+    layers = []
+    for lay in Layer:
+        lid = []
+        if lay.shape == (6,):
+            positions[node_id] = lay
+            G.add_node(node_id)
+            lid.append(node_id)
+            node_id += 1
+        else:
+            for l in lay:
+                positions[node_id] = l
+                G.add_node(node_id)
+                lid.append(node_id)
+                node_id += 1
+        layers.append(lid)
+
+    for i in range(len(layers) - 1):
+        for src in layers[i]:
+            for dst in layers[i + 1]:
+                q1 = positions[src]
+                q2 = positions[dst]
+                w = cspace_dist_func(q1, q2)
+                G.add_edge(src, dst, weight=w)
+
+    last_node_id = node_id
+    target_nodes_id = list(range(last_node_id - len(Qaltinit), last_node_id))
+    print("Target nodes:", target_nodes_id)
+
+    for tnid in target_nodes_id:
+        print("Target node config:", positions[tnid])
+
+    config_path_id = None
+    min_cost = float("inf")
+    for tnid in target_nodes_id:
+        try:
+            path_id = nx.dijkstra_path(G, 0, tnid)
+            cost = 0.0
+            for i in range(len(path_id) - 1):
+                edge_data = G.get_edge_data(path_id[i], path_id[i + 1])
+                cost += edge_data["weight"]
+            if cost < min_cost:
+                min_cost = cost
+                config_path_id = path_id
+        except nx.NetworkXNoPath:
+            continue
+
+    optimal_config = []
+    for id in config_path_id:
+        optimal_config.append(positions[id])
+
+    cost = 0.0
+    for i in range(len(optimal_config) - 1):
+        cost += cspace_dist_func(optimal_config[i], optimal_config[i + 1])
+    return optimal_config, cost
+
+
 def _reroder_taskH(taskH, order):
     taskHreorder = []
     for o in order:
@@ -296,12 +374,14 @@ class RoboTSPSolver:
         tspace_tsp_solver_func=tspace_tsp_solver,
         tspace_tsp_solver_method="heuristic_local_search",
         cspace_collisionfree_tour_func=cspace_collisionfree_tour,
+        cspace_candidate_selection_func=cspace_candidate_selection_dijkstra,
     ):
         self.tspace_dist_matrix_func = tspace_dist_matrix_func
         self.cspace_dist_func = cspace_dist_func
         self.tspace_tsp_solver_func = tspace_tsp_solver_func
         self.tspace_tsp_solver_method = tspace_tsp_solver_method
-        self.cspace_collisionfree_tour = cspace_collisionfree_tour_func
+        self.cspace_collisionfree_tour_func = cspace_collisionfree_tour_func
+        self.cspace_candidate_selection_func = cspace_candidate_selection_func
 
         self.log = {}
         self.log["tspace_num"] = None
@@ -324,6 +404,47 @@ class RoboTSPSolver:
     def print_log(self):
         pp = pprint.PrettyPrinter(indent=4, compact=True)
         pp.pprint(self.log)
+
+    def save_log(self):
+        # Generate timestamp for unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Post-process log data for JSON serialization
+        processed_log = {}
+
+        for key, value in self.log.items():
+            if isinstance(value, np.ndarray):
+                # Convert numpy arrays to lists
+                processed_log[key] = value.tolist()
+            elif isinstance(value, (np.integer, np.floating)):
+                # Convert numpy scalars to Python types
+                processed_log[key] = value.item()
+            elif isinstance(value, list):
+                # Handle lists that might contain numpy arrays
+                processed_list = []
+                for item in value:
+                    if isinstance(item, np.ndarray):
+                        processed_list.append(item.tolist())
+                    elif isinstance(item, (np.integer, np.floating)):
+                        processed_list.append(item.item())
+                    else:
+                        processed_list.append(item)
+                processed_log[key] = processed_list
+            else:
+                # Keep other types as-is (strings, basic numbers, etc.)
+                processed_log[key] = value
+
+        # Save as JSON file with timestamp
+        json_filename = f"robotsp_solver_log_{timestamp}.json"
+        with open(json_filename, "w") as f:
+            json.dump(processed_log, f, indent=4)
+
+        print(f"Log saved to: {json_filename}")
+
+        # # Also keep the original pretty-printed text file for human readability
+        # with open("robotsp_solver_log.txt", "w") as f:
+        #     pp = pprint.PrettyPrinter(indent=4, compact=True, stream=f)
+        #     pp.pprint(self.log)
 
     def solve(self, Htasks, Hinit, qinit, numsolslist, Qlist):
         """
@@ -358,10 +479,10 @@ class RoboTSPSolver:
         # 2. Solve optimal config in c-space given the order
         Qlist_order = _reorder_Q(Qlist, tour)
         st = time.time()
-        optimal_config, cost = cspace_candidate_selection_dijkstra(
+        optimal_config, cost = self.cspace_candidate_selection_func(
             qinit,
             Qlist_order,
-            cspace_euclidean_distance,
+            self.cspace_dist_func,
         )
         et = time.time()
         self.log["cspace_optimal_config_selection_solvetime"] = et - st
@@ -370,7 +491,7 @@ class RoboTSPSolver:
 
         # 3. Solve collision-free tour
         st = time.time()
-        cf_tour, cf_costs = self.cspace_collisionfree_tour(optimal_config)
+        cf_tour, cf_costs = self.cspace_collisionfree_tour_func(optimal_config)
         et = time.time()
         self.log["cspace_collisionfree_tour_solvetime"] = et - st
         self.log["cspace_collisionfree_tour_costs"] = [float(c) for c in cf_costs]
@@ -382,6 +503,7 @@ class RoboTSPSolver:
             + self.log["cspace_collisionfree_tour_solvetime"]
         )
 
+        self.save_log()
         return cf_tour, cf_costs
 
 

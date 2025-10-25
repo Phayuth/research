@@ -12,6 +12,18 @@ limt6 = np.array(
         [-2 * np.pi, 2 * np.pi],
     ]
 )
+
+limt6ontable = np.array(
+    [
+        [-2 * np.pi, 2 * np.pi],
+        [-np.pi, 0],
+        [-np.pi, np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+    ]
+)
+
 qs = np.array(
     [
         0.39683294296264565,
@@ -156,5 +168,8 @@ def compare_data():
 
 
 if __name__ == "__main__":
-    compute_joint_moves_on_euclidean_collisionfree_path()
-    compare_data()
+    # compute_joint_moves_on_euclidean_collisionfree_path()
+    # compare_data()
+
+    qaltnew = Utils.find_alt_config(qe.reshape(-1, 1), limt6ontable, filterOriginalq=False).T
+    print("qaltnew:", qaltnew)
