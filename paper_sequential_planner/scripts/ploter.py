@@ -77,5 +77,7 @@ axes[1].set_ylim((-2 * np.pi, 2 * np.pi))
 
 axes[0].legend(loc="upper left")
 axes[1].legend(loc="upper left")
+
+axes[1].set_title("Wrapped Joint $\\mathcal{C}_{obs}$ over Time")
 fig.tight_layout(pad=0)
-fig.savefig("/home/ /demo_plot.svg")
+fig.savefig("/home/demo_plot.svg")
