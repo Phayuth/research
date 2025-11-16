@@ -6,6 +6,7 @@ np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
 
+# ============== Data Generation ==============
 def random_point_in_circle(x, y, r=0.5, n=1):
     points = []
     for _ in range(n):
