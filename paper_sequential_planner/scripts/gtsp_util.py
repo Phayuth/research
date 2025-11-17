@@ -8,6 +8,8 @@ try:
 except:
     print("missing packages; usage limited")
 
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
+
 
 class RobotUR5eKin:
 
@@ -52,6 +54,9 @@ class RobotUR5eKin:
     def solve_manipulability(self, q):
         return self.bot_rtb.manipulability(q)
 
+    def solve_jacobian(self, q):
+        return self.bot_rtb.jacob0(q)
+
     def _convert_urdf_to_dh_frame(H):
         "from our design task in urdf frame to dh frame"
         Hdh_to_urdf = SE3.Rz(np.pi).A
@@ -61,3 +66,17 @@ class RobotUR5eKin:
         "from dh frame to our design task in urdf frame"
         Hdh_to_urdf = SE3.Rz(np.pi).A
         return Hdh_to_urdf @ H
+
+
+if __name__ == "__main__":
+    robot = RobotUR5eKin()
+
+    q = np.array([0, -np.pi / 2, np.pi / 2, 0, 0, 0])
+    H = robot.solve_fk(q)
+    print("FK H:\n", H)
+
+    M = robot.solve_manipulability(q)
+    print("manipulability:", M)
+
+    Jac = robot.solve_jacobian(q)
+    print("Jacobian:\n", Jac)
