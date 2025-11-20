@@ -91,8 +91,10 @@ class OMPLPlanner:
         self.ss.setStateValidityChecker(
             ob.StateValidityCheckerFn(self.isStateValid)
         )
-        self.planner = og.RRTConnect(self.ss.getSpaceInformation())
-        self.planner.setRange(0.1)
+        # self.planner = og.BITstar(self.ss.getSpaceInformation())
+        self.planner = og.ABITstar(self.ss.getSpaceInformation())
+        # self.planner = og.AITstar(self.ss.getSpaceInformation())
+        # self.planner.setRange(0.1)
         self.ss.setPlanner(self.planner)
 
     def isStateValid(self, state):
