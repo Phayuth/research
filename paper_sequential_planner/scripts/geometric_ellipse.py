@@ -10,14 +10,14 @@ def informed_sampling(xCenter, cMax, cMin, rotationAxisC):
     return xRand
 
 
-def hyperellipsoid_axis_length(cMax, cMin):  # L
+def hyperellipsoid_axis_length(cMax, cMin, dof=2):  # L
     r1 = cMax / 2
     ri = np.sqrt(cMax**2 - cMin**2) / 2
     diagTerm = [r1] + [ri] * (dof - 1)
     return np.diag(diagTerm)
 
 
-def unit_ball_sampling():
+def unit_ball_sampling(dof=2):
     u = np.random.normal(0.0, 1.0, (dof + 2, 1))
     norm = np.linalg.norm(u)
     u = u / norm
@@ -25,6 +25,7 @@ def unit_ball_sampling():
 
 
 def rotation_to_world(xStart, xGoal):  # C
+    dof = xStart.shape[0]
     cMin = distance_between_config(xStart, xGoal)
     a1 = (xGoal - xStart) / cMin
     I1 = np.array([1.0] + [0.0] * (dof - 1)).reshape(1, -1)
@@ -76,14 +77,15 @@ def plot_2d_ellipse():
     plt.show()
 
 
-dof = 2  # degrees of freedom for the configuration space
-xStart = np.array([0.0] * dof).reshape(-1, 1)
-xGoal = np.array([1.0] * dof).reshape(-1, 1)
-xCenter = (xStart + xGoal) / 2
-C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
-cMin = distance_between_config(xStart, xGoal)
-cMax = 2.0
-xRand = informed_sampling(xCenter, cMax, cMin, C)
-XRAND = [informed_sampling(xCenter, cMax, cMin, C) for _ in range(1000)]
+if __name__ == "__main__":
+    dof = 2  # degrees of freedom for the configuration space
+    xStart = np.array([0.0] * dof).reshape(-1, 1)
+    xGoal = np.array([1.0] * dof).reshape(-1, 1)
+    xCenter = (xStart + xGoal) / 2
+    C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
+    cMin = distance_between_config(xStart, xGoal)
+    cMax = 2.0
+    xRand = informed_sampling(xCenter, cMax, cMin, C)
+    XRAND = [informed_sampling(xCenter, cMax, cMin, C) for _ in range(1000)]
 
-plot_2d_ellipse()
+    plot_2d_ellipse()

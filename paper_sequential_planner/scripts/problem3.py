@@ -173,6 +173,8 @@ def path_estimation(qa, qb, eta=0.1):
 
 
 if __name__ == "__main__":
+    from geometric_ellipse import get_2d_ellipse_mplpatch, distance_between_config
+
     shapes = {
         # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
         "shape1": {"x": -0.7, "y": 2.1, "h": 2, "w": 2.2},
@@ -209,6 +211,7 @@ if __name__ == "__main__":
     Xrandcoll = np.array(Xrandcoll)
 
     from scipy.spatial import Voronoi, voronoi_plot_2d
+
     vor = Voronoi(Xrandfree)
 
     # scene.plot(theta)
@@ -227,6 +230,49 @@ if __name__ == "__main__":
     q9 = np.array([-3.0, 0.0])
     q10 = np.array([-3.0, 2.5])
 
+    cmine1 = distance_between_config(q1, q2)
+    cmine2 = distance_between_config(q3, q4)
+    cmine3 = distance_between_config(q5, q6)
+    cmine4 = distance_between_config(q7, q8)
+    cmine5 = distance_between_config(q9, q10)
+
+    cmaxpercent = 1.1
+    cmaxe1 = cmaxpercent * cmine1
+    cmaxe2 = cmaxpercent * cmine2
+    cmaxe3 = cmaxpercent * cmine3
+    cmaxe4 = cmaxpercent * cmine4
+    cmaxe5 = cmaxpercent * cmine5
+
+    e1 = get_2d_ellipse_mplpatch(
+        q1.reshape(-1, 1),
+        q2.reshape(-1, 1),
+        cMax=cmaxe1,
+        cMin=cmine1,
+    )
+    e2 = get_2d_ellipse_mplpatch(
+        q3.reshape(-1, 1),
+        q4.reshape(-1, 1),
+        cMax=cmaxe2,
+        cMin=cmine2,
+    )
+    e3 = get_2d_ellipse_mplpatch(
+        q5.reshape(-1, 1),
+        q6.reshape(-1, 1),
+        cMax=cmaxe3,
+        cMin=cmine3,
+    )
+    e4 = get_2d_ellipse_mplpatch(
+        q7.reshape(-1, 1),
+        q8.reshape(-1, 1),
+        cMax=cmaxe4,
+        cMin=cmine4,
+    )
+    e5 = get_2d_ellipse_mplpatch(
+        q9.reshape(-1, 1),
+        q10.reshape(-1, 1),
+        cMax=cmaxe5,
+        cMin=cmine5,
+    )
     patha = path_estimation(q1, q2, eta=0.1)
     pathb = path_estimation(q3, q4, eta=0.1)
     pathc = path_estimation(q5, q6, eta=0.1)
@@ -250,7 +296,15 @@ if __name__ == "__main__":
     ax.plot(pathe[:, 0], pathe[:, 1], "rx", linewidth=3, alpha=0.8)
     # voronoi_plot_2d(vor, ax)
 
+    ax.add_patch(e1)
+    ax.add_patch(e2)
+    ax.add_patch(e3)
+    ax.add_patch(e4)
+    ax.add_patch(e5)
+
     ax.set_aspect("equal", "box")
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
+
+
     plt.show()
