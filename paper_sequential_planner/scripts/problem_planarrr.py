@@ -192,6 +192,7 @@ if __name__ == "__main__":
     robot = PlanarRR()
     scene = RobotScene(robot, obstacles)
 
+    # scene.cspace_obstacles(generate=True, save=True, plot=False)
     theta = np.array([[-np.pi], [np.pi / 4.0]])
     theta = np.array([[np.pi / 6.0], [-1.0]])
     best, results = scene.distance_to_obstacles(theta)
@@ -300,17 +301,6 @@ if __name__ == "__main__":
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
 
-    # n points
-    # n-1 gaps/cells
-
-    # def query_point_index(query, line):
-    #     lowb = line < query
-    #     i = 0
-    #     for val in lowb:
-    #         if val:
-    #             i += 1
-    #     return i - 1
-
     from geometric_pcm import is_point_in_square, _make_rect_patches
     from matplotlib.colors import LinearSegmentedColormap
 
@@ -348,6 +338,8 @@ if __name__ == "__main__":
     print("cumsum_pointinsquare:\n", cumsum_pointinsquare)
     cellscore = cumsum_collision / (cumsum_pointinsquare + 0.0001)
     print(cellscore)
+
+    # np.save(os.path.join(rsrc, "costgrid_problem3.npy"), cellscore)
 
     freecolor = "white"
     colcolor = "red"

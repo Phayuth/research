@@ -53,31 +53,14 @@ def get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin):
         height=h,
         angle=a,
         fill=False,
-        edgecolor="red",
+        # edgecolor="red",
         linewidth=2,
     )
     return el
 
 
-def plot_2d_ellipse():
-    fig, ax = plt.subplots()
-    el = get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin)
-    ax.add_patch(el)
-    ax.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
-    ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
-    ax.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
-    for x in XRAND:
-        ax.plot(x[0], x[1], marker=".", color="gray", alpha=0.5)
-    ax.set_aspect("equal", "box")
-    ax.set_xlim(-2, 3)
-    ax.set_ylim(-2, 3)
-    ax.grid(True)
-    ax.legend()
-
-    plt.show()
-
-
 if __name__ == "__main__":
+    # example usage
     dof = 2  # degrees of freedom for the configuration space
     xStart = np.array([0.0] * dof).reshape(-1, 1)
     xGoal = np.array([1.0] * dof).reshape(-1, 1)
@@ -85,7 +68,38 @@ if __name__ == "__main__":
     C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
     cMin = distance_between_config(xStart, xGoal)
     cMax = 2.0
-    xRand = informed_sampling(xCenter, cMax, cMin, C)
     XRAND = [informed_sampling(xCenter, cMax, cMin, C) for _ in range(1000)]
 
-    plot_2d_ellipse()
+    # plot
+    fig, (ax, ay) = plt.subplots(1, 2)
+
+    # fig1
+    ax.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
+    ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
+    ax.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
+    for x in XRAND:
+        ax.plot(x[0], x[1], marker=".", color="gray", alpha=0.5)
+    el = get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin)
+    ax.add_patch(el)
+    ax.set_aspect("equal", "box")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.grid(True)
+    ax.legend()
+
+    # fig2
+    ay.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
+    ay.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
+    ay.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
+    CMAX = np.linspace(cMin, cMin * 5, 10)
+    for cmax in CMAX:
+        el = get_2d_ellipse_mplpatch(xStart, xGoal, cmax, cMin)
+        ay.add_patch(el)
+        fs = f"cMax is +{((cmax - cMin) / cMin) * 100:.1f}% of cMin"
+        ay.plot([], [], label=fs)  # dummy plot for legend
+    ay.set_aspect("equal", "box")
+    ay.set_xlim(-np.pi, np.pi)
+    ay.set_ylim(-np.pi, np.pi)
+    ay.grid(True)
+    ay.legend()
+    plt.show()

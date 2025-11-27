@@ -139,13 +139,40 @@ class MatrixAStar:
         return [self.index_to_coordinate(i) for i in path]
 
 
+class NDAStar:
+
+    def __init__(self):
+        pass
+
+    def distance_between(self, u, v):
+        """
+        compute distance between two nodes u and v
+        u and v are tuples of coordinates
+        ex: u = (x1, y1, z1)
+            v = (x2, y2, z2)
+        """
+        return float(np.linalg.norm(np.array(u) - np.array(v)))
+
+    def heuristic(self, u, v):
+        """
+        compute heuristic between two nodes u and v
+        u and v are tuples of coordinates
+        ex: u = (x1, y1, z1)
+            v = (x2, y2, z2)
+        """
+        return float(np.linalg.norm(np.array(u) - np.array(v)))
+
+    def astar(self, start, goal):
+
+        return []
+
+
 if __name__ == "__main__":
     # build a grid of configuration points
-    nodex = np.linspace(-np.pi, np.pi, 9)
-    nodey = np.linspace(-np.pi, np.pi, 9)
-    nx = len(nodex)
-    ny = len(nodey)
-    config = np.array([[x, y] for x in nodex for y in nodey])
+    line = np.linspace(-np.pi, np.pi, 10)
+    nx = len(line)
+    ny = len(line)
+    config = np.array([[x, y] for x in line for y in line])
 
     # build cost matrix but we only need costs between neighbors — full matrix is fine
     C = np.zeros((config.shape[0], config.shape[0]))
