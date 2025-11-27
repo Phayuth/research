@@ -4,6 +4,7 @@ from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
 import matplotlib.pyplot as plt
 
+np.random.seed(42)
 rsrc = os.environ["RSRC_DIR"]
 
 
@@ -160,7 +161,7 @@ class RobotScene:
         plt.show()
 
 
-def path_estimation(qa, qb, eta=0.1):
+def linear_interp(qa, qb, eta=0.1):
     dist = np.linalg.norm(qb - qa)
     num_segments = int(np.ceil(dist / eta))
     path = []
@@ -174,6 +175,9 @@ def path_estimation(qa, qb, eta=0.1):
 
 if __name__ == "__main__":
     from geometric_ellipse import get_2d_ellipse_mplpatch, distance_between_config
+    from scipy.spatial import Voronoi, voronoi_plot_2d
+    from astaring import MatrixAStar
+    from matplotlib import patches
 
     shapes = {
         # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
@@ -195,7 +199,8 @@ if __name__ == "__main__":
     for res in results:
         print(res)
 
-    numrand = 200
+    # --------------------------------------
+    numrand = 800
     dof = 2
     Xrand = np.random.uniform(-np.pi, np.pi, size=(numrand, dof))
     Xrandfree = []
@@ -210,39 +215,30 @@ if __name__ == "__main__":
     Xrandfree = np.array(Xrandfree)
     Xrandcoll = np.array(Xrandcoll)
 
-    from scipy.spatial import Voronoi, voronoi_plot_2d
-
-    vor = Voronoi(Xrandfree)
+    # vor = Voronoi(Xrandfree)
 
     # scene.plot(theta)
     q1 = np.array([-1.0, 2.5])
     q2 = np.array([1.0, 2.5])
-
     q3 = np.array([0.15, 0.60])
     q4 = np.array([2.5, 1.5])
-
     q5 = np.array([-2.5, -1.5])
     q6 = np.array([2.40, -0.4])
-
     q7 = np.array([-2.0, 2.5])
     q8 = np.array([1.0, -2.0])
-
     q9 = np.array([-3.0, 0.0])
     q10 = np.array([-3.0, 2.5])
-
     cmine1 = distance_between_config(q1, q2)
     cmine2 = distance_between_config(q3, q4)
     cmine3 = distance_between_config(q5, q6)
     cmine4 = distance_between_config(q7, q8)
     cmine5 = distance_between_config(q9, q10)
-
-    cmaxpercent = 1.1
+    cmaxpercent = 1.05
     cmaxe1 = cmaxpercent * cmine1
     cmaxe2 = cmaxpercent * cmine2
     cmaxe3 = cmaxpercent * cmine3
     cmaxe4 = cmaxpercent * cmine4
     cmaxe5 = cmaxpercent * cmine5
-
     e1 = get_2d_ellipse_mplpatch(
         q1.reshape(-1, 1),
         q2.reshape(-1, 1),
@@ -273,11 +269,11 @@ if __name__ == "__main__":
         cMax=cmaxe5,
         cMin=cmine5,
     )
-    patha = path_estimation(q1, q2, eta=0.1)
-    pathb = path_estimation(q3, q4, eta=0.1)
-    pathc = path_estimation(q5, q6, eta=0.1)
-    pathd = path_estimation(q7, q8, eta=0.1)
-    pathe = path_estimation(q9, q10, eta=0.1)
+    patha = linear_interp(q1, q2, eta=0.1)
+    pathb = linear_interp(q3, q4, eta=0.1)
+    pathc = linear_interp(q5, q6, eta=0.1)
+    pathd = linear_interp(q7, q8, eta=0.1)
+    pathe = linear_interp(q9, q10, eta=0.1)
 
     ax = scene.cspace_obstacles(plot=True)
     ax.plot([q1[0], q2[0]], [q1[1], q2[1]], color="green", linewidth=2)
@@ -285,7 +281,6 @@ if __name__ == "__main__":
     ax.plot([q5[0], q6[0]], [q5[1], q6[1]], color="red", linewidth=2)
     ax.plot([q7[0], q8[0]], [q7[1], q8[1]], color="purple", linewidth=2)
     ax.plot([q9[0], q10[0]], [q9[1], q10[1]], color="orange", linewidth=2)
-    # ax.plot(Xrand[:, 0], Xrand[:, 1], "k.", markersize=3, alpha=0.6)
     ax.plot(Xrandfree[:, 0], Xrandfree[:, 1], "go", markersize=2, alpha=0.6)
     ax.plot(Xrandcoll[:, 0], Xrandcoll[:, 1], "kx", markersize=2, alpha=0.6)
 
@@ -294,7 +289,6 @@ if __name__ == "__main__":
     ax.plot(pathc[:, 0], pathc[:, 1], "rx", linewidth=3, alpha=0.8)
     ax.plot(pathd[:, 0], pathd[:, 1], "kx", linewidth=3, alpha=0.8)
     ax.plot(pathe[:, 0], pathe[:, 1], "rx", linewidth=3, alpha=0.8)
-    # voronoi_plot_2d(vor, ax)
 
     ax.add_patch(e1)
     ax.add_patch(e2)
@@ -306,5 +300,70 @@ if __name__ == "__main__":
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
 
+    # n points
+    # n-1 gaps/cells
 
+    # def query_point_index(query, line):
+    #     lowb = line < query
+    #     i = 0
+    #     for val in lowb:
+    #         if val:
+    #             i += 1
+    #     return i - 1
+
+    from geometric_pcm import is_point_in_square, _make_rect_patches
+    from matplotlib.colors import LinearSegmentedColormap
+
+    npoint = 10
+    dof = 2
+    ngaps = npoint - 1
+    line = np.linspace(-np.pi, np.pi, npoint)
+
+    costshape = tuple([ngaps] * dof)
+    costgrid = np.full(shape=costshape, fill_value=0.0)
+    print("costgrid.shape:", costgrid.shape)
+
+    sqrtcentershape = tuple([ngaps] * dof + [dof])
+    sqrcenter = np.empty(sqrtcentershape, dtype=float)
+    length = line[1] - line[0]
+    for i in range(ngaps):
+        for j in range(ngaps):
+            sqrcenter[i, j, 0] = line[i] + length / 2.0
+            sqrcenter[i, j, 1] = line[j] + length / 2.0
+
+    cumsum_pointinsquare = np.zeros_like(costgrid)
+    cumsum_collision = np.zeros_like(costgrid)
+
+    for i in range(ngaps):
+        for j in range(ngaps):
+            for p in Xrand:
+                if is_point_in_square(p, sqrcenter, length, i, j):
+                    cumsum_pointinsquare[i, j] += 1
+                    theta = p.reshape(-1, 1)
+                    best, _ = scene.distance_to_obstacles(theta)
+                    if best["distance"] <= 0.0:
+                        cumsum_collision[i, j] += 1
+
+    print("cumsum_collision:\n", cumsum_collision)
+    print("cumsum_pointinsquare:\n", cumsum_pointinsquare)
+    cellscore = cumsum_collision / (cumsum_pointinsquare + 0.0001)
+    print(cellscore)
+
+    freecolor = "white"
+    colcolor = "red"
+    cmap = LinearSegmentedColormap.from_list("custom_cmap", [freecolor, colcolor])
+
+    for i in range(ngaps):
+        for j in range(ngaps):
+            rect = _make_rect_patches(
+                sqrcenter, length, i, j, cmap, cellscore[i, j]
+            )
+            ax.add_patch(rect)
+            s = f"({i},{j}) colp = {cellscore[i, j]:.2f}"
+            ax.text(
+                sqrcenter[i, j, 0] - length / 2.0 + 0.1,
+                sqrcenter[i, j, 1] - length / 2.0 + 0.1,
+                s,
+                fontsize=6,
+            )
     plt.show()

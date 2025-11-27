@@ -20,9 +20,9 @@ class RandomCircleGen:
         return np.array(points)
 
     @staticmethod
-    def cluster_center_in_circle(xc=0, yc=0, r=1, n=1):
+    def cluster_center_in_circle(xc=0, yc=0, r=1, n=1, thetashift=0):
         centers = []
-        thetas = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        thetas = np.linspace(0, 2 * np.pi, n, endpoint=False) + thetashift
         for theta in thetas:
             center_x = xc + r * np.cos(theta)
             center_y = yc + r * np.sin(theta)
@@ -30,10 +30,38 @@ class RandomCircleGen:
         return centers
 
     @staticmethod
+    def generate(
+        num_clusters,
+        each_cluster,
+        center_radius=1,
+        cluster_radius=0.5,
+        thetashift=0,
+    ):
+        _cluster_centers = RandomCircleGen.cluster_center_in_circle(
+            xc=0,
+            yc=0,
+            r=center_radius,
+            n=num_clusters,
+            thetashift=thetashift,
+        )
+        config = []
+        for center in _cluster_centers:
+            points = RandomCircleGen.random_point_in_circle(
+                x=center[0],
+                y=center[1],
+                r=cluster_radius,
+                n=each_cluster,
+            )
+            config.append(points)
+        config = np.vstack(config)
+        points_per_cluster = [each_cluster] * num_clusters
+        return config, points_per_cluster, _cluster_centers
+
+    @staticmethod
     def plot(all_points, tour=None, cluster_centers=[], cluster_radius=0.5):
         all_points = np.vstack(all_points)
 
-        plt.figure(figsize=(8, 8))
+        plt.figure()
         plt.scatter(all_points[:, 0], all_points[:, 1], c="blue")
         if tour is not None:
             for i in range(len(tour) - 1):
@@ -52,39 +80,39 @@ class RandomCircleGen:
 
 if __name__ == "__main__":
     # problem setup
-    num_clusters = 24
-    points_per_cluster = 8
-    cluster_radius = 0.5
-    cluster_centers = RandomCircleGen.cluster_center_in_circle(
-        xc=0, yc=0, r=3, n=num_clusters
+    num_clusters = 4
+    each_cluster = 8
+    cluster_radius = 0.2
+    center_radius = 2.5
+    config, points_per_cluster, cluster_centers = RandomCircleGen.generate(
+        num_clusters=num_clusters,
+        each_cluster=each_cluster,
+        center_radius=center_radius,
+        cluster_radius=cluster_radius,
+        thetashift=np.pi / 4,
     )
-    config = []
-    for center in cluster_centers:
-        points = RandomCircleGen.random_point_in_circle(
-            x=center[0], y=center[1], r=cluster_radius, n=points_per_cluster
-        )
-        config.append(points)
-    config = np.vstack(config)
-    points_per_cluster = [points_per_cluster] * num_clusters
 
     # compute GTSP data
     cluster = GU.build_cluster(points_per_cluster)
     cost_adj_matrix = GU.edgecost_distance(config)
 
     GUUtil.write_glkh_fullmatrix_file(
-        os.path.join(GUUtil.problemdir, "random_gtsp_fullmatrix.gtsp"),
+        os.path.join(
+            GUUtil.problemdir,
+            f"{num_clusters}random{num_clusters*each_cluster}.gtsp",
+        ),
         cost_adj_matrix,
         cluster,
     )
-    # solve GTSP using GLKH
-    tourmatrix = GUUtil.read_tour_file(
-        os.path.join(GUUtil.problemdir, "random_gtsp_fullmatrix.tour")
-    )
+    # # solve GTSP using GLKH
+    # tourmatrix = GUUtil.read_tour_file(
+    #     os.path.join(GUUtil.problemdir, "random_gtsp_fullmatrix.tour")
+    # )
 
     # plot result
     RandomCircleGen.plot(
         config,
-        tour=tourmatrix,
+        tour=None,
         cluster_centers=cluster_centers,
         cluster_radius=cluster_radius,
     )

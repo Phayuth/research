@@ -176,7 +176,3 @@ class GU:
     @staticmethod
     def edgecost_colfreepath_est(config):
         pass
-
-    @staticmethod
-    def solve_tour():
-        pass
