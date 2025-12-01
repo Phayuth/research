@@ -1,46 +1,48 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
-from matplotlib.colors import LinearSegmentedColormap
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 
-# # setup grid
-# npoints = 10
-# dof = 2
-# ngaps = npoints - 1
-# line = np.linspace(-np.pi, np.pi, npoints)
-# print(line.shape)
 
-# costshape = tuple([ngaps] * dof)
-# costgrid = np.full(shape=costshape, fill_value=0.0)
-# print("costgrid.shape:", costgrid.shape)
-
-# sqrtcentershape = tuple([ngaps] * dof + [dof])
-# sqrcenter = np.empty(sqrtcentershape, dtype=float)
-# print("sqrcenter.shape:", sqrcenter.shape)
-
-# length = line[1] - line[0]
-# # for idx in np.ndindex(sqrcenter.shape[:-1]):
-# #     print("idx:", idx)
-
-# for i in range(ngaps):
-#     for j in range(ngaps):
-#         print(f"i:{i}, j:{j}")
-#         sqrcenter[i, j, 0] = line[i] + length / 2.0
-#         sqrcenter[i, j, 1] = line[j] + length / 2.0
+def make_costgrid(npoints=10, dof=2):
+    ngaps = npoints - 1
+    costshape = tuple([ngaps] * dof)
+    costgrid = np.full(shape=costshape, fill_value=0.0)
+    return costgrid
 
 
-def is_point_in_square(point, sqrcenter, length, i, j):
-    lower_x = sqrcenter[i, j, 0] - length / 2.0
-    upper_x = sqrcenter[i, j, 0] + length / 2.0
-    lower_y = sqrcenter[i, j, 1] - length / 2.0
-    upper_y = sqrcenter[i, j, 1] + length / 2.0
-    if lower_x <= point[0] <= upper_x and lower_y <= point[1] <= upper_y:
-        return True
-    else:
-        return False
+def make_geometric_sqrgrid(
+    npoints=10,
+    dof=2,
+    linemin=-np.pi,
+    linemax=np.pi,
+):
+    ngaps = npoints - 1
+    line = np.linspace(linemin, linemax, npoints)
+    sqrcentershape = tuple([ngaps] * dof + [dof])
+    sqrcenter = np.empty(sqrcentershape, dtype=float)
+
+    length = line[1] - line[0]
+    for idx in np.ndindex(sqrcenter.shape[:-1]):
+        for d in range(dof):
+            i = idx + (d,)
+            sqrcenter[i] = line[idx[d]] + length / 2.0
+    return sqrcenter, length
+
+
+def is_point_in_ndcube(point, sqrcenter, length, indices):
+    for d in range(len(indices)):
+        lower = sqrcenter[indices + (d,)] - length / 2.0
+        upper = sqrcenter[indices + (d,)] + length / 2.0
+        if not (lower <= point[d] <= upper):
+            return False
+    return True
+
+
+def which_indices_point_in_ndcube(point, sqrcenter, length):
+    pass
 
 
 # Point = np.random.uniform(-np.pi, np.pi, size=(500, 2))
@@ -79,27 +81,16 @@ def _make_rect_patches(sqrcenter, length, i, j, cmap, cellscore):
     return rect
 
 
-# def _plot_grid():
-#     freecolor = "white"
-#     colcolor = "red"
-#     cmap = LinearSegmentedColormap.from_list("custom_cmap", [freecolor, colcolor])
+if __name__ == "__main__":
+    sqrcenter, length = make_geometric_sqrgrid(npoints=10, dof=2)
 
-#     Rect = []
-#     fig, ax = plt.subplots()
-#     # ax.plot(Point[:, 0], Point[:, 1], "ko", markersize=2)
-#     for i in range(ngaps):
-#         for j in range(ngaps):
-#             rect = _make_rect_patches(i, j, cmap)
-#             Rect.append(rect)
-#             ax.add_patch(rect)
-#             # text = f"({i},{j}) {cellscore[i, j]:.2f}"
-#             # ax.text(
-#             #     sqrcenter[i, j, 0] - length / 2.0 + 0.1,
-#             #     sqrcenter[i, j, 1] - length / 2.0 + 0.1,
-#             #     text,
-#             #     fontsize=6,
-#             # )
-#     ax.set_xlim(-np.pi, np.pi)
-#     ax.set_ylim(-np.pi, np.pi)
-#     ax.set_aspect("equal", "box")
-#     plt.show()
+    fig, ax = plt.subplots()
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.set_aspect("equal", "box")
+
+    for i in range(sqrcenter.shape[0]):
+        for j in range(sqrcenter.shape[1]):
+            rect = _make_rect_patches(sqrcenter, length, i, j, plt.cm.viridis, 0.5)
+            ax.add_patch(rect)
+    plt.show()

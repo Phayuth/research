@@ -301,7 +301,7 @@ if __name__ == "__main__":
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
 
-    from geometric_pcm import is_point_in_square, _make_rect_patches
+    from geometric_pcm import is_point_in_ndcube, _make_rect_patches
     from matplotlib.colors import LinearSegmentedColormap
 
     npoint = 10
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     for i in range(ngaps):
         for j in range(ngaps):
             for p in Xrand:
-                if is_point_in_square(p, sqrcenter, length, i, j):
+                if is_point_in_ndcube(p, sqrcenter, length, (i, j)):
                     cumsum_pointinsquare[i, j] += 1
                     theta = p.reshape(-1, 1)
                     best, _ = scene.distance_to_obstacles(theta)
