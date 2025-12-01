@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+np.random.seed(42)
+np.set_printoptions(precision=2, suppress=True, linewidth=200)
+
 
 def informed_sampling(xCenter, cMax, cMin, rotationAxisC):
     L = hyperellipsoid_axis_length(cMax, cMin)
@@ -59,8 +62,7 @@ def get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin):
     return el
 
 
-if __name__ == "__main__":
-    # example usage
+def __usage():
     dof = 2  # degrees of freedom for the configuration space
     xStart = np.array([0.0] * dof).reshape(-1, 1)
     xGoal = np.array([1.0] * dof).reshape(-1, 1)
@@ -103,3 +105,7 @@ if __name__ == "__main__":
     ay.grid(True)
     ay.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    __usage()

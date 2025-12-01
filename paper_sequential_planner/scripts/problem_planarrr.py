@@ -5,6 +5,7 @@ from shapely.ops import nearest_points
 import matplotlib.pyplot as plt
 
 np.random.seed(42)
+np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
@@ -301,7 +302,7 @@ if __name__ == "__main__":
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
 
-    from geometric_pcm import is_point_in_ndcube, _make_rect_patches
+    from geometric_pcm import is_point_in_ndcube, get_2d_rec_mplpatch
     from matplotlib.colors import LinearSegmentedColormap
 
     npoint = 10
@@ -347,8 +348,8 @@ if __name__ == "__main__":
 
     for i in range(ngaps):
         for j in range(ngaps):
-            rect = _make_rect_patches(
-                sqrcenter, length, i, j, cmap, cellscore[i, j]
+            rect = get_2d_rec_mplpatch(
+                sqrcenter[i, j], length, "red", cellscore[i, j]
             )
             ax.add_patch(rect)
             s = f"({i},{j}) colp = {cellscore[i, j]:.2f}"

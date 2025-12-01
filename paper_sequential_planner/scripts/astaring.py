@@ -1,6 +1,8 @@
-import heapq
+import matplotlib.pyplot as plt
+from itertools import product
 import numpy as np
 import math
+import heapq
 
 
 class MatrixAStar:
@@ -139,10 +141,22 @@ class MatrixAStar:
         return [self.index_to_coordinate(i) for i in path]
 
 
-class NDAStar:
+class NDimGridAStar:
 
-    def __init__(self):
-        pass
+    def __init__(self, costgrid):
+        self.costgrid = costgrid
+        self.costtrack = np.full_like(costgrid, np.inf, dtype=float)
+        self.visitednode = []
+        self.dof = len(costgrid.shape)
+        self.grid_shape = costgrid.shape
+        self.N = costgrid.size
+
+    def __str__(self):
+        return (
+            f"NDim-AStar,"
+            + f"\n-dof={self.dof},"
+            + f"\n-grid_shape={self.grid_shape}"
+        )
 
     def distance_between(self, u, v):
         """
@@ -162,81 +176,96 @@ class NDAStar:
         """
         return float(np.linalg.norm(np.array(u) - np.array(v)))
 
-    def astar(self, start, goal):
+    def neighbors(self, nodeid):
+        """fix lower and upper check later incase of non-square grid"""
+        motion = self.motions()
+        nn = nodeid + motion
+        l = nn >= 0
+        u = nn <= self.grid_shape[0]
+        valid_mask = np.all(l & u, axis=1)
+        valid_nn = nn[valid_mask]
+        return valid_nn
 
+    def motions(self):
+        motion = np.array(list(product([-1, 0, 1], repeat=self.dof)))
+        return motion
+
+    def astar(self, start, goal):
+        if start == goal:
+            return [start]
+
+        open_heap = []  # (f_score, node)
+        # case of not found
         return []
 
 
+# class AStar:
+
+#     def __init__(self, graph) -> None:
+#         self.graph = graph
+#         self.heapq = graph
+#         self.visitedNode = []
+
+#     def heapq_prio_heuristic(self, goal: Node):  # there are some method better than this but i want to test myself
+#         costs = np.array([hg.cost for hg in self.heapq])
+#         coststogo = np.array([self.cost_to_go(goal, hg) for hg in self.heapq])
+#         ci = np.argsort(costs + coststogo)
+#         self.heapq = [self.heapq[i] for i in ci]
+
+#     def cost_to_go(self, xTo, xFrom):  # euclidean distance
+#         return np.linalg.norm(xTo.config - xFrom.config)
+
+#     def backtrack(self, node: Node):
+#         path = [node]
+#         current = node
+#         while current.pathvia is not None:
+#             path.append(current.pathvia)
+#             current = current.pathvia
+#         return path
+
+#     def search(self, start: Node, goal: Node):
+#         # set start at 0
+#         start.cost = 0
+
+#         while True:
+#             if len(self.visitedNode) == len(self.graph):
+#                 print("no path were found")
+#                 return
+
+#             self.heapq_prio_heuristic(goal)
+#             currentNode = self.heapq[0]
+
+#             if currentNode is goal:
+#                 return self.backtrack(currentNode)
+
+#             for ei, ed in enumerate(currentNode.edgeNodes):
+#                 if ed in self.visitedNode:
+#                     continue
+#                 if (pcost := currentNode.cost + currentNode.edgeCosts[ei]) < ed.cost:
+#                     ed.cost = pcost
+#                     ed.pathvia = currentNode
+#             self.visitedNode.append(currentNode)
+#             self.heapq.pop(0)
+
+
 if __name__ == "__main__":
-    # build a grid of configuration points
-    line = np.linspace(-np.pi, np.pi, 10)
-    nx = len(line)
-    ny = len(line)
-    config = np.array([[x, y] for x in line for y in line])
+    from geometric_pcm import make_costgrid, make_geometric_grid
+    from itertools import product
 
-    # build cost matrix but we only need costs between neighbors — full matrix is fine
-    C = np.zeros((config.shape[0], config.shape[0]))
-    for i in range(config.shape[0]):
-        for j in range(config.shape[0]):
-            if i != j:
-                dist = np.linalg.norm(config[i] - config[j])
-                C[i][j] = dist
-            else:
-                C[i][j] = 0.0
+    costgrid = make_costgrid(npoints=10, dof=2)
+    print("shape:", costgrid.shape)
+    sqrcenter, length = make_geometric_grid(npoints=10, dof=2)
+    print("sqrcenter:\n", sqrcenter)
 
-    solver = MatrixAStar(C, config=config, grid_shape=(nx, ny))
-    sid = (0, 0)
-    eid = (6, 6)
-    path = solver.astar(sid, eid)
-    path_coords = solver._path_convert_to_coordinates(path)
-    print("path (indices):", path)
-    print("path (coords):", path_coords)
+    start_index = (0, 0)
+    end_index = (6, 6)
 
-    import matplotlib.pyplot as plt
-    from matplotlib import patches
-    from matplotlib.colors import LinearSegmentedColormap
+    astar_planner = NDimGridAStar(costgrid)
+    print(astar_planner)
 
-    vline = np.linspace(-np.pi, np.pi, 10)
-    hline = np.linspace(-np.pi, np.pi, 10)
-    costgrid = np.random.rand(len(vline) - 1, len(hline) - 1)
-    freecolor = "white"
-    colcolor = "red"
-    cmap = LinearSegmentedColormap.from_list("custom_cmap", [freecolor, colcolor])
+    node = np.array([0, 0])
+    nn = astar_planner.neighbors(node)
+    print("nn:\n", nn)
 
-    fig, ax = plt.subplots()
-    # make grid rectangles patches
-    for i in range(len(vline) - 1):
-        for j in range(len(hline) - 1):
-            rect = patches.Rectangle(
-                (vline[i], hline[j]),
-                vline[i + 1] - vline[i],
-                hline[j + 1] - hline[j],
-                linewidth=0.5,
-                edgecolor="gray",
-                facecolor=cmap(costgrid[i, j]),
-            )
-            ax.add_patch(rect)
-            text = f"({i},{j}) {costgrid[i, j]:.2f}"
-            ax.text(
-                vline[i] + 0.1,
-                hline[j] + 0.1,
-                text,
-                fontsize=6,
-                color="gray",
-            )
-    # plot path
-    for px, py in path_coords:
-        rect = patches.Rectangle(
-            (vline[px], hline[py]),
-            vline[px + 1] - vline[px],
-            hline[py + 1] - hline[py],
-            linewidth=1.5,
-            edgecolor="gray",
-            facecolor="blue",
-        )
-        ax.add_patch(rect)
-
-    ax.set_xlim(-np.pi, np.pi)
-    ax.set_ylim(-np.pi, np.pi)
-    ax.set_aspect("equal", "box")
-    plt.show()
+    # plt.imshow(costgrid, cmap="gray")
+    # plt.show()

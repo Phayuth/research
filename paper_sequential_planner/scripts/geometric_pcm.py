@@ -13,7 +13,7 @@ def make_costgrid(npoints=10, dof=2):
     return costgrid
 
 
-def make_geometric_sqrgrid(
+def make_geometric_grid(
     npoints=10,
     dof=2,
     linemin=-np.pi,
@@ -45,29 +45,9 @@ def which_indices_point_in_ndcube(point, sqrcenter, length):
     pass
 
 
-# Point = np.random.uniform(-np.pi, np.pi, size=(500, 2))
-# cumsum_pointinsquare = np.zeros_like(costgrid)
-# cumsum_collision = np.zeros_like(costgrid)
-
-
-# for p in Point:
-#     for i in range(ngaps):
-#         for j in range(ngaps):
-#             if is_point_in_square(p, i, j):
-#                 cumsum_pointinsquare[i, j] += 1
-#                 if np.random.rand() < 0.3:
-#                     cumsum_collision[i, j] += 1
-
-# print("cumsum_collision:\n", cumsum_collision)
-# print("cumsum_pointinsquare:\n", cumsum_pointinsquare)
-
-# cellscore = cumsum_collision / cumsum_pointinsquare
-# print("cellscore:\n", cellscore)
-
-
-def _make_rect_patches(sqrcenter, length, i, j, cmap, cellscore):
-    lower_x = sqrcenter[i, j, 0] - length / 2.0
-    lower_y = sqrcenter[i, j, 1] - length / 2.0
+def get_2d_rec_mplpatch(sqrcenter, length, color, alpha):
+    lower_x = sqrcenter[0] - length / 2.0
+    lower_y = sqrcenter[1] - length / 2.0
     rect = patches.Rectangle(
         (lower_x, lower_y),
         length,
@@ -75,22 +55,74 @@ def _make_rect_patches(sqrcenter, length, i, j, cmap, cellscore):
         linewidth=0.5,
         fill=True,
         edgecolor="gray",
-        alpha=cellscore,
-        facecolor=cmap(cellscore),
+        alpha=alpha,
+        facecolor=color,
     )
     return rect
 
 
-if __name__ == "__main__":
-    sqrcenter, length = make_geometric_sqrgrid(npoints=10, dof=2)
+def get_2d_text_mplpatch(sqrcenter, text, fontsize=10):
+    text_patch = plt.text(
+        sqrcenter[0],
+        sqrcenter[1],
+        text,
+        fontsize=fontsize,
+        ha="center",
+        va="center",
+        color="black",
+    )
+    return text_patch
+
+
+def __score_cube():
+    Point = np.random.uniform(-np.pi, np.pi, size=(500, 2))
+
+    costgrid = make_costgrid(npoints=10, dof=2)
+    sqrcenter, length = make_geometric_grid(npoints=10, dof=2)
+
+    cumsum_pointinsquare = np.zeros_like(costgrid)
+    cumsum_collision = np.zeros_like(costgrid)
+
+    for i in range(costgrid.shape[0] - 1):
+        for j in range(costgrid.shape[0] - 1):
+            for p in Point:
+                if is_point_in_ndcube(p, sqrcenter, length, (i, j)):
+                    cumsum_pointinsquare[i, j] += 1
+                    if np.random.rand() < 0.3:
+                        cumsum_collision[i, j] += 1
+
+    print("cumsum_collision:\n", cumsum_collision)
+    print("cumsum_pointinsquare:\n", cumsum_pointinsquare)
+    cellscore = cumsum_collision / cumsum_pointinsquare
+    print("cellscore:\n", cellscore)
+
+
+def __usage():
+    print("Example usage of a 2d geometric square grid.")
+    sqrcenter, length = make_geometric_grid(npoints=10, dof=2)
 
     fig, ax = plt.subplots()
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
     ax.set_aspect("equal", "box")
-
     for i in range(sqrcenter.shape[0]):
         for j in range(sqrcenter.shape[1]):
-            rect = _make_rect_patches(sqrcenter, length, i, j, plt.cm.viridis, 0.5)
+            rect = get_2d_rec_mplpatch(
+                sqrcenter[i, j],
+                length,
+                plt.cm.viridis(i / sqrcenter.shape[0]),
+                0.5,
+            )
+            text = get_2d_text_mplpatch(
+                sqrcenter[i, j],
+                f"({i},{j})",
+                fontsize=8,
+            )
             ax.add_patch(rect)
+            ax.add_artist(text)
     plt.show()
+
+
+if __name__ == "__main__":
+    __score_cube()
+    __usage()
