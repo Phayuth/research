@@ -145,8 +145,6 @@ class NDimGridAStar:
 
     def __init__(self, costgrid):
         self.costgrid = costgrid
-        self.costtrack = np.full_like(costgrid, np.inf, dtype=float)
-        self.visitednode = []
         self.dof = len(costgrid.shape)
         self.grid_shape = costgrid.shape
         self.N = costgrid.size
@@ -179,23 +177,83 @@ class NDimGridAStar:
     def neighbors(self, nodeid):
         """fix lower and upper check later incase of non-square grid"""
         motion = self.motions()
+        motioncost = self.motions_cost(motion)
+
         nn = nodeid + motion
         l = nn >= 0
         u = nn <= self.grid_shape[0]
         valid_mask = np.all(l & u, axis=1)
         valid_nn = nn[valid_mask]
-        return valid_nn
+        cost = motioncost[valid_mask]
+        return valid_nn, cost
 
     def motions(self):
         motion = np.array(list(product([-1, 0, 1], repeat=self.dof)))
+        zeros = np.all(motion == 0, axis=1)
+        motion = motion[~zeros]
         return motion
+
+    def motions_cost(self, motions):
+        p = np.prod(motions, axis=1)
+        h = p == 0
+        g = p != 0
+        y = np.zeros_like(p, dtype=float)
+        y[h] = 1
+        y[g] = np.sqrt(2)
+        return y
+
+    def backtrack(self, node):
+        pass
 
     def astar(self, start, goal):
         if start == goal:
             return [start]
 
-        open_heap = []  # (f_score, node)
-        # case of not found
+        self.costtrack = np.full_like(self.costgrid, np.inf, dtype=float)
+        self.costtrack[start] = 0.0
+
+        self.ct = np.full(self.costgrid.shape,)
+
+        self.costtrackravel = np.ravel(self.costtrack)
+        self.visitednode = []
+        self.pathvia = {}
+
+        print("costtrack:\n", self.costtrackravel)
+        print("costtrack shape:\n", self.costtrackravel.shape)
+
+        # start search with heapq
+        cnode = np.argmin(self.costtrackravel)
+        cnodeunravel = np.unravel_index(cnode, self.grid_shape)
+        print("cnode:\n", cnode)
+        print("cnodeunravel:\n", cnodeunravel)
+
+        # # found path if current node is goal
+        # if cnode == goal:
+        #     return self.backtrack(cnode)
+
+        # get neighbors of current node and score
+        nn, nn_movecost = self.neighbors(cnodeunravel)
+        print("nn:\n", nn)
+        print("nn_movecost:\n", nn_movecost)
+
+        # for each neighbor, update
+        for ni, n in enumerate(nn):
+            print(f"ni: {ni}, n: {n}")
+            if n in self.visitednode:
+                continue
+            ccost = self.costtrack[tuple(cnodeunravel)]
+            print("ccost:", ccost)
+            cncost = self.costtrack[tuple(n)]
+            print("cncost:", cncost)
+            movecost = nn_movecost[ni]
+            print("movecost:", movecost)
+            if (pcost := ccost + movecost) < cncost:
+                self.costtrack[tuple(n)] = pcost
+                self.pathvia[tuple(n)] = tuple(cnodeunravel)
+        self.visitednode.append(tuple(cnodeunravel))
+
+        print("costtrack after update:\n", self.costtrack)
+        print("pathvia after update:\n", self.pathvia)
         return []
 
 
@@ -253,19 +311,35 @@ if __name__ == "__main__":
     from itertools import product
 
     costgrid = make_costgrid(npoints=10, dof=2)
-    print("shape:", costgrid.shape)
     sqrcenter, length = make_geometric_grid(npoints=10, dof=2)
-    print("sqrcenter:\n", sqrcenter)
+    print("costgrid:\n", costgrid.shape)
+    print("sqrcenter:\n", sqrcenter.shape)
 
-    start_index = (0, 0)
+    start_index = (1, 1)
     end_index = (6, 6)
 
     astar_planner = NDimGridAStar(costgrid)
     print(astar_planner)
 
-    node = np.array([0, 0])
-    nn = astar_planner.neighbors(node)
-    print("nn:\n", nn)
+    astar_planner.astar(start_index, end_index)
 
     # plt.imshow(costgrid, cmap="gray")
     # plt.show()
+
+    # open_heap = []  # (f_score, node)
+    # heapq.heappush(open_heap, (0, start_index))
+    # print("open_heap:\n", open_heap)
+    # heapq.heappush(open_heap, (1, end_index))
+    # print("open_heap:\n", open_heap)
+    # heapq.heappush(open_heap, (0.5, (3, 3)))
+    # print("open_heap:\n", open_heap)
+    # e = heapq.heappop(open_heap)
+    # print("popped element:\n", e)
+    # print("open_heap:\n", open_heap)
+
+    # visitednode = []
+    # visitednode.append(start_index)
+    # print("visitednode:\n", visitednode)
+
+    # a = (0, 0) in visitednode
+    # print("a:", a)
