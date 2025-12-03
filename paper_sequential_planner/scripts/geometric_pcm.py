@@ -1,9 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import patches
+import os
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
+rsrc = os.environ["RSRC_DIR"]
 
 
 def make_costgrid(npoints=10, dof=2):
@@ -123,6 +125,33 @@ def __usage():
     plt.show()
 
 
+def __simplepcm():
+    pcm = np.load(os.path.join(rsrc, "cspace_grid_cellscore.npy"))
+
+    sqrcenter, length = make_geometric_grid(npoints=10, dof=2)
+    fig, ax = plt.subplots()
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.set_aspect("equal", "box")
+    for i in range(sqrcenter.shape[0]):
+        for j in range(sqrcenter.shape[1]):
+            rect = get_2d_rec_mplpatch(
+                sqrcenter[i, j],
+                length,
+                plt.cm.viridis(pcm[i, j]),
+                0.8,
+            )
+            text = get_2d_text_mplpatch(
+                sqrcenter[i, j],
+                f"{pcm[i, j]:.2f}",
+                fontsize=8,
+            )
+            ax.add_patch(rect)
+            ax.add_artist(text)
+    plt.show()
+
+
 if __name__ == "__main__":
-    __score_cube()
+    # __score_cube()
     __usage()
+    __simplepcm()

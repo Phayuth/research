@@ -130,6 +130,22 @@ class RobotScene:
             ax.set_ylim(-np.pi, np.pi)
             return ax
 
+    def cspace_dataset(self):
+        num_samples = 360
+        theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+        theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+        dataset = []
+        for i in range(num_samples):
+            for j in range(num_samples):
+                theta = np.array([[theta1_samples[i]], [theta2_samples[j]]])
+                best, _ = self.distance_to_obstacles(theta)
+                if best is not None and best["distance"] <= 0.0:
+                    dataset.append((theta1_samples[i], theta2_samples[j], 1))
+                else:
+                    dataset.append((theta1_samples[i], theta2_samples[j], -1))
+        dataset = np.array(dataset)
+        np.save(os.path.join(rsrc, "cspace_dataset.npy"), dataset)
+
     def plot(self, theta):
         links = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
@@ -177,8 +193,6 @@ def linear_interp(qa, qb, eta=0.1):
 if __name__ == "__main__":
     from geometric_ellipse import get_2d_ellipse_mplpatch, distance_between_config
     from scipy.spatial import Voronoi, voronoi_plot_2d
-    from astaring import MatrixAStar
-    from matplotlib import patches
 
     shapes = {
         # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
@@ -194,6 +208,8 @@ if __name__ == "__main__":
     scene = RobotScene(robot, obstacles)
 
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
+    # scene.cspace_dataset()
+
     theta = np.array([[-np.pi], [np.pi / 4.0]])
     theta = np.array([[np.pi / 6.0], [-1.0]])
     best, results = scene.distance_to_obstacles(theta)
@@ -217,7 +233,7 @@ if __name__ == "__main__":
     Xrandfree = np.array(Xrandfree)
     Xrandcoll = np.array(Xrandcoll)
 
-    # vor = Voronoi(Xrandfree)
+    # ---------------------------------------
 
     # scene.plot(theta)
     q1 = np.array([-1.0, 2.5])
@@ -340,7 +356,7 @@ if __name__ == "__main__":
     cellscore = cumsum_collision / (cumsum_pointinsquare + 0.0001)
     print(cellscore)
 
-    # np.save(os.path.join(rsrc, "costgrid_problem3.npy"), cellscore)
+    np.save(os.path.join(rsrc, "cspace_grid_cellscore.npy"), cellscore)
 
     freecolor = "white"
     colcolor = "red"

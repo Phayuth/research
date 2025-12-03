@@ -9,25 +9,11 @@ np.set_printoptions(linewidth=1000, suppress=True, precision=2)
 np.random.seed(42)
 
 
-def vrn2d():
+def vrn2d_grid():
     x = np.linspace(0, 1, 10)
     y = np.linspace(0, 1, 10)
     points = np.meshgrid(x, y)
     points = np.array([points[0].ravel(), points[1].ravel()]).T
-
-    # points = np.array(
-    #     [
-    #         [0, 0],
-    #         [0, 1],
-    #         [0, 2],
-    #         [1, 0],
-    #         [1, 1],
-    #         [1, 2],
-    #         [2, 0],
-    #         [2, 1],
-    #         [2, 2],
-    #     ]
-    # )
     vor = Voronoi(points)
 
     fig, ax = plt.subplots()
@@ -38,10 +24,23 @@ def vrn2d():
     plt.show()
 
 
-def vrn6d():
+def vrn2d_random():
+    points = np.random.uniform(0, 1, (10, 2))
+    vor = Voronoi(points)
+
+    fig, ax = plt.subplots()
+    voronoi_plot_2d(vor, ax)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.set_aspect("equal")
+    plt.show()
+
+
+def vrn6d_random():
     rng = np.random.default_rng()
-    points = rng.random((1000, 6))  # 10 s to make
-    points = rng.random((10000, 6))  # 255 s to make
+    # points = rng.random((1000, 6))  # 10 s to make
+    points = rng.random((5000, 6))  # 106.54 s to make
+    # points = rng.random((10000, 6))  # 255 s to make
 
     t0 = time.time()
     vor = Voronoi(points)
@@ -134,6 +133,7 @@ def __test_voronoi():
 
 
 if __name__ == "__main__":
-    vrn2d()
-    # vrn6d()
+    vrn2d_grid()
+    vrn2d_random()
+    vrn6d_random()
     # __test_voronoi()
