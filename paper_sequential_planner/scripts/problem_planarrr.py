@@ -124,7 +124,7 @@ class RobotScene:
         if plot:
             cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
             fig, ax = plt.subplots()
-            plt.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+            ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
             ax.set_aspect("equal", "box")
             ax.set_xlim(-np.pi, np.pi)
             ax.set_ylim(-np.pi, np.pi)

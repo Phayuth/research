@@ -1,118 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
-
-class NLinkArm(object):
-
-    def __init__(self, link_lengths, joint_angles):
-        self.n_links = len(link_lengths)
-        if self.n_links != len(joint_angles):
-            raise ValueError()
-
-        self.link_lengths = np.array(link_lengths)
-        self.joint_angles = np.array(joint_angles)
-        self.points = [[0, 0] for _ in range(self.n_links + 1)]
-
-        self.lim = sum(link_lengths)
-        self.update_points()
-
-    def update_joints(self, joint_angles):
-        self.joint_angles = joint_angles
-        self.update_points()
-
-    def update_points(self):
-        for i in range(1, self.n_links + 1):
-            self.points[i][0] = self.points[i - 1][0] + self.link_lengths[
-                i - 1
-            ] * np.cos(np.sum(self.joint_angles[:i]))
-            self.points[i][1] = self.points[i - 1][1] + self.link_lengths[
-                i - 1
-            ] * np.sin(np.sum(self.joint_angles[:i]))
-
-        self.end_effector = np.array(self.points[self.n_links]).T
-
-
-def detect_collision(line_seg, circle):
-    a_vec = np.array([line_seg[0][0], line_seg[0][1]])
-    b_vec = np.array([line_seg[1][0], line_seg[1][1]])
-    c_vec = np.array([circle[0], circle[1]])
-    radius = circle[2]
-    line_vec = b_vec - a_vec
-    line_mag = np.linalg.norm(line_vec)
-    circle_vec = c_vec - a_vec
-    proj = circle_vec.dot(line_vec / line_mag)
-    if proj <= 0:
-        closest_point = a_vec
-    elif proj >= line_mag:
-        closest_point = b_vec
-    else:
-        closest_point = a_vec + line_vec * proj / line_mag
-    if np.linalg.norm(closest_point - c_vec) > radius:
-        return False
-
-    return True
-
-
-def get_occupancy_grid(arm, obstacles):
-
-    grid = [[0 for _ in range(M)] for _ in range(M)]
-    theta_list = [2 * i * np.pi / M for i in range(-M // 2, M // 2 + 1)]
-
-    dataset = []
-
-    for i in range(M):
-        for j in range(M):
-            arm.update_joints([theta_list[i], theta_list[j]])
-            points = arm.points
-            collision_detected = False
-            for k in range(len(points) - 1):
-                for obstacle in obstacles:
-                    line_seg = [points[k], points[k + 1]]
-                    collision_detected = detect_collision(line_seg, obstacle)
-                    if collision_detected:
-                        break
-                if collision_detected:
-                    break
-            grid[i][j] = int(collision_detected)
-
-            if int(collision_detected) == 1:
-                collision_stat = 1
-            elif int(collision_detected) == 0:
-                collision_stat = -1
-            dataset.append([theta_list[i], theta_list[j], collision_stat])
-
-    return np.array(grid), dataset
-
-
-# Simulation parameters
-M = 25  # number of sample to divide into and number of grid cell
-obstacles = [
-    [1.75, 0.75, 0.6],
-    [0.55, 1.5, 0.5],
-    [0, -1, 0.25],
-    [-1.5, -1.5, 0.25],
-]  # x y radius
-arm = NLinkArm([1, 1], [0, 0])
-# grid, dataset = get_occupancy_grid(arm, obstacles)
-
 import os
 
+np.random.seed(42)
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
+
 dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
-data = dataset[:, 0:2]
-y = dataset[:, 2]
 trainsize = 600
-data = np.random.choice(data, size=trainsize, replace=True)
-y = np.random.choice(y, size=trainsize, replace=True)
+samples_id = np.random.choice(
+    range(dataset.shape[0]), size=trainsize, replace=False
+)
+dataset_samples = dataset[samples_id]
+data = dataset_samples[:, 0:2]
+y = dataset_samples[:, 2]
 
 
 # Fastron
-# dataset = np.array(dataset)
-# data = dataset[:, 0:2]
-# y = dataset[:, 2]
-# print(data.shape)
-# print(y.shape)
-
 N = data.shape[0]  # number of datapoint = number of row the dataset has
 d = data.shape[
     1
@@ -167,6 +71,7 @@ def compute_kernel_gram_matrix(G, data, gamma):
 
 def original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate):
     """Brute force update, => unneccessary calculation"""
+    print("Fastron Original Kernel Updating ....")
     for iter in range(maxUpdate):
         print(iter)
 
@@ -238,3 +143,34 @@ if __name__ == "__main__":
     queryP = np.array([1, 1])
     collision = eval(queryP, data, alpha, g)
     print(f"> collision: {collision}")
+
+    num_samples = 360
+    theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+    theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+    cspace_obs = []
+
+    for i in range(num_samples):
+        for j in range(num_samples):
+            print(i, j)
+            theta = np.array([theta1_samples[i], theta2_samples[j]])
+            collision = eval(theta, data, alpha, g)
+            if collision == 1:
+                cspace_obs.append((theta1_samples[i], theta2_samples[j]))
+    cspace_obs = np.array(cspace_obs)
+
+    fig, ax = plt.subplots()
+    ax.plot(
+        cspace_obs[:, 0],
+        cspace_obs[:, 1],
+        "ro",
+        markersize=2,
+        label="Fastron C-space obstacle",
+    )
+    ax.set_xlabel("Theta 1")
+    ax.set_ylabel("Theta 2")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.set_aspect("equal", "box")
+    ax.set_title("Fastron C-space Obstacle Approximation")
+    ax.legend()
+    plt.show()
