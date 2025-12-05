@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+from sklearn.metrics.pairwise import rbf_kernel
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -17,10 +18,8 @@ y = dataset_samples[:, 2]
 
 
 # Fastron
-N = data.shape[0]  # number of datapoint = number of row the dataset has
-d = data.shape[
-    1
-]  # number of dimensionality = number of columns the dataset has (x1, x2, ..., xn)
+N = data.shape[0]  # number of datapoint = number of row the dataset
+d = data.shape[1]  # number of dimension = number of col the dataset (x1, ..., xn)
 g = 10  # kernel width
 beta = 100  # conditional bias
 maxUpdate = 25  # max update iteration
@@ -134,8 +133,9 @@ def onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate):
     return alpha, F
 
 
-G = compute_kernel_gram_matrix(G, data, g)
-alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
+# G = compute_kernel_gram_matrix(G, data, g)
+# G = rbf_kernel(data, data, gamma=g)
+# alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
 # alpha, F = onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate)
 
 
@@ -144,19 +144,24 @@ if __name__ == "__main__":
     collision = eval(queryP, data, alpha, g)
     print(f"> collision: {collision}")
 
-    num_samples = 360
-    theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
-    theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
-    cspace_obs = []
+    # num_samples = 360
+    # theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+    # theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+    # cspace_obs = []
 
-    for i in range(num_samples):
-        for j in range(num_samples):
-            print(i, j)
-            theta = np.array([theta1_samples[i], theta2_samples[j]])
-            collision = eval(theta, data, alpha, g)
-            if collision == 1:
-                cspace_obs.append((theta1_samples[i], theta2_samples[j]))
-    cspace_obs = np.array(cspace_obs)
+    # for i in range(num_samples):
+    #     for j in range(num_samples):
+    #         print(i, j)
+    #         theta = np.array([theta1_samples[i], theta2_samples[j]])
+    #         collision = eval(theta, data, alpha, g)
+    #         if collision == 1:
+    #             cspace_obs.append((theta1_samples[i], theta2_samples[j]))
+    # cspace_obs = np.array(cspace_obs)
+
+    # np.save("cspace_obstacles_fastron.npy", cspace_obs)
+
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    cspace_obs_ft = np.load(os.path.join(rsrc, "cspace_obstacles_fastron.npy"))
 
     fig, ax = plt.subplots()
     ax.plot(
@@ -165,6 +170,15 @@ if __name__ == "__main__":
         "ro",
         markersize=2,
         label="Fastron C-space obstacle",
+    )
+
+    ax.plot(
+        cspace_obs_ft[:, 0],
+        cspace_obs_ft[:, 1],
+        "bx",
+        markersize=2,
+        label="Geometry C-space obstacle",
+        alpha=0.5,
     )
     ax.set_xlabel("Theta 1")
     ax.set_ylabel("Theta 2")
