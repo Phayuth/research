@@ -64,8 +64,8 @@ def get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin):
 
 def __usage():
     dof = 2  # degrees of freedom for the configuration space
-    xStart = np.array([0.0] * dof).reshape(-1, 1)
-    xGoal = np.array([1.0] * dof).reshape(-1, 1)
+    xStart = np.array([-0.5] * dof).reshape(-1, 1)
+    xGoal = np.array([0.5] * dof).reshape(-1, 1)
     xCenter = (xStart + xGoal) / 2
     C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
     cMin = distance_between_config(xStart, xGoal)

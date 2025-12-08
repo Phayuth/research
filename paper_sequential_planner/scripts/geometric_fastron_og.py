@@ -8,7 +8,7 @@ np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
-trainsize = 600
+trainsize = 1000
 samples_id = np.random.choice(
     range(dataset.shape[0]), size=trainsize, replace=False
 )
@@ -133,9 +133,9 @@ def onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate):
     return alpha, F
 
 
-# G = compute_kernel_gram_matrix(G, data, g)
+G = compute_kernel_gram_matrix(G, data, g)
 # G = rbf_kernel(data, data, gamma=g)
-# alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
+alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
 # alpha, F = onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate)
 
 
@@ -144,21 +144,20 @@ if __name__ == "__main__":
     collision = eval(queryP, data, alpha, g)
     print(f"> collision: {collision}")
 
-    # num_samples = 360
-    # theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
-    # theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
-    # cspace_obs = []
+    num_samples = 360
+    theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+    theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+    cspace_obs = []
 
-    # for i in range(num_samples):
-    #     for j in range(num_samples):
-    #         print(i, j)
-    #         theta = np.array([theta1_samples[i], theta2_samples[j]])
-    #         collision = eval(theta, data, alpha, g)
-    #         if collision == 1:
-    #             cspace_obs.append((theta1_samples[i], theta2_samples[j]))
-    # cspace_obs = np.array(cspace_obs)
-
-    # np.save("cspace_obstacles_fastron.npy", cspace_obs)
+    for i in range(num_samples):
+        for j in range(num_samples):
+            print(i, j)
+            theta = np.array([theta1_samples[i], theta2_samples[j]])
+            collision = eval(theta, data, alpha, g)
+            if collision == 1:
+                cspace_obs.append((theta1_samples[i], theta2_samples[j]))
+    cspace_obs = np.array(cspace_obs)
+    np.save(os.path.join(rsrc, "cspace_obstacles_fastron.npy"), cspace_obs)
 
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
     cspace_obs_ft = np.load(os.path.join(rsrc, "cspace_obstacles_fastron.npy"))
