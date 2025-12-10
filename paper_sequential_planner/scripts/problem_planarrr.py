@@ -130,7 +130,8 @@ class RobotScene:
             ax.set_ylim(-np.pi, np.pi)
             return ax
 
-    def cspace_dataset(self):
+    def cspace_dataset_collision(self):
+        print("Generating C-space dataset with collision labels...")
         num_samples = 360
         theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
         theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
@@ -145,6 +146,25 @@ class RobotScene:
                     dataset.append((theta1_samples[i], theta2_samples[j], -1))
         dataset = np.array(dataset)
         np.save(os.path.join(rsrc, "cspace_dataset.npy"), dataset)
+
+    def cspace_dataset_nearest_distance(self):
+        print("Generating C-space dataset with nearest distance...")
+        num_samples = 360
+        theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+        theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+        dataset = []
+        for i in range(num_samples):
+            for j in range(num_samples):
+                theta = np.array([[theta1_samples[i]], [theta2_samples[j]]])
+                best, _ = self.distance_to_obstacles(theta)
+                if best is not None:
+                    dataset.append(
+                        (theta1_samples[i], theta2_samples[j], best["distance"])
+                    )
+                else:
+                    dataset.append((theta1_samples[i], theta2_samples[j], np.inf))
+        dataset = np.array(dataset)
+        np.save(os.path.join(rsrc, "cspace_dataset_nearest_distance.npy"), dataset)
 
     def plot(self, theta):
         links = self.robot_collision_links(theta)
@@ -208,7 +228,8 @@ if __name__ == "__main__":
     scene = RobotScene(robot, obstacles)
 
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
-    # scene.cspace_dataset()
+    # scene.cspace_dataset_collision()
+    # scene.cspace_dataset_nearest_distance()
 
     theta = np.array([[-np.pi], [np.pi / 4.0]])
     theta = np.array([[np.pi / 6.0], [-1.0]])
