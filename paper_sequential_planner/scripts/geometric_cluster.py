@@ -49,17 +49,21 @@ dataset = cspace_obs
 #     affinity="nearest_neighbors",
 #     random_state=42,
 # )
+
 clustering = DBSCAN(eps=0.5, min_samples=5)
 clustering.fit(dataset)
 labels = clustering.labels_
 
 fig, ax = plt.subplots()
-
 sc = ax.scatter(
     dataset[:, 0],
     dataset[:, 1],
     c=labels,
     cmap="viridis",
 )
-
+ax.set_title("DBSCAN Clustering of C-space Obstacles")
+ax.set_aspect("equal", "box")
+ax.set_xlim(-np.pi, np.pi)
+ax.set_ylim(-np.pi, np.pi)
+ax.grid(True)
 plt.show()

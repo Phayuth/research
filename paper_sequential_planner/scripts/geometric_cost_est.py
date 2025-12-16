@@ -1,11 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from geometric_ellipse import get_2d_ellipse_mplpatch
+from geometric_ellipse import (
+    get_2d_ellipse_mplpatch,
+    rotation_to_world,
+    informed_sampling,
+    informed_surface_sampling,
+    hyperellipsoid_axis_length,
+    unit_ball_sampling,
+)
 
 np.random.seed(42)
 
 
-def sampling_twopoints(eta=1.0):
+def sampling_twopoints(eta):
     qa = np.random.uniform(low=-np.pi, high=np.pi, size=(2,))
     qb = np.random.uniform(low=-np.pi, high=np.pi, size=(2,))
     qc = qa + eta * (qa - qb) / np.linalg.norm(qa - qb)
@@ -13,7 +20,7 @@ def sampling_twopoints(eta=1.0):
     return qa, qc, l
 
 
-def sampling_circle(roffset=0.5):
+def sampling_circle(roffset):
     limit = np.array(
         [
             [-np.pi, np.pi],
@@ -24,15 +31,43 @@ def sampling_circle(roffset=0.5):
     limit_offset[:, 0] += roffset
     limit_offset[:, 1] -= roffset
     qcenter = np.random.uniform(
-        low=limit_offset[:, 0], high=limit_offset[:, 1], size=(2,)
+        low=limit_offset[:, 0], high=limit_offset[:, 1], size=(dof,)
     )
     return qcenter
 
 
-def get_circle_mplpatch(qcenter, roffset=0.5):
+def sample_rotation_matrix(n):
+    A = np.random.randn(n, n)
+    Q, R = np.linalg.qr(A)
+    # fix sign ambiguity
+    D = np.diag(np.sign(np.diag(R)))
+    Q = Q @ D
+    # enforce det = +1
+    if np.linalg.det(Q) < 0:
+        Q[:, 0] *= -1
+    return Q
+
+
+def sample_Xstartgoal(xcenter, Rbest, cmin, dof=2):
+    if cmin > 2 * Rbest:
+        raise ValueError("cmin cannot be larger than 2*Rbest")
+
+    Rrand = sample_rotation_matrix(dof)
+    cMax = 2 * Rbest
+    L = hyperellipsoid_axis_length(cMax, cmin, dof)
+    e1 = np.zeros((dof, 1))
+    e1[0, 0] = 1.0
+    u = Rrand @ e1
+    rmin = cmin / 2
+    qa = xcenter - rmin * u
+    qb = xcenter + rmin * u
+    return qa, qb
+
+
+def get_circle_mplpatch(qcenter, r):
     circle = plt.Circle(
         (qcenter[0], qcenter[1]),
-        roffset,
+        r,
         color="b",
         fill=False,
         linestyle="--",
@@ -40,38 +75,102 @@ def get_circle_mplpatch(qcenter, roffset=0.5):
     return circle
 
 
+def _sample_X():
+    xcent = sampling_circle()
+    Rbest = 1.0
+    cMax = 2 * Rbest
+    cmin = 1.0
+    qa, qb = sample_Xstartgoal(xcent.reshape(-1, 1), Rbest, cmin)
+    XRand = np.empty((10000, 2))
+    for i in range(10000):
+        R = rotation_to_world(qa.reshape(-1, 1), qb.reshape(-1, 1))
+        xrand = informed_sampling(xcent.reshape(-1, 1), cMax, cmin, R)
+        XRand[i, :] = xrand.flatten()
+
+    fig, ax = plt.subplots()
+    ax.plot(XRand[:, 0], XRand[:, 1], "ro", markersize=2)
+    e = get_2d_ellipse_mplpatch(
+        qa.reshape(-1, 1), qb.reshape(-1, 1), cMax=2 * Rbest, cMin=cmin
+    )
+    ax.add_patch(e)
+    cir = get_circle_mplpatch(xcent, r=Rbest)
+    ax.add_patch(cir)
+    ax.plot(qa[0], qa[1], "bo", label="qa")
+    ax.plot(qb[0], qb[1], "go", label="qb")
+    ax.plot(xcent[0], xcent[1], "ko", label="xcenter")
+    ax.set_aspect("equal", "box")
+    ax.grid(True)
+    ax.legend()
+    plt.show()
+
+
+def _recover_q_from_center_and_rotation():
+    qa = np.array([0.0, 0.0]).reshape(-1, 1)
+    qb = np.array([1.0, 1.0]).reshape(-1, 1)
+    cMin = np.linalg.norm(qb - qa)
+    RRR = rotation_to_world(qa, qb)
+    qcenter = (qa + qb) / 2
+    e1 = np.zeros((2, 1))
+    e1[0, 0] = 1.0
+    u = RRR @ e1
+    d = cMin / 2
+    qarecover = qcenter - d * u
+    qbrecover = qcenter + d * u
+
+
+def three_point_ellipse_sampling(qs, qe, qm):
+    p1 = np.linspace(qs, qm, num=10)
+    p2 = np.linspace(qm, qe, num=10)
+    p = np.vstack((p1, p2))
+    return p
+
+
 dof = 2
-n = 1000
-shape = (n, dof + dof + 1)
+Rbest = 1.0
+cMax = 2 * Rbest
+cmin = 1.0
+n = 4
+shape = (n, dof + dof)
+Qcircle = np.empty(shape=(n, dof))
 Qrand = np.empty(shape=shape)
 for i in range(n):
-    qarand, qbrand, lrand = sampling_twopoints()
-    Qrand[i, 0:dof] = qarand
-    Qrand[i, dof : dof + dof] = qbrand
-    Qrand[i, -1] = lrand
-
-Qcircle = np.empty(shape=(n, dof))
-for i in range(n):
-    qcenter = sampling_circle()
+    qcenter = sampling_circle(Rbest)
     Qcircle[i, :] = qcenter
+    qa, qb = sample_Xstartgoal(qcenter.reshape(-1, 1), Rbest, cmin, dof=dof)
+    Qrand[i, 0:dof] = qa.flatten()
+    Qrand[i, dof : dof + dof] = qb.flatten()
 
 
 fig, ax = plt.subplots()
 for i in range(n):
-    qarand = Qrand[i, 0:dof]
-    qbrand = Qrand[i, dof : dof + dof]
-    lrand = Qrand[i, -1]
-    e = get_2d_ellipse_mplpatch(
-        qarand.reshape(2, 1), qbrand.reshape(2, 1), cMax=1.3 * lrand, cMin=lrand
-    )
-    # ax.add_patch(e)
-    # ax.plot(qarand[0], qarand[1], "ro", label="q_a" if i == 0 else "")
-    # ax.plot(qbrand[0], qbrand[1], "go", label="q_b" if i == 0 else "")
-for i in range(n):
     qcenter = Qcircle[i, :]
-    c = get_circle_mplpatch(qcenter, roffset=0.5)
-    ax.add_patch(c)
+    qa = Qrand[i, 0:dof]
+    qb = Qrand[i, dof : dof + dof]
+    rot = rotation_to_world(qa.reshape(-1, 1), qb.reshape(-1, 1))
+    qm = informed_surface_sampling(
+        qcenter.reshape(-1, 1), cMax, cmin, rot
+    ).flatten()
+    p = three_point_ellipse_sampling(qa, qb, qm)
+
     ax.plot(qcenter[0], qcenter[1], "bo", label="q_center" if i == 0 else "")
+    ax.plot(qa[0], qa[1], "ro", label="q_a" if i == 0 else "")
+    ax.plot(qb[0], qb[1], "go", label="q_b" if i == 0 else "")
+    ax.plot(qm[0], qm[1], "mo", label="q_mid" if i == 0 else "")
+    ax.plot(
+        p[:, 0],
+        p[:, 1],
+        "k--",
+        linewidth=0.5,
+        label="ellipse arc" if i == 0 else "",
+    )
+
+    e = get_2d_ellipse_mplpatch(
+        qa.reshape(-1, 1), qb.reshape(-1, 1), cMax=2 * Rbest, cMin=cmin
+    )
+    ax.add_patch(e)
+    c = get_circle_mplpatch(qcenter, r=Rbest)
+    ax.add_patch(c)
+
 ax.set_aspect("equal", "box")
 ax.set_xlim(-np.pi, np.pi)
 ax.set_ylim(-np.pi, np.pi)
