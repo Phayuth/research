@@ -6,27 +6,39 @@ np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 
 
-def informed_sampling(xCenter, cMax, cMin, rotationAxisC):
-    L = hyperellipsoid_axis_length(cMax, cMin)
+# informed sampling according to the paper
+def informed_sampling(xStart, xGoal, cMax):
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    cMin = np.linalg.norm(xGoal - xStart)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin)
     xBall = unit_ball_sampling()
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand
 
 
-def informed_surface_sampling(xCenter, cMax, cMin, rotationAxisC):
-    L = hyperellipsoid_axis_length(cMax, cMin)
-    xBall = unit_ball_surface_sampling()
-    xRand = (rotationAxisC @ L @ xBall) + xCenter
-    return xRand
-
-
-def hyperellipsoid_axis_length(cMax, cMin, dof=2):  # L
+def hyperellipsoid_informed_axis_length(cMax, cMin, dof=2):  # L
     r1 = cMax / 2
     ri = np.sqrt(cMax**2 - cMin**2) / 2
     diagTerm = [r1] + [ri] * (dof - 1)
     return np.diag(diagTerm)
 
 
+# custom sampling on ellipse with custom axis lengths
+def elliptical_sampling(xStart, xGoal, L, sampling):
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    xBall = sampling()
+    xRand = (rotationAxisC @ L @ xBall) + xCenter
+    return xRand
+
+
+def hyperellipsoid_custom_axis_length(long_axis, short_axis, dof=2):  # L
+    diagTerm = [long_axis] + [short_axis] * (dof - 1)
+    return np.diag(diagTerm)
+
+
+# inside sampling or on the surface sampling
 def unit_ball_sampling(dof=2):
     u = np.random.normal(0.0, 1.0, (dof + 2, 1))
     norm = np.linalg.norm(u)
@@ -41,9 +53,10 @@ def unit_ball_surface_sampling(dof=2):
     return u  # The first N coordinates are uniform on the surface of a unit N ball
 
 
+# Rotation
 def rotation_to_world(xStart, xGoal):  # C
     dof = xStart.shape[0]
-    cMin = distance_between_config(xStart, xGoal)
+    cMin = np.linalg.norm(xGoal - xStart)
     a1 = (xGoal - xStart) / cMin
     I1 = np.array([1.0] + [0.0] * (dof - 1)).reshape(1, -1)
     M = a1 @ I1
@@ -52,13 +65,66 @@ def rotation_to_world(xStart, xGoal):  # C
     return U @ np.diag(middleTerm) @ V_T
 
 
-def distance_between_config(xFrom, xTo):
-    return np.linalg.norm(xTo - xFrom)
+def sampling_rotation_matrix(n):
+    A = np.random.randn(n, n)
+    Q, R = np.linalg.qr(A)
+    # fix sign ambiguity
+    D = np.diag(np.sign(np.diag(R)))
+    Q = Q @ D
+    # enforce det = +1
+    if np.linalg.det(Q) < 0:
+        Q[:, 0] *= -1
+    return Q
 
 
-def get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin):
-    L = hyperellipsoid_axis_length(cMax, cMin)
+#
+def sampling_circle_in_jointlimit(roffset, dof=2):
+    limit = np.array(
+        [
+            [-np.pi, np.pi],
+        ]
+        * dof
+    )
+    limit_offset = limit.copy()
+    limit_offset[:, 0] += roffset
+    limit_offset[:, 1] -= roffset
+    qcenter = np.random.uniform(
+        low=limit_offset[:, 0], high=limit_offset[:, 1], size=(dof,)
+    )
+    return qcenter
+
+
+#
+def sampling_two_points(eta, dof=2):
+    qa = np.random.uniform(low=-np.pi, high=np.pi, size=(dof,))
+    qb = np.random.uniform(low=-np.pi, high=np.pi, size=(dof,))
+    qc = qa + eta * (qa - qb) / np.linalg.norm(qa - qb)
+    l = np.linalg.norm(qa - qc)
+    return qa, qc, l
+
+
+#
+def sampling_Xstartgoal(qcenter, Rbest, cmin, dof=2):
+    if cmin > 2 * Rbest:
+        raise ValueError("cmin is larger than the diameter of the circle.")
+
+    Rrand = sampling_rotation_matrix(dof)
+    cMax = 2 * Rbest
+    L = hyperellipsoid_informed_axis_length(cMax, cmin, dof=dof)
+    e1 = np.zeros((dof, 1))
+    e1[0, 0] = 1.0
+    u = Rrand @ e1
+    rmin = cmin / 2
+    qa = qcenter - rmin * u
+    qb = qcenter + rmin * u
+    return qa, qb
+
+
+# Matplotlib patch for 2D ellipse visualization
+def get_2d_ellipse_informed_mplpatch(xStart, xGoal, cMax):
+    cMin = np.linalg.norm(xGoal - xStart)
     xCenter = (xStart + xGoal) / 2
+    L = hyperellipsoid_informed_axis_length(cMax, cMin)
     C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
     w = L[0, 0] * 2
     h = L[1, 1] * 2
@@ -76,81 +142,32 @@ def get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin):
     return el
 
 
-def __usage():
-    dof = 2  # degrees of freedom for the configuration space
-    xStart = np.array([-0.5] * dof).reshape(-1, 1)
-    xGoal = np.array([0.5] * dof).reshape(-1, 1)
+def get_2d_ellipse_custom_mplpatch(xStart, xGoal, long_axis, short_axis):
     xCenter = (xStart + xGoal) / 2
+    L = hyperellipsoid_custom_axis_length(long_axis, short_axis)
     C = rotation_to_world(xStart, xGoal)  # hyperellipsoid rotation axis
-    cMin = distance_between_config(xStart, xGoal)
-    cMax = 2.0
-    XRAND = [informed_sampling(xCenter, cMax, cMin, C) for _ in range(1000)]
-    XRAND = np.array(XRAND).reshape(-1, dof)
-    XRAND_surface = [
-        informed_surface_sampling(xCenter, cMax, cMin, C) for _ in range(1000)
-    ]
-    XRAND_surface = np.array(XRAND_surface).reshape(-1, dof)
+    w = L[0, 0] * 2
+    h = L[1, 1] * 2
+    a = np.degrees(np.arctan2(C[1, 0], C[0, 0]))
 
-    # plot
-    fig, (ax, ay, az) = plt.subplots(1, 3)
-
-    # fig1
-    ax.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
-    ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
-    ax.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
-    ax.plot(
-        XRAND[:, 0],
-        XRAND[:, 1],
-        marker=".",
-        linestyle="None",
-        color="gray",
-        alpha=0.5,
+    el = patches.Ellipse(
+        (xCenter[0], xCenter[1]),
+        width=w,
+        height=h,
+        angle=a,
+        fill=False,
+        # edgecolor="red",
+        linewidth=2,
     )
-    el = get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin)
-    ax.add_patch(el)
-    ax.set_aspect("equal", "box")
-    ax.set_xlim(-np.pi, np.pi)
-    ax.set_ylim(-np.pi, np.pi)
-    ax.grid(True)
-    ax.legend()
+    return el
 
-    # fig2
-    ay.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
-    ay.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
-    ay.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
-    ay.plot(
-        XRAND_surface[:, 0],
-        XRAND_surface[:, 1],
-        marker=".",
-        linestyle="None",
-        color="gray",
-        alpha=0.5,
+
+def get_2d_circle_mplpatch(qcenter, r):
+    circle = plt.Circle(
+        (qcenter[0], qcenter[1]),
+        r,
+        color="b",
+        fill=False,
+        linestyle="--",
     )
-    el = get_2d_ellipse_mplpatch(xStart, xGoal, cMax, cMin)
-    ay.add_patch(el)
-    ay.set_aspect("equal", "box")
-    ay.set_xlim(-np.pi, np.pi)
-    ay.set_ylim(-np.pi, np.pi)
-    ay.grid(True)
-    ay.legend()
-
-    # fig3
-    az.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
-    az.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
-    az.plot(xCenter[0], xCenter[1], marker="x", color="black", label="Center")
-    CMAX = np.linspace(cMin, cMin * 5, 10)
-    for cmax in CMAX:
-        el = get_2d_ellipse_mplpatch(xStart, xGoal, cmax, cMin)
-        az.add_patch(el)
-        fs = f"cMax is +{((cmax - cMin) / cMin) * 100:.1f}% of cMin"
-        az.plot([], [], label=fs)  # dummy plot for legend
-    az.set_aspect("equal", "box")
-    az.set_xlim(-np.pi, np.pi)
-    az.set_ylim(-np.pi, np.pi)
-    az.grid(True)
-    az.legend()
-    plt.show()
-
-
-if __name__ == "__main__":
-    __usage()
+    return circle

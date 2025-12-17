@@ -1,51 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from geometric_ellipse import (
-    get_2d_ellipse_mplpatch,
-    rotation_to_world,
-    informed_sampling,
-    informed_surface_sampling,
-    hyperellipsoid_axis_length,
-    unit_ball_sampling,
-)
+from geometric_ellipse import *
+
 
 np.random.seed(42)
-
-
-def sampling_twopoints(eta):
-    qa = np.random.uniform(low=-np.pi, high=np.pi, size=(2,))
-    qb = np.random.uniform(low=-np.pi, high=np.pi, size=(2,))
-    qc = qa + eta * (qa - qb) / np.linalg.norm(qa - qb)
-    l = np.linalg.norm(qa - qc)
-    return qa, qc, l
-
-
-def sampling_circle(roffset):
-    limit = np.array(
-        [
-            [-np.pi, np.pi],
-            [-np.pi, np.pi],
-        ]
-    )
-    limit_offset = limit.copy()
-    limit_offset[:, 0] += roffset
-    limit_offset[:, 1] -= roffset
-    qcenter = np.random.uniform(
-        low=limit_offset[:, 0], high=limit_offset[:, 1], size=(dof,)
-    )
-    return qcenter
-
-
-def sample_rotation_matrix(n):
-    A = np.random.randn(n, n)
-    Q, R = np.linalg.qr(A)
-    # fix sign ambiguity
-    D = np.diag(np.sign(np.diag(R)))
-    Q = Q @ D
-    # enforce det = +1
-    if np.linalg.det(Q) < 0:
-        Q[:, 0] *= -1
-    return Q
 
 
 def sample_Xstartgoal(xcenter, Rbest, cmin, dof=2):
@@ -54,7 +12,7 @@ def sample_Xstartgoal(xcenter, Rbest, cmin, dof=2):
 
     Rrand = sample_rotation_matrix(dof)
     cMax = 2 * Rbest
-    L = hyperellipsoid_axis_length(cMax, cmin, dof)
+    L = hyperellipsoid_informed_axis_length(cMax, cmin, dof)
     e1 = np.zeros((dof, 1))
     e1[0, 0] = 1.0
     u = Rrand @ e1
@@ -62,17 +20,6 @@ def sample_Xstartgoal(xcenter, Rbest, cmin, dof=2):
     qa = xcenter - rmin * u
     qb = xcenter + rmin * u
     return qa, qb
-
-
-def get_circle_mplpatch(qcenter, r):
-    circle = plt.Circle(
-        (qcenter[0], qcenter[1]),
-        r,
-        color="b",
-        fill=False,
-        linestyle="--",
-    )
-    return circle
 
 
 def _sample_X():
@@ -89,7 +36,7 @@ def _sample_X():
 
     fig, ax = plt.subplots()
     ax.plot(XRand[:, 0], XRand[:, 1], "ro", markersize=2)
-    e = get_2d_ellipse_mplpatch(
+    e = get_2d_ellipse_informed_mplpatch(
         qa.reshape(-1, 1), qb.reshape(-1, 1), cMax=2 * Rbest, cMin=cmin
     )
     ax.add_patch(e)
@@ -147,9 +94,9 @@ for i in range(n):
     qa = Qrand[i, 0:dof]
     qb = Qrand[i, dof : dof + dof]
     rot = rotation_to_world(qa.reshape(-1, 1), qb.reshape(-1, 1))
-    qm = informed_surface_sampling(
-        qcenter.reshape(-1, 1), cMax, cmin, rot
-    ).flatten()
+    qm = elliptical_sampling(
+        qa.reshape(-1, 1), qb.reshape(-1, 1), rot, unit_ball_surface_sampling
+    )
     p = three_point_ellipse_sampling(qa, qb, qm)
 
     ax.plot(qcenter[0], qcenter[1], "bo", label="q_center" if i == 0 else "")
@@ -164,7 +111,7 @@ for i in range(n):
         label="ellipse arc" if i == 0 else "",
     )
 
-    e = get_2d_ellipse_mplpatch(
+    e = get_2d_ellipse_informed_mplpatch(
         qa.reshape(-1, 1), qb.reshape(-1, 1), cMax=2 * Rbest, cMin=cmin
     )
     ax.add_patch(e)

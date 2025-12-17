@@ -233,32 +233,3 @@ if __name__ == "__main__":
     print("Cluster centers:\n", center)
     print("labels:\n", labels)
     print("Points per cluster:\n", points_per_cluster)
-
-    fig, ax = plt.subplots()
-
-    scatter = ax.scatter(
-        selected_configurations[:, 0],
-        selected_configurations[:, 1],
-        c=labels,
-        cmap="tab20",
-        s=5,
-    )
-
-    ax.plot(
-        center[:, 0],
-        center[:, 1],
-        "kx",
-        markersize=10,
-        markeredgewidth=2,
-        label="Centroids",
-    )
-    legend1 = ax.legend(
-        *scatter.legend_elements(),
-        title="Clusters",
-        loc="upper right",
-    )
-    ax.add_artist(legend1)
-    plt.xlabel("X1")
-    plt.ylabel("X2")
-    plt.title("X-means Clustering Result")
-    plt.show()
