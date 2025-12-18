@@ -139,6 +139,14 @@ alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
 # alpha, F = onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate)
 
 
+# save trained model
+# np.save(os.path.join(rsrc, "fastron_og_alpha.npy"), alpha)
+# np.save(os.path.join(rsrc, "fastron_og_data.npy"), data)
+
+# load trained model
+# alpha = np.load(os.path.join(rsrc, "fastron_og_alpha.npy"))
+# data = np.load(os.path.join(rsrc, "fastron_og_data.npy"))
+
 if __name__ == "__main__":
     queryP = np.array([1, 1])
     collision = eval(queryP, data, alpha, g)
@@ -149,15 +157,15 @@ if __name__ == "__main__":
     theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
     cspace_obs = []
 
-    for i in range(num_samples):
-        for j in range(num_samples):
-            print(i, j)
-            theta = np.array([theta1_samples[i], theta2_samples[j]])
-            collision = eval(theta, data, alpha, g)
-            if collision == 1:
-                cspace_obs.append((theta1_samples[i], theta2_samples[j]))
-    cspace_obs = np.array(cspace_obs)
-    np.save(os.path.join(rsrc, "cspace_obstacles_fastron.npy"), cspace_obs)
+    # for i in range(num_samples):
+    #     for j in range(num_samples):
+    #         print(i, j)
+    #         theta = np.array([theta1_samples[i], theta2_samples[j]])
+    #         collision = eval(theta, data, alpha, g)
+    #         if collision == 1:
+    #             cspace_obs.append((theta1_samples[i], theta2_samples[j]))
+    # cspace_obs = np.array(cspace_obs)
+    # np.save(os.path.join(rsrc, "cspace_obstacles_fastron.npy"), cspace_obs)
 
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
     cspace_obs_ft = np.load(os.path.join(rsrc, "cspace_obstacles_fastron.npy"))

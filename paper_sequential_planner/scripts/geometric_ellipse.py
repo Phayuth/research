@@ -120,6 +120,56 @@ def sampling_Xstartgoal(qcenter, Rbest, cmin, dof=2):
     return qa, qb
 
 
+# util function
+def three_point_path(qs, qe, qm):
+    # intended for interpolate between qs, qmid on ellipse and qe
+    p1 = np.linspace(qs, qm, num=10)
+    p2 = np.linspace(qm, qe, num=10)
+    p = np.vstack((p1, p2))
+    return p
+
+
+#
+# The Lebesgue measure (i.e., "volume") of an n-dimensional ball with a unit radius.
+def unit_nball_volume_measure(dof):
+    gammafunction = {
+        1: 1.0,
+        2: 1.0,
+        3: 2.0,
+        4: 6.0,
+        5: 24.0,
+        6: 120.0,
+    }
+    return (np.pi ** (dof / 2)) / gammafunction[(dof / 2) + 1]  # ziD
+
+
+# The Lebesgue measure (i.e., "volume") of an n-dimensional prolate hyperspheroid
+# (a symmetric hyperellipse) given as the distance between the foci and the transverse diameter.
+def prolate_hyperspheroid_measure():
+    pass
+
+
+def lebesgue_obstacle_free_measure(configlimit):
+    # configLimit = [
+    #     [-np.pi, np.pi],
+    #     [-np.pi, np.pi],
+    #     [-np.pi, np.pi],
+    #     [-np.pi, np.pi],
+    #     [-np.pi, np.pi],
+    #     [-np.pi, np.pi],
+    # ]
+    diff = np.diff(configlimit)
+    return np.prod(diff)
+
+
+def rewire_radius(eta, dof, configlimit, numVert, rwfact=1.1):
+    inverseDoF = 1.0 / dof
+    lbf = lebesgue_obstacle_free_measure(configlimit)
+    ubvm = unit_nball_volume_measure(dof)
+    gammaRRG = rwfact * 2.0 * ((1.0 + inverseDoF) * (lbf / ubvm)) ** (inverseDoF)
+    return np.min([eta, gammaRRG * (np.log(numVert) / numVert) ** (inverseDoF)])
+
+
 # Matplotlib patch for 2D ellipse visualization
 def get_2d_ellipse_informed_mplpatch(xStart, xGoal, cMax):
     cMin = np.linalg.norm(xGoal - xStart)
