@@ -20,14 +20,14 @@ y = dataset_samples[:, 2]
 # Fastron
 N = data.shape[0]  # number of datapoint = number of row the dataset
 d = data.shape[1]  # number of dimension = number of col the dataset (x1, ..., xn)
-g = 10  # kernel width
+gamma = 10  # kernel width
 beta = 100  # conditional bias
 maxUpdate = 25  # max update iteration
 maxSupportPoints = 1500  # max support points
 G = np.zeros((N, N))  # kernel gram matrix guassian kernel of dataset
 
-# alpha = np.zeros(N)  # weight, init at zero
-alpha = np.random.uniform(0.0, 1.0, size=(N))  # weight, init at random
+alpha = np.zeros(N)  # weight, init at zero
+# alpha = np.random.uniform(0.0, 1.0, size=(N))  # weight, init at random
 F = np.zeros(N)  # hypothesis
 
 # active learning parameters
@@ -50,6 +50,33 @@ def hypothesisf(queryPoint, data, alpha, gamma):
         term.append(alpha[i] * gaussian_kernel(xi, queryPoint, gamma))
     ypred = np.sign(sum(term))
     return ypred
+
+
+# def kernel_vector_to_query(data, queryPoint, gamma):
+#     """Compute vector of RBF kernel values between each row in data and queryPoint.
+#     Returns k of shape (N,)
+#     """
+#     query = np.asarray(queryPoint)
+#     diffs = data - query
+#     sq_dists = np.sum(diffs * diffs, axis=1)
+#     return np.exp(-gamma * sq_dists)
+
+
+# def hypothesisf_vectorized(queryPoint, data, alpha, gamma):
+#     """Vectorized hypothesis: sign(alpha . k(queryPoint))"""
+#     k = kernel_vector_to_query(data, queryPoint, gamma)
+#     score = alpha.dot(k)
+#     return np.sign(score)
+
+
+# def eval_vectorized(queryPoint, data, alpha, gamma):
+#     """Same as hypothesisf_vectorized, keeps the name `eval` used in original script."""
+#     return hypothesisf_vectorized(queryPoint, data, alpha, gamma)
+
+
+# def F_from_alpha(G, alpha):
+#     """Compute F = G.dot(alpha) (raw scores)."""
+#     return G.dot(alpha)
 
 
 def eval(queryPoint, data, alpha, gamma):
@@ -133,23 +160,43 @@ def onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate):
     return alpha, F
 
 
-G = compute_kernel_gram_matrix(G, data, g)
-# G = rbf_kernel(data, data, gamma=g)
-alpha, F = original_kernel_update(alpha, F, data, y, G, N, g, maxUpdate)
-# alpha, F = onestep_correction_update(alpha, F, data, y, G, N, g, maxUpdate)
+# G = rbf_kernel(data, data, gamma=gamma)
+# alpha, F = original_kernel_update(alpha, F, data, y, G, N, gamma, maxUpdate)
 
 
-# save trained model
+# # save trained model
 # np.save(os.path.join(rsrc, "fastron_og_alpha.npy"), alpha)
 # np.save(os.path.join(rsrc, "fastron_og_data.npy"), data)
+# np.save(os.path.join(rsrc, "fastron_og_labels.npy"), y)
+# np.save(os.path.join(rsrc, "fastron_og_gram.npy"), G)
+# np.save(os.path.join(rsrc, "fastron_og_F.npy"), F)
 
 # load trained model
-# alpha = np.load(os.path.join(rsrc, "fastron_og_alpha.npy"))
-# data = np.load(os.path.join(rsrc, "fastron_og_data.npy"))
+alpha = np.load(os.path.join(rsrc, "fastron_og_alpha.npy"))
+data = np.load(os.path.join(rsrc, "fastron_og_data.npy"))
+y = np.load(os.path.join(rsrc, "fastron_og_labels.npy")).astype(int)
+G = np.load(os.path.join(rsrc, "fastron_og_gram.npy"))
+F = np.load(os.path.join(rsrc, "fastron_og_F.npy"))
+
+print(f"> alpha: {alpha}")
+print(f"> data: {data}")
+print(f"> y: {y}")
+labelfree = np.where(y == -1)[0]
+print(f"> labelfree: {labelfree}")
+labelcols = np.where(y == 1)[0]
+print(f"> labelcols: {labelcols}")
+
+alpha_nonzero = np.where(alpha != 0.0)[0]
+print(f"> alpha_nonzero: {alpha_nonzero}")
+print(f"> number of support points: {len(alpha_nonzero)} / {N}")
+
+data_free = data[labelfree]
+data_cols = data[labelcols]
+data_supp = data[alpha_nonzero]
 
 if __name__ == "__main__":
     queryP = np.array([1, 1])
-    collision = eval(queryP, data, alpha, g)
+    collision = eval(queryP, data, alpha, gamma)
     print(f"> collision: {collision}")
 
     num_samples = 360
@@ -161,7 +208,7 @@ if __name__ == "__main__":
     #     for j in range(num_samples):
     #         print(i, j)
     #         theta = np.array([theta1_samples[i], theta2_samples[j]])
-    #         collision = eval(theta, data, alpha, g)
+    #         collision = eval(theta, data, alpha, gamma)
     #         if collision == 1:
     #             cspace_obs.append((theta1_samples[i], theta2_samples[j]))
     # cspace_obs = np.array(cspace_obs)
@@ -175,17 +222,40 @@ if __name__ == "__main__":
         cspace_obs[:, 0],
         cspace_obs[:, 1],
         "ro",
-        markersize=2,
-        label="Fastron C-space obstacle",
+        markersize=3,
+        label="Geometry C-space obstacle",
     )
-
     ax.plot(
         cspace_obs_ft[:, 0],
         cspace_obs_ft[:, 1],
-        "bx",
-        markersize=2,
-        label="Geometry C-space obstacle",
+        "yo",
+        markersize=3,
+        label="Fastron C-space obstacle",
         alpha=0.5,
+    )
+    ax.plot(
+        data_free[:, 0],
+        data_free[:, 1],
+        "go",
+        markersize=3,
+        label="Fastron dataset free",
+        alpha=0.3,
+    )
+    ax.plot(
+        data_cols[:, 0],
+        data_cols[:, 1],
+        "ko",
+        markersize=3,
+        label="Fastron dataset obstacle",
+        alpha=0.3,
+    )
+    ax.plot(
+        data_supp[:, 0],
+        data_supp[:, 1],
+        "mx",
+        markersize=5,
+        label="Fastron support points",
+        alpha=0.7,
     )
     ax.set_xlabel("Theta 1")
     ax.set_ylabel("Theta 2")
