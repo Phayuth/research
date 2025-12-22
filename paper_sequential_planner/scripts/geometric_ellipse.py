@@ -129,6 +129,18 @@ def three_point_path(qs, qe, qm):
     return p
 
 
+def linear_interp(qa, qb, eta=0.1):
+    dist = np.linalg.norm(qb - qa)
+    num_segments = int(np.ceil(dist / eta))
+    path = []
+    for i in range(num_segments + 1):
+        alpha = i / num_segments
+        q = (1 - alpha) * qa + alpha * qb
+        path.append(q)
+    path = np.array(path)
+    return path
+
+
 #
 # The Lebesgue measure (i.e., "volume") of an n-dimensional ball with a unit radius.
 def unit_nball_volume_measure(dof):

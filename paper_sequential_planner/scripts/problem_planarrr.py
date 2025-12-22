@@ -198,18 +198,6 @@ class RobotScene:
         plt.show()
 
 
-def linear_interp(qa, qb, eta=0.1):
-    dist = np.linalg.norm(qb - qa)
-    num_segments = int(np.ceil(dist / eta))
-    path = []
-    for i in range(num_segments + 1):
-        alpha = i / num_segments
-        q = (1 - alpha) * qa + alpha * qb
-        path.append(q)
-    path = np.array(path)
-    return path
-
-
 if __name__ == "__main__":
     shapes = {
         # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
