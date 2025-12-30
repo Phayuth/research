@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 from itertools import product
 import numpy as np
 import heapq
