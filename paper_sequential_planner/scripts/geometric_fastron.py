@@ -134,25 +134,6 @@ def fastron_active_learning():
     pass
 
 
-def save_model(alpha, data, y, G, F):
-    # save trained model
-    np.save(os.path.join(rsrc, "fastron_og_alpha.npy"), alpha)
-    np.save(os.path.join(rsrc, "fastron_og_data.npy"), data)
-    np.save(os.path.join(rsrc, "fastron_og_labels.npy"), y)
-    np.save(os.path.join(rsrc, "fastron_og_gram.npy"), G)
-    np.save(os.path.join(rsrc, "fastron_og_F.npy"), F)
-
-
-def load_model():
-    # load trained model
-    alpha = np.load(os.path.join(rsrc, "fastron_og_alpha.npy"))
-    data = np.load(os.path.join(rsrc, "fastron_og_data.npy"))
-    y = np.load(os.path.join(rsrc, "fastron_og_labels.npy")).astype(int)
-    G = np.load(os.path.join(rsrc, "fastron_og_gram.npy"))
-    F = np.load(os.path.join(rsrc, "fastron_og_F.npy"))
-    return alpha, data, y, G, F
-
-
 class ModelConfig:
     gamma = 10  # kernel width
     beta = 100  # conditional bias
@@ -208,6 +189,25 @@ def train_fastron_model(data, y, configcls):
         configcls.maxUpdate,
         configcls.beta,
     )
+    return alpha, data, y, G, F
+
+
+def save_model(alpha, data, y, G, F):
+    # save trained model
+    np.save(os.path.join(rsrc, "fastron_og_alpha.npy"), alpha)
+    np.save(os.path.join(rsrc, "fastron_og_data.npy"), data)
+    np.save(os.path.join(rsrc, "fastron_og_labels.npy"), y)
+    np.save(os.path.join(rsrc, "fastron_og_gram.npy"), G)
+    np.save(os.path.join(rsrc, "fastron_og_F.npy"), F)
+
+
+def load_model():
+    # load trained model
+    alpha = np.load(os.path.join(rsrc, "fastron_og_alpha.npy"))
+    data = np.load(os.path.join(rsrc, "fastron_og_data.npy"))
+    y = np.load(os.path.join(rsrc, "fastron_og_labels.npy")).astype(int)
+    G = np.load(os.path.join(rsrc, "fastron_og_gram.npy"))
+    F = np.load(os.path.join(rsrc, "fastron_og_F.npy"))
     return alpha, data, y, G, F
 
 
