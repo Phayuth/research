@@ -4,6 +4,7 @@ import os
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
+rsrc = os.environ["RSRC_DIR"]
 
 
 class GUUtil:
