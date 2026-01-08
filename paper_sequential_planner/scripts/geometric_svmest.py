@@ -13,7 +13,7 @@ rsrc = os.environ["RSRC_DIR"]
 # space learning
 N_TRAIN = 1000
 sigma = 0.5
-epochs = 100
+epochs = 200
 
 
 def svm_train(X_train, y_train, sigma):
@@ -126,9 +126,9 @@ def soft_adjacency_radius(X, f, sigma=0.6, r_conn=0.6):
     return W
 
 
-def estimate_adj_matrix(start, goal, X_nodes):
+def estimate_adj_matrix(start, goal, X_nodes, f_hat=None, f_hat_args=()):
     # sample nodes in C-space and evaluate f_hat
-    f_nodes = f_hat(X_nodes, X_train, alpha, y_train, sigma)
+    f_nodes = f_hat(X_nodes, *f_hat_args)
 
     # confidence threshold filter
     mask = f_nodes > tau
@@ -137,14 +137,12 @@ def estimate_adj_matrix(start, goal, X_nodes):
 
     # compute f_hat for start and goal
     X_all = np.vstack([start, goal, X_nodes])
-    startf = f_hat(start[None], X_train, alpha, y_train, sigma)[0:1]
-    goalf = f_hat(goal[None], X_train, alpha, y_train, sigma)[0:1]
+    startf = f_hat(start[None], *f_hat_args)[0:1]
+    goalf = f_hat(goal[None], *f_hat_args)[0:1]
     f_all = np.concatenate([startf, goalf, f_nodes])
 
     # similarity adjacency
-    W_all = soft_adjacency_mid_penalty(
-        X_all, f_all, sigma, f_hat, (X_train, alpha, y_train, sigma)
-    )
+    W_all = soft_adjacency_mid_penalty(X_all, f_all, sigma, f_hat, f_hat_args)
 
     # compute cost adjacency
     C = 1 / (W_all + 1e-6)
@@ -206,7 +204,9 @@ if __name__ == "__main__":
     )
     start = np.array([-2.5, -2.5])
     goal = np.array([2.5, 2.5])
-    C, X_all = estimate_adj_matrix(start, goal, X_nodes)
+    C, X_all = estimate_adj_matrix(
+        start, goal, X_nodes, f_hat, (X_train, alpha, y_train, sigma)
+    )
     pathq, pathl = estimate_shortest_path(C, X_all)
 
     # visualize path

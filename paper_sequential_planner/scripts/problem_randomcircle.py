@@ -96,14 +96,14 @@ if __name__ == "__main__":
     cluster = GU.build_cluster(points_per_cluster)
     cost_adj_matrix = GU.edgecost_distance(config)
 
-    GUUtil.write_glkh_fullmatrix_file(
-        os.path.join(
-            GUUtil.problemdir,
-            f"{num_clusters}random{num_clusters*each_cluster}.gtsp",
-        ),
-        cost_adj_matrix,
-        cluster,
-    )
+    # GUUtil.write_glkh_fullmatrix_file(
+    #     os.path.join(
+    #         GUUtil.problemdir,
+    #         f"{num_clusters}random{num_clusters*each_cluster}.gtsp",
+    #     ),
+    #     cost_adj_matrix,
+    #     cluster,
+    # )
     # # solve GTSP using GLKH
     # tourmatrix = GUUtil.read_tour_file(
     #     os.path.join(GUUtil.problemdir, "random_gtsp_fullmatrix.tour")
