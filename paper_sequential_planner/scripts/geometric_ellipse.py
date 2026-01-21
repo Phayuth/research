@@ -17,6 +17,16 @@ def informed_sampling(xStart, xGoal, cMax):
     return xRand
 
 
+def informed_sampling_bulk(xStart, xGoal, cMax, numsample):
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    cMin = np.linalg.norm(xGoal - xStart)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin)
+    xBall = unit_ball_sampling_bulk(xStart.shape[0], numsample)
+    xRand = (rotationAxisC @ L @ xBall) + xCenter
+    return xRand.T
+
+
 def hyperellipsoid_informed_axis_length(cMax, cMin, dof=2):  # L
     r1 = cMax / 2
     ri = np.sqrt(cMax**2 - cMin**2) / 2
@@ -38,6 +48,24 @@ def hyperellipsoid_custom_axis_length(long_axis, short_axis, dof=2):  # L
     return np.diag(diagTerm)
 
 
+def custom_inside_sampling(xStart, xGoal, long_axis, short_axis, numsample):
+    L = hyperellipsoid_custom_axis_length(long_axis, short_axis)
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    xBall = unit_ball_sampling_bulk(xStart.shape[0], numsample)
+    xRand = (rotationAxisC @ L @ xBall) + xCenter
+    return xRand.T
+
+
+def custom_surface_sampling(xStart, xGoal, long_axis, short_axis, numsample):
+    L = hyperellipsoid_custom_axis_length(long_axis, short_axis)
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    xBall = unit_ball_surface_sampling_bulk(xStart.shape[0], numsample)
+    xRand = (rotationAxisC @ L @ xBall) + xCenter
+    return xRand.T
+
+
 # inside sampling or on the surface sampling
 def unit_ball_sampling(dof=2):
     u = np.random.normal(0.0, 1.0, (dof + 2, 1))
@@ -46,10 +74,24 @@ def unit_ball_sampling(dof=2):
     return u[:dof, :]  # The first N coordinates are uniform in a unit N ball
 
 
+def unit_ball_sampling_bulk(dof=2, num_samples=1):
+    u = np.random.normal(0.0, 1.0, (dof + 2, num_samples))
+    norms = np.linalg.norm(u, axis=0)
+    u = u / norms
+    return u[:dof, :]  # The first N coordinates are uniform in a unit N ball
+
+
 def unit_ball_surface_sampling(dof=2):
     u = np.random.normal(0.0, 1.0, (dof, 1))
     norm = np.linalg.norm(u)
     u = u / norm
+    return u  # The first N coordinates are uniform on the surface of a unit N ball
+
+
+def unit_ball_surface_sampling_bulk(dof=2, num_samples=1):
+    u = np.random.normal(0.0, 1.0, (dof, num_samples))
+    norms = np.linalg.norm(u, axis=0)
+    u = u / norms
     return u  # The first N coordinates are uniform on the surface of a unit N ball
 
 
