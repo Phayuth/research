@@ -27,6 +27,16 @@ def informed_sampling_bulk(xStart, xGoal, cMax, numsample):
     return xRand.T
 
 
+def informed_surface_sampling_bulk(xStart, xGoal, cMax, numsample):
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    cMin = np.linalg.norm(xGoal - xStart)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin)
+    xBall = unit_ball_surface_sampling_bulk(xStart.shape[0], numsample)
+    xRand = (rotationAxisC @ L @ xBall) + xCenter
+    return xRand.T
+
+
 def hyperellipsoid_informed_axis_length(cMax, cMin, dof=2):  # L
     r1 = cMax / 2
     ri = np.sqrt(cMax**2 - cMin**2) / 2
