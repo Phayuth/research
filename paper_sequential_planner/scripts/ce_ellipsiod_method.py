@@ -1,7 +1,7 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from geometric_ellipse import *
-import os
 from problem_planarrr import *
 
 np.random.seed(42)
@@ -35,8 +35,6 @@ def bulk_collisioncheck(X):
     return Xresult
 
 
-# q1 = np.array([-0.5] * 2).reshape(-1, 1)
-# q2 = np.array([0.5] * 2).reshape(-1, 1)
 q1 = np.array([-1.0, 2.5]).reshape(-1, 1)
 q2 = np.array([1.0, 2.5]).reshape(-1, 1)
 q3 = np.array([0.15, 0.60]).reshape(-1, 1)
