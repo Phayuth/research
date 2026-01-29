@@ -173,12 +173,12 @@ def sampling_Xstartgoal(qcenter, Rbest, cmin, dof=2):
 
 
 # util function
-def three_point_path(qs, qe, qm):
+def three_point_path(qs, qm, qe, num_points=100):
     # intended for interpolate between qs, qmid on ellipse and qe
-    p1 = np.linspace(qs, qm, num=10)
-    p2 = np.linspace(qm, qe, num=10)
+    p1 = np.linspace(qs, qm, num=num_points // 2)
+    p2 = np.linspace(qm, qe, num=num_points // 2)
     p = np.vstack((p1, p2))
-    return p
+    return p[:, :, 0].T  # shape (num_points, dof)
 
 
 def linear_interp(qa, qb, eta=0.1):
@@ -191,6 +191,12 @@ def linear_interp(qa, qb, eta=0.1):
         path.append(q)
     path = np.array(path)
     return path
+
+
+def bezier_curve(q0, qc, qg, num_points=100):
+    t = np.linspace(0, 1, num_points)
+    B = ((1 - t) ** 2) * q0 + (2 * (1 - t) * t) * qc + (t**2) * qg
+    return B
 
 
 #
@@ -285,3 +291,72 @@ def get_2d_circle_mplpatch(qcenter, r):
         linestyle="--",
     )
     return circle
+
+
+# -------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------
+def unit_vector(q1, q2):
+    v = q2 - q1
+    return v / np.linalg.norm(v)
+
+
+def sorting_sampling_():
+    # xfake = np.linspace(0, 10, 100)
+    # yfake = np.sin(xfake)
+    # X = np.vstack((xfake, yfake)).T
+    # v = np.array([1, 0])
+
+    X = np.array(
+        [
+            [0.5, 1.5],
+            [1.5, 1.0],
+            [1.0, 0.5],
+            [2.5, 1.0],
+            [2.0, 2.5],
+            [3.5, 3.0],
+            [3.0, 3.5],
+        ]
+    )
+    q1 = np.array([0, 0])
+    q2 = np.array([1, 1])
+    v = unit_vector(q1, q2)
+    print("Projection direction v:", v)
+
+    s = X @ v  # projection scalars
+    order = np.argsort(s)
+    X_sorted = X[order]
+
+    print("Original X:")
+    print(X)
+    print("Projection scalars:")
+    print(s)
+    print("Sorted order indices:")
+    print(order)
+    print("Sorted X:")
+    print(X_sorted)
+
+    fig, ax = plt.subplots()
+    ax.scatter(X[:, 0], X[:, 1], color="blue", label="Original Points")
+    ax.scatter(X_sorted[:, 0], X_sorted[:, 1], color="red", label="Sorted Points")
+
+    for i in range(X.shape[0]):
+        ax.text(X[i, 0] + 0.1, X[i, 1], f"{i}", fontsize=12, color="blue")
+        ax.text(X_sorted[i, 0], X_sorted[i, 1], f"{i}", fontsize=12, color="red")
+    ax.plot(
+        [0, v[0] * 6],
+        [0, v[1] * 6],
+        color="green",
+        linestyle="--",
+        label="Projection Direction",
+    )
+    ax.legend()
+    ax.grid()
+    ax.set_aspect("equal", "box")
+    plt.show()
+
+
+if __name__ == "__main__":
+    sorting_sampling_()

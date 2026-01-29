@@ -222,3 +222,5 @@ if __name__ == "__main__":
     print("Best distance:", best)
     for res in results:
         print(res)
+
+    scene.plot(theta)
