@@ -140,7 +140,7 @@ if __name__ == "__main__":
     ax.plot(B1[0, :], B1[1, :], "k-", linewidth=2, label="bezier")
     ax.plot(B2[0, :], B2[1, :], "k--", linewidth=2, label="3-point path")
     ax.plot(qqq[0], qqq[1], "kx", markersize=10, label="control point")
-    ax.plot(qpath34[:, 0], qpath34[:, 1], "r-", linewidth=2, label="planned path")
+    ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
     ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
     ax.set_xlim(-np.pi, np.pi)
