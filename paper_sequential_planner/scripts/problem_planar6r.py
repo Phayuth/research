@@ -34,10 +34,33 @@ def get_dmin(p):
     return dmin
 
 
-# my parallel version is not working well yet
 def compute_obstacle_cost_one_traj(traj):
     xy_coordinates = forward_kinematics_vectorized(traj)
     armcols = [LineString(pp).buffer(rb) for pp in xy_coordinates]
     dmin = np.array([armcol.distance(oo) for armcol in armcols])
     cost = np.maximum(clearence + rb - dmin, 0)
     return np.sum(cost)
+
+
+if __name__ == "__main__":
+    num_samples = 20
+    q1 = np.linspace(-np.pi, np.pi, num_samples)
+    q2 = np.linspace(-np.pi, np.pi, num_samples)
+    q3 = np.linspace(-np.pi, np.pi, num_samples)
+    q4 = np.linspace(-np.pi, np.pi, num_samples)
+    q5 = np.linspace(-np.pi, np.pi, num_samples)
+    q6 = np.linspace(-np.pi, np.pi, num_samples)
+
+    # Q1, Q2 = np.meshgrid(q1, q2, indexing="ij")
+    # data = np.column_stack([Q1.ravel(), Q2.ravel()])
+    # print(data)
+    # print(data.shape)  # (400, 2)
+
+    Q1, Q2, Q3, Q4, Q5, Q6 = np.meshgrid(q1, q2, q3, q4, q5, q6, indexing="ij")
+    data = np.column_stack(
+        [Q1.ravel(), Q2.ravel(), Q3.ravel(), Q4.ravel(), Q5.ravel(), Q6.ravel()]
+    )
+    print(data)
+    print(data.shape)  # (64_000_000, 6)
+
+    compute_obstacle_cost_one_traj(data)

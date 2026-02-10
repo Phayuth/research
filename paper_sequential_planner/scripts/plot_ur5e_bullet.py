@@ -566,6 +566,40 @@ def collision_check():
         p.disconnect()
 
 
+def collision_dataset():
+    robot = UR5eBullet("no_gui")
+    model_id = robot.load_models_other(Constants.model_list_shelf)
+    num_sample = 20
+    q1 = np.linspace(-np.pi, np.pi, num_sample)
+    q2 = np.linspace(-np.pi, np.pi, num_sample)
+    q3 = np.linspace(-np.pi, np.pi, num_sample)
+    q4 = np.linspace(-np.pi, np.pi, num_sample)
+    q5 = np.linspace(-np.pi, np.pi, num_sample)
+    q6 = np.linspace(-np.pi, np.pi, num_sample)
+    np.meshgrid(q1, q2, q3, q4, q5, q6)
+    # collision dataset
+    dataset = []
+
+    for q1i in q1:
+        for q2i in q2:
+            for q3i in q3:
+                for q4i in q4:
+                    for q5i in q5:
+                        for q6i in q6:
+                            q = [q1i, q2i, q3i, q4i, q5i, q6i]
+                            iscollision = robot.collision_check_at_config(q)
+                            dataset.append(
+                                (q1i, q2i, q3i, q4i, q5i, q6i, int(iscollision))
+                            )
+                            print("collecting ...")
+    dataset = np.array(dataset)
+    print(dataset.shape)
+    print(dataset)
+    np.save(
+        os.path.join(Constants.rsrcpath, "ur5e_collision_dataset.npy"), dataset
+    )
+
+
 def joint_trajectory_visualize():
     robot = UR5eBullet("gui")
 
@@ -725,16 +759,18 @@ def visualize_analytical_ik_pose():
 
 
 if __name__ == "__main__":
-    from util import option_runner
+    np.set_printoptions(precision=4, suppress=True)
+    collision_dataset()
+    # from util import option_runner
 
-    func = [
-        simple_visualize,
-        simple_visualize_change_color,
-        collision_check,
-        joint_trajectory_visualize,
-        joint_trajectory_visualize_ghost,
-        joint_trajectory_control,
-        visualize_analytical_ik_pose,
-    ]
+    # func = [
+    #     simple_visualize,
+    #     simple_visualize_change_color,
+    #     collision_check,
+    #     joint_trajectory_visualize,
+    #     joint_trajectory_visualize_ghost,
+    #     joint_trajectory_control,
+    #     visualize_analytical_ik_pose,
+    # ]
 
-    option_runner(func, default_id="6")
+    # option_runner(func, default_id="3")
