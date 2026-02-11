@@ -28,13 +28,13 @@ y_train = np.where(is_collision(X_train), +1, -1)
 # --------------------------------------------------------------------------
 
 # Dataset 2 ----------------------------------------------------------------
-# dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
-# N_TRAIN = 1000
-# samples_id = np.random.choice(range(dataset.shape[0]), size=N_TRAIN, replace=False)
-# dataset_samples = dataset[samples_id]
-# X_train = dataset_samples[:, 0:2]
-# y = dataset_samples[:, 2]
-# # y_train = np.where(y <= 0, -1, +1)  # switch sign
+dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
+N_TRAIN = 1000
+samples_id = np.random.choice(range(dataset.shape[0]), size=N_TRAIN, replace=False)
+dataset_samples = dataset[samples_id]
+X_train = dataset_samples[:, 0:2]
+y = dataset_samples[:, 2]
+y_train = np.where(y <= 0, -1, +1)  # switch sign
 # y_train = np.where(y <= 0, +1, -1)  # switch sign
 # --------------------------------------------------------------------------
 
