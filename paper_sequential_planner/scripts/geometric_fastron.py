@@ -211,17 +211,102 @@ def load_model():
     return alpha, data, y, G, F
 
 
-if __name__ == "__main__":
-    # load or generate data
-    data = np.random.uniform(-np.pi, np.pi, (1000, 2))
-    y = np.random.choice([-1, 1], size=(1000,))
+def generate_cspace_fastron_view():
+    # generate C-space obstacle points from fastron model
+    num_samples = 360
+    theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+    theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+    cspace_obs = []
 
-    # train model
+    for i in range(num_samples):
+        for j in range(num_samples):
+            theta = np.array([theta1_samples[i], theta2_samples[j]])
+            collision = eval(theta, data, alpha, ModelConfig.gamma)
+            if collision == 1:
+                cspace_obs.append((theta1_samples[i], theta2_samples[j]))
+    cspace_obs = np.array(cspace_obs)
+    np.save(os.path.join(rsrc, "cspace_obstacles_fastron.npy"), cspace_obs)
+
+
+if __name__ == "__main__":
+    cspace_dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    cspace_nearest = np.load(
+        os.path.join(rsrc, "cspace_dataset_nearest_distance.npy")
+    )
+    trainsize = 1000
+    samples_id = np.random.choice(
+        range(cspace_dataset.shape[0]), size=trainsize, replace=False
+    )
+    cspace_dataset_samples = cspace_dataset[samples_id]
+    data = cspace_dataset_samples[:, 0:2]
+    y = cspace_dataset_samples[:, 2]
+
     alpha, data, y, G, F = train_original_kernel_perceptron_model(
         data, y, ModelConfig
     )
+    save_model(alpha, data, y, G, F)
+    alpha, data, y, G, F = load_model()
 
-    # use model to predict
+    labelfree = np.where(y == -1)[0]
+    labelcols = np.where(y == 1)[0]
+    alpha_nonzero = np.where(alpha != 0.0)[0]
+    data_free = data[labelfree]
+    data_cols = data[labelcols]
+    data_supp = data[alpha_nonzero]
+
     queryP = np.array([1, 1])
     collision = eval(queryP, data, alpha, ModelConfig.gamma)
-    print(f"Query Point: {queryP}, Collision: {collision}")
+    print(f"> collision: {collision}")
+
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    cspace_obs_ft = np.load(os.path.join(rsrc, "cspace_obstacles_fastron.npy"))
+
+    fig, ax = plt.subplots(figsize=(4,4))
+    ax.plot(
+        cspace_obs[:, 0],
+        cspace_obs[:, 1],
+        "ro",
+        markersize=3,
+        label="Geometry C-space obstacle",
+    )
+    ax.plot(
+        cspace_obs_ft[:, 0],
+        cspace_obs_ft[:, 1],
+        "yo",
+        markersize=3,
+        label="Fastron C-space obstacle",
+        alpha=0.5,
+    )
+    ax.plot(
+        data_free[:, 0],
+        data_free[:, 1],
+        "go",
+        markersize=3,
+        label="Fastron dataset free",
+        alpha=0.3,
+    )
+    ax.plot(
+        data_cols[:, 0],
+        data_cols[:, 1],
+        "ko",
+        markersize=3,
+        label="Fastron dataset obstacle",
+        alpha=0.3,
+    )
+    ax.plot(
+        data_supp[:, 0],
+        data_supp[:, 1],
+        "mx",
+        markersize=5,
+        label="Fastron support points",
+        alpha=0.7,
+    )
+    ax.set_xlabel("Theta 1")
+    ax.set_ylabel("Theta 2")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.set_aspect("equal", "box")
+    ax.set_title("Fastron C-space Obstacle Approximation")
+    # ax.legend()
+    plt.show()

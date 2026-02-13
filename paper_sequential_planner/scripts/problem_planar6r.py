@@ -25,7 +25,7 @@ def forward_kinematics_vectorized(joint_angles):
 # o1 = Polygon([(3, 3), (4, 3), (4, 4), (3, 4)])
 # o2 = Polygon([(-4, 3), (-3, 3), (-3, 4), (-4, 4)])
 # oo = MultiPolygon([o1, o2])
-o1 = Polygon([(-6,-6), (-2,-6), (-2,6), (-6,6)])
+o1 = Polygon([(-6, -6), (-2, -6), (-2, 6), (-6, 6)])
 oo = MultiPolygon([o1])
 clearence = 0.1
 rb = 0.2
@@ -116,30 +116,7 @@ def refine_boundary(X, y, limits, n_new=5000, eps=0.02):
     return np.array(new_pts)
 
 
-if __name__ == "__main__":
-    num_samples = 20
-    q1 = np.linspace(-np.pi, np.pi, num_samples)
-    q2 = np.linspace(-np.pi, np.pi, num_samples)
-    q3 = np.linspace(-np.pi, np.pi, num_samples)
-    q4 = np.linspace(-np.pi, np.pi, num_samples)
-    q5 = np.linspace(-np.pi, np.pi, num_samples)
-    q6 = np.linspace(-np.pi, np.pi, num_samples)
-
-    # Q1, Q2 = np.meshgrid(q1, q2, indexing="ij")
-    # data = np.column_stack([Q1.ravel(), Q2.ravel()])
-    # print(data)
-    # print(data.shape)  # (400, 2)
-
-    # Q1, Q2, Q3, Q4, Q5, Q6 = np.meshgrid(q1, q2, q3, q4, q5, q6, indexing="ij")
-    # data = np.column_stack(
-    #     [Q1.ravel(), Q2.ravel(), Q3.ravel(), Q4.ravel(), Q5.ravel(), Q6.ravel()]
-    # )
-    # print(data)
-    # print(data.shape)  # (64_000_000, 6)
-
-    q = np.array([0.7, 0.0, 0.0, 0.0, 0.0, 0.0])
-    show_env(q)
-
+def learn_svm_model():
     joint_limits = [(-np.pi, np.pi)] * 6
     X = sample_uniform(100000, joint_limits)
     y = label_points(X)
@@ -159,10 +136,10 @@ if __name__ == "__main__":
     from sklearn.svm import SVC
     from sklearn.metrics import accuracy_score
 
-    sigma = 0.5
-    model = SVC(kernel="rbf", gamma=1 / (2 * sigma**2), C=1.0)
-    model.fit(X_train, y_train)
-    fhater = model.decision_function
+    # sigma = 0.5
+    # model = SVC(kernel="rbf", gamma=1 / (2 * sigma**2), C=1.0)
+    # model.fit(X_train, y_train)
+    # fhater = model.decision_function
     print("Training completed.")
     from joblib import dump, load
 
@@ -189,3 +166,25 @@ if __name__ == "__main__":
     print("SVM prediction at random query:", pred)
 
     show_env(qrand[0])
+
+
+def generate_grid_sample():
+    num_samples = 20
+    q1 = np.linspace(-np.pi, np.pi, num_samples)
+    q2 = np.linspace(-np.pi, np.pi, num_samples)
+    q3 = np.linspace(-np.pi, np.pi, num_samples)
+    q4 = np.linspace(-np.pi, np.pi, num_samples)
+    q5 = np.linspace(-np.pi, np.pi, num_samples)
+    q6 = np.linspace(-np.pi, np.pi, num_samples)
+    Q1, Q2, Q3, Q4, Q5, Q6 = np.meshgrid(q1, q2, q3, q4, q5, q6, indexing="ij")
+    joint_dataset = np.column_stack(
+        [Q1.ravel(), Q2.ravel(), Q3.ravel(), Q4.ravel(), Q5.ravel(), Q6.ravel()]
+    )
+    print(joint_dataset)
+    print(joint_dataset.shape)  # (64_000_000, 6)
+    return joint_dataset
+
+
+if __name__ == "__main__":
+    q = np.array([0.7, 0.0, 0.0, 0.0, 0.0, 0.0])
+    show_env(q)
