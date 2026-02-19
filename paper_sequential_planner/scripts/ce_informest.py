@@ -27,7 +27,6 @@ free_kdt = KDTree(free_points)
 
 fig, ax = plt.subplots(figsize=(6, 6))
 ax.scatter(dataset[:, 0], dataset[:, 1], c=dataset[:, 2], cmap="bwr", s=5)
-ax.legend()
 ax.set_xlabel("x1")
 ax.set_ylabel("x2")
 ax.set_title("C-space dataset")

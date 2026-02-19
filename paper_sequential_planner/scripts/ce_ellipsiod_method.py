@@ -163,36 +163,42 @@ def method2():
     # cMaxguess = 1.5 * cmin
     numguess = 5
     cMaxguesses = np.linspace(cmin, 1.5* cmin, num=numguess)
-    sampler_per_guess = 1000
-    Xinf_surfes = np.empty((sampler_per_guess * numguess, 2))
+    sampler_per_guess = 100
+
+    Xinf_insides = np.empty((sampler_per_guess * numguess, 2))
+    Xinf_surfaces = np.empty((sampler_per_guess * numguess, 2))
     for i, cMaxguess in enumerate(cMaxguesses):
-        Xinf = informed_sampling_bulk(qs, qg, cMaxguess, sampler_per_guess)
+        Xinf_inside = informed_sampling_bulk(qs, qg, cMaxguess, sampler_per_guess)
         Xinf_surf = informed_surface_sampling_bulk(
             qs, qg, cMaxguess, sampler_per_guess
         )
-        Xinf_surfes[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
+        Xinf_insides[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
+            Xinf_inside
+        )
+        Xinf_surfaces[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
             Xinf_surf
         )
+
     fig, ax = plt.subplots()
-    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3, alpha=0.1)
     for i in range(numguess):
         cMaxguess = cMaxguesses[i]
-        ax.text(
-            -np.pi + 0.5,
-            np.pi - 0.3 - i * 0.3,
-            f"c_max = {cMaxguess:.2f}",
-            color=plt.cm.viridis(i / numguess),
-        )
         idx_start = i * sampler_per_guess
         idx_end = (i + 1) * sampler_per_guess
         ax.scatter(
-            Xinf_surfes[idx_start:idx_end, 0],
-            Xinf_surfes[idx_start:idx_end, 1],
+            Xinf_surfaces[idx_start:idx_end, 0],
+            Xinf_surfaces[idx_start:idx_end, 1],
             s=5,
             color=plt.cm.viridis(i / numguess),
-            label=f"informed {i+1}",
+            label=f"surface {i+1}, c_max = {cMaxguess:.2f}",
         )
-    # ax.scatter(Xinf_surfes[:, 0], Xinf_surfes[:, 1], s=5, c="b", label="informed")
+        ax.scatter(
+            Xinf_insides[idx_start:idx_end, 0],
+            Xinf_insides[idx_start:idx_end, 1],
+            s=5,
+            color=plt.cm.viridis(i / numguess),
+            alpha=0.5,
+        )
     ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
     ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
