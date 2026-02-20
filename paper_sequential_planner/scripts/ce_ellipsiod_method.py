@@ -25,6 +25,73 @@ scene = RobotScene(robot, obstacles)
 cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 
 
+def ellipsoid_size_ratio():
+    dof = 2  # degrees of freedom for the configuration space
+    xStart = np.array([-0.5] * dof).reshape(-1, 1)
+    xGoal = np.array([0.5] * dof).reshape(-1, 1)
+    cminmultiplier = np.linspace(1, 5, num=10, endpoint=True)
+    cMin = np.linalg.norm(xGoal - xStart)
+    cMaxs = cminmultiplier * cMin
+    perc = 100 * (cMaxs - cMin) / cMin
+
+    for i in range(len(cMaxs)):
+        print(
+            f"cMax: {cMaxs[i]:.2f}, Max/Min: {cMaxs[i]/cMin:.2f} |{perc[i]:.2f}%"
+        )
+
+    # plot
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
+    ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
+    for cMax in cMaxs:
+        el = get_2d_ellipse_informed_mplpatch(xStart, xGoal, cMax)
+        ax.add_patch(el)
+    ax.set_aspect("equal", "box")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.grid(True)
+    ax.legend()
+    ax.set_title("Informed Sampling in 2D Ellipse")
+    plt.show()
+
+
+def sampling_xstartgoal_dataset_():
+    dof = 2
+    Rbest = 1.0
+    cMax = 2 * Rbest
+    cmin = 1.0
+    ndata = 5
+    shape = (ndata, dof + dof)
+    Qcircle = np.empty(shape=(ndata, dof))
+    Qrand = np.empty(shape=shape)
+    for i in range(ndata):
+        qcenter = sampling_circle_in_jointlimit(Rbest, dof)
+        Qcircle[i, :] = qcenter.ravel()
+        qs, qe = sampling_Xstartgoal(qcenter.reshape(-1, 1), Rbest, cmin, dof)
+        Qrand[i, 0:dof] = qs.ravel()
+        Qrand[i, dof : dof + dof] = qe.ravel()
+
+    fig, ax = plt.subplots(1, 1)
+    for i in range(ndata):
+        qcenter = Qcircle[i, :].reshape(-1, 1)
+        qs = Qrand[i, 0:dof].reshape(-1, 1)
+        qe = Qrand[i, dof : dof + dof].reshape(-1, 1)
+
+        ax.plot(qs[0], qs[1], marker="o", color="blue")
+        ax.plot(qe[0], qe[1], marker="o", color="green")
+        e = get_2d_ellipse_informed_mplpatch(qs, qe, cMax)
+        ax.add_patch(e)
+        c = get_2d_circle_mplpatch(qcenter, Rbest)
+        ax.add_patch(c)
+
+    ax.set_aspect("equal", "box")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.grid(True)
+    ax.set_title("Dataset of Start and Goal Sampling in Informed Ellipses")
+    plt.show()
+
+
 def bulk_collisioncheck(X):
     print(X.shape)
     Xresult = np.zeros((X.shape[0], 1))
@@ -62,8 +129,8 @@ q8 = np.array([1.0, -2.0]).reshape(-1, 1)
 q9 = np.array([-3.0, 0.0]).reshape(-1, 1)
 q10 = np.array([-3.0, 2.5]).reshape(-1, 1)
 
-qs = q3
-qg = q4
+qs = q5
+qg = q6
 qpath34 = np.array(
     [
         0.15,
@@ -157,7 +224,7 @@ def method1():
     ax.plot(B1[0, :], B1[1, :], "k-", linewidth=2, label="bezier")
     ax.plot(B2[0, :], B2[1, :], "k--", linewidth=2, label="3-point path")
     ax.plot(qqq[0], qqq[1], "kx", markersize=10, label="control point")
-    ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
+    # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
     ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
     ax.set_xlim(-np.pi, np.pi)
@@ -215,7 +282,7 @@ def method2():
             color=plt.cm.viridis(i / numguess),
             alpha=0.5,
         )
-    ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
+    # # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
     ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
     ax.set_xlim(-np.pi, np.pi)
@@ -246,17 +313,20 @@ def method3():
         Xinf_surfaces[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
             Xinf_surf
         )
-
+    Xsampleall = np.vstack((Xinf_surfaces, Xinf_insides))
     Xfree = np.array(
-        [x for x in Xinf_insides if not is_node_in_collision(x.reshape(-1, 1))]
+        [x for x in Xinf_inside if not is_node_in_collision(x.reshape(-1, 1))]
     )
+    print(f"There are {Xfree.shape} collision-free samples")
 
     # build some KD-trees for nearest neighbor queries
     Vkdt_sg = np.vstack((qs.flatten(), qg.flatten(), Xfree))
-    graph = build_graph(Vkdt_sg, k=10)
+    graph, kdt = build_graph(Vkdt_sg, k=10)
 
+    dd, ii = kdt.query(qg.flatten(), k=10)  # warm up the KD-tree
+    print(f"dd: {dd}, ii: {ii}")
     rootid = 0
-    goalid = 4
+    goalid = 1
     rootnode = Vkdt_sg[rootid]
     goalnode = Vkdt_sg[goalid]
     # solve shortest paths from root to all nodes
@@ -287,10 +357,11 @@ def method3():
             color=plt.cm.viridis(i / numguess),
             alpha=0.5,
         )
-    ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
-    ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
-    ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
-    ax.plot(qpath[:, 0], qpath[:, 1], "k-", linewidth=2, label="Dijkstra path")
+    # # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
+    ax.scatter(qs[0], qs[1], s=50, c="g", marker="s", label="Start")
+    ax.scatter(qg[0], qg[1], s=50, c="r", marker="s", label="Goal")
+    ax.plot(qpath[:, 0], qpath[:, 1], "r-o", linewidth=2, label="Dijkstra path")
+
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
     ax.legend()
@@ -332,21 +403,21 @@ def dijkstra_all_paths(graph, root):
     return dist, paths
 
 
-def build_graph(points, k):
+def build_graph(points, k, dist_threshold=np.inf):
     tree = KDTree(points)
     graph = {i: [] for i in range(len(points))}
     for i, p in enumerate(points):
-        dists, idx = tree.query(p, k + 1)  # include itself
+        dists, idx = tree.query(p, k + 1, distance_upper_bound=dist_threshold)
         for j, d in zip(idx[1:], dists[1:]):
             graph[i].append((j, float(d)))
-    return graph
+    return graph, tree
 
 
 def allnode_RGG():
     points = np.random.rand(100, 2)
     k = 5
 
-    graph = build_graph(points, k)
+    graph, kdt = build_graph(points, k)
     rootid = 0
     goalid = 1
     rootnode = points[rootid]
