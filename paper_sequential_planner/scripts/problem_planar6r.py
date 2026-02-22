@@ -9,76 +9,106 @@ np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
-def forward_kinematics_vectorized(joint_angles):
-    link_lengths = np.ones(6)  # Assuming all link lengths are 1 unit
-    n, num_joints = joint_angles.shape
-    cumulative_angles = np.cumsum(joint_angles, axis=1)
-    x_displacements = link_lengths * np.cos(cumulative_angles)
-    y_displacements = link_lengths * np.sin(cumulative_angles)
-    displacements = np.stack((x_displacements, y_displacements), axis=-1)
-    positions = np.cumsum(displacements, axis=1)
-    base = np.zeros((n, 1, 2))  # Shape (n, 1, 2), to represent the base at (0, 0)
-    result = np.concatenate([base, positions], axis=1)  # Shape (n, 7, 2)
-    return result
+class Planar6R:
+
+    def __init__(self):
+        self.link_lengths = np.ones(6)  # Assuming all link lengths are 1 unit
+
+    def fk_vectorized(self, joint_angles):
+        n, num_joints = joint_angles.shape
+        cumulative_angles = np.cumsum(joint_angles, axis=1)
+        x_displacements = self.link_lengths * np.cos(cumulative_angles)
+        y_displacements = self.link_lengths * np.sin(cumulative_angles)
+        displacements = np.stack((x_displacements, y_displacements), axis=-1)
+        positions = np.cumsum(displacements, axis=1)
+        # base shape (n, 1, 2), to represent the base at (0, 0)
+        base = np.zeros((n, 1, 2))
+        result = np.concatenate([base, positions], axis=1)  # Shape (n, 7, 2)
+        return result
 
 
-# o1 = Polygon([(3, 3), (4, 3), (4, 4), (3, 4)])
-# o2 = Polygon([(-4, 3), (-3, 3), (-3, 4), (-4, 4)])
-# oo = MultiPolygon([o1, o2])
-o1 = Polygon([(-6, -6), (-2, -6), (-2, 6), (-6, 6)])
-oo = MultiPolygon([o1])
-clearence = 0.1
-rb = 0.2
+class RobotScene:
 
+    def __init__(self, robot, obstacles):
+        self.robot = robot
+        # o1 = Polygon([(3, 3), (4, 3), (4, 4), (3, 4)])
+        # o2 = Polygon([(-4, 3), (-3, 3), (-3, 4), (-4, 4)])
+        # oo = MultiPolygon([o1, o2])
+        o1 = Polygon([(-6, -6), (-2, -6), (-2, 6), (-6, 6)])
+        self.arm_thinkness = 0.2
+        self.obstacles = MultiPolygon([o1])
 
-def get_dmin(xy_coordinates):
-    dmin = LineString(xy_coordinates).buffer(rb).distance(oo)
-    return dmin
+    def distance_to_obstacles(self, q):
+        links_xy = self.robot.fk_vectorized(q[np.newaxis, :])[0]
+        armcols = [LineString(pp).buffer(self.arm_thinkness) for pp in links_xy]
+        dmin = np.array([armcol.distance(self.obstacles) for armcol in armcols])
+        best_idx = np.argmin(dmin)
+        return {"distance": dmin[best_idx], "link_index": best_idx}, dmin
 
+    def get_dmin(self, links_xy):
+        dmin = (
+            LineString(links_xy)
+            .buffer(self.arm_thinkness)
+            .distance(self.obstacles)
+        )
+        return dmin
 
-def compute_obstacle_cost_one_traj(traj):
-    xy_coordinates = forward_kinematics_vectorized(traj)
-    armcols = [LineString(pp).buffer(rb) for pp in xy_coordinates]
-    dmin = np.array([armcol.distance(oo) for armcol in armcols])
-    cost = np.maximum(clearence + rb - dmin, 0)
-    return np.sum(cost)
+    def collision_check(self, q):
+        links_xy = self.robot.fk_vectorized(q[np.newaxis, :])[0]
+        dmin = self.get_dmin(links_xy)
+        if dmin <= 0:
+            return True
+        else:
+            return False
 
+    def show_env(self, q):
+        links_xy = self.robot.fk_vectorized(q[np.newaxis, :])[0]
+        armcols = LineString(links_xy).buffer(self.arm_thinkness)
+        dmin = self.get_dmin(links_xy)
+        armcols_nearest, oo_nearest = nearest_points(armcols, self.obstacles)
 
-def collision_check(q):
-    xy_coordinates = forward_kinematics_vectorized(q[np.newaxis, :])[0]
-    dmin = get_dmin(xy_coordinates)
-    if dmin <= 0:
-        return True
-    else:
-        return False
+        fig, ax = plt.subplots()
+        ax.plot(links_xy[:, 0], links_xy[:, 1], "-o", color="blue")
+        x, y = armcols.exterior.xy
+        ax.fill(x, y, alpha=0.5, fc="green", ec="black")
+        for poly in self.obstacles.geoms:
+            x, y = poly.exterior.xy
+            ax.fill(x, y, alpha=0.5, fc="red", ec="black")
+        ax.plot(
+            [oo_nearest.x, armcols_nearest.x],
+            [oo_nearest.y, armcols_nearest.y],
+            "o--",
+            color="purple",
+            markersize=12,
+        )
+        ax.set_aspect("equal")
+        ax.set_xlim(-7, 7)
+        ax.set_ylim(-7, 7)
+        ax.grid()
+        plt.show()
 
-
-def show_env(q):
-    xy_coordinates = forward_kinematics_vectorized(q[np.newaxis, :])[0]
-    armcols = LineString(xy_coordinates).buffer(rb)
-
-    dmin = get_dmin(xy_coordinates)
-    armcols_nearest, oo_nearest = nearest_points(armcols, oo)
-
-    fig, ax = plt.subplots()
-    ax.plot(xy_coordinates[:, 0], xy_coordinates[:, 1], "-o", color="blue")
-    x, y = armcols.exterior.xy
-    ax.fill(x, y, alpha=0.5, fc="green", ec="black")
-    for poly in oo.geoms:
-        x, y = poly.exterior.xy
-        ax.fill(x, y, alpha=0.5, fc="red", ec="black")
-    ax.plot(
-        [oo_nearest.x, armcols_nearest.x],
-        [oo_nearest.y, armcols_nearest.y],
-        "o--",
-        color="purple",
-        markersize=12,
-    )
-    ax.set_aspect("equal")
-    ax.set_xlim(-7, 7)
-    ax.set_ylim(-7, 7)
-    ax.grid()
-    plt.show()
+    def generate_grid_sample(self):
+        num_samples = 20
+        q1 = np.linspace(-np.pi, np.pi, num_samples)
+        q2 = np.linspace(-np.pi, np.pi, num_samples)
+        q3 = np.linspace(-np.pi, np.pi, num_samples)
+        q4 = np.linspace(-np.pi, np.pi, num_samples)
+        q5 = np.linspace(-np.pi, np.pi, num_samples)
+        q6 = np.linspace(-np.pi, np.pi, num_samples)
+        Q1, Q2, Q3, Q4, Q5, Q6 = np.meshgrid(q1, q2, q3, q4, q5, q6, indexing="ij")
+        joint_dataset = np.column_stack(
+            [
+                Q1.ravel(),
+                Q2.ravel(),
+                Q3.ravel(),
+                Q4.ravel(),
+                Q5.ravel(),
+                Q6.ravel(),
+            ]
+        )
+        print(joint_dataset)
+        print(joint_dataset.shape)  # (64_000_000, 6)
+        return joint_dataset
 
 
 def sample_uniform(n, limits):
@@ -87,33 +117,6 @@ def sample_uniform(n, limits):
     for i, (lo, hi) in enumerate(limits):
         X[:, i] = lo + X[:, i] * (hi - lo)
     return X
-
-
-def label_points(X):
-    y = np.array([collision_check(q) for q in X], dtype=int)
-    return y
-
-
-def refine_boundary(X, y, limits, n_new=5000, eps=0.02):
-    d = X.shape[1]
-    new_pts = []
-
-    idx = np.random.choice(len(X), size=min(len(X), n_new), replace=False)
-
-    for i in idx:
-        q = X[i]
-        for _ in range(3):  # few local probes
-            dq = eps * np.random.randn(d)
-            qn = q + dq
-
-            # clip to limits
-            for j, (lo, hi) in enumerate(limits):
-                qn[j] = np.clip(qn[j], lo, hi)
-
-            if collision_check(qn) != bool(y[i]):
-                new_pts.append(qn)
-
-    return np.array(new_pts)
 
 
 def learn_svm_model():
@@ -168,23 +171,8 @@ def learn_svm_model():
     show_env(qrand[0])
 
 
-def generate_grid_sample():
-    num_samples = 20
-    q1 = np.linspace(-np.pi, np.pi, num_samples)
-    q2 = np.linspace(-np.pi, np.pi, num_samples)
-    q3 = np.linspace(-np.pi, np.pi, num_samples)
-    q4 = np.linspace(-np.pi, np.pi, num_samples)
-    q5 = np.linspace(-np.pi, np.pi, num_samples)
-    q6 = np.linspace(-np.pi, np.pi, num_samples)
-    Q1, Q2, Q3, Q4, Q5, Q6 = np.meshgrid(q1, q2, q3, q4, q5, q6, indexing="ij")
-    joint_dataset = np.column_stack(
-        [Q1.ravel(), Q2.ravel(), Q3.ravel(), Q4.ravel(), Q5.ravel(), Q6.ravel()]
-    )
-    print(joint_dataset)
-    print(joint_dataset.shape)  # (64_000_000, 6)
-    return joint_dataset
-
-
 if __name__ == "__main__":
+    robot = Planar6R()
+    scene = RobotScene(robot, None)
     q = np.array([0.7, 0.0, 0.0, 0.0, 0.0, 0.0])
-    show_env(q)
+    scene.show_env(q)

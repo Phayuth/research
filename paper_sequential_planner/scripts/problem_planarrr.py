@@ -166,7 +166,7 @@ class RobotScene:
         dataset = np.array(dataset)
         np.save(os.path.join(rsrc, "cspace_dataset_nearest_distance.npy"), dataset)
 
-    def plot(self, theta):
+    def show_env(self, theta):
         links = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
 
@@ -223,4 +223,4 @@ if __name__ == "__main__":
     for res in results:
         print(res)
 
-    scene.plot(theta)
+    scene.show_env(theta)
