@@ -165,6 +165,28 @@ qpath34 = np.array(
 ).reshape(-1, 2)
 
 
+def method0():
+    fig, ax = plt.subplots()
+    Q = np.array([q1, q2, q3, q4, q5, q6, q7, q8, q9, q10]).reshape(-1, 2)
+    print(Q.shape)
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
+    ax.scatter(q1[0], q1[1], s=50, c="b", marker="o", label="q1")
+    ax.scatter(q2[0], q2[1], s=50, c="g", marker="o", label="q2")
+    ax.scatter(q3[0], q3[1], s=50, c="m", marker="o", label="q3")
+    ax.scatter(q4[0], q4[1], s=50, c="c", marker="o", label="q4")
+    ax.scatter(q5[0], q5[1], s=50, c="y", marker="o", label="q5")
+    ax.scatter(q6[0], q6[1], s=50, c="r", marker="o", label="q6")
+    ax.scatter(q7[0], q7[1], s=50, c="orange", marker="o", label="q7")
+    ax.scatter(q8[0], q8[1], s=50, c="purple", marker="o", label="q8")
+    ax.scatter(q9[0], q9[1], s=50, c="brown", marker="o", label="q9")
+    ax.scatter(q10[0], q10[1], s=50, c="pink", marker="o", label="q10")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.set_aspect("equal", adjustable="box")
+    ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+    plt.show()
+
+
 def method1():
     cmin = np.linalg.norm(qg - qs)
     cMaxguess = 1.5 * cmin
@@ -456,7 +478,8 @@ def allnode_RGG():
 
 
 if __name__ == "__main__":
+    method0()
     # method1()
     # method2()
-    method3()
+    # method3()
     # allnode_RGG()
