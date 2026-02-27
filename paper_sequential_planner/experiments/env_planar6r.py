@@ -1,8 +1,9 @@
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from shapely.geometry import LineString, box, Polygon, MultiPolygon
 from shapely.ops import nearest_points
-import matplotlib.pyplot as plt
+
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -68,12 +69,18 @@ class RobotScene:
         armcols_nearest, oo_nearest = nearest_points(armcols, self.obstacles)
 
         fig, ax = plt.subplots()
+
+        # arm links
         ax.plot(links_xy[:, 0], links_xy[:, 1], "-o", color="blue")
         x, y = armcols.exterior.xy
         ax.fill(x, y, alpha=0.5, fc="green", ec="black")
+
+        # obstacles
         for poly in self.obstacles.geoms:
             x, y = poly.exterior.xy
             ax.fill(x, y, alpha=0.5, fc="red", ec="black")
+
+        # nearest points and distance line
         ax.plot(
             [oo_nearest.x, armcols_nearest.x],
             [oo_nearest.y, armcols_nearest.y],
@@ -109,66 +116,6 @@ class RobotScene:
         print(joint_dataset)
         print(joint_dataset.shape)  # (64_000_000, 6)
         return joint_dataset
-
-
-def sample_uniform(n, limits):
-    d = len(limits)
-    X = np.random.rand(n, d)
-    for i, (lo, hi) in enumerate(limits):
-        X[:, i] = lo + X[:, i] * (hi - lo)
-    return X
-
-
-def learn_svm_model():
-    joint_limits = [(-np.pi, np.pi)] * 6
-    X = sample_uniform(100000, joint_limits)
-    y = label_points(X)
-    Xb = refine_boundary(X, y, joint_limits, n_new=8000)
-    yb = label_points(Xb)
-    X_train = np.vstack([X, Xb])
-    y_train = np.hstack([y, yb])
-
-    print(f"Training data shape: {X_train.shape}, labels shape: {y_train.shape}")
-
-    class1 = np.sum(y_train == 1)
-    class0 = np.sum(y_train == 0)
-    print(f"Class 1 (in-collision) samples: {class1}")
-    print(f"Class 0 (collision-free) samples: {class0}")
-
-    # raise
-    from sklearn.svm import SVC
-    from sklearn.metrics import accuracy_score
-
-    # sigma = 0.5
-    # model = SVC(kernel="rbf", gamma=1 / (2 * sigma**2), C=1.0)
-    # model.fit(X_train, y_train)
-    # fhater = model.decision_function
-    print("Training completed.")
-    from joblib import dump, load
-
-    # dump(model, os.path.join(rsrc, "svm_6dof_model.joblib"))
-    model = load(os.path.join(rsrc, "svm_6dof_model.joblib"))
-
-    # Evaluate test accuracy
-    # xtest = sample_uniform(100000, joint_limits)
-    # ytest = label_points(xtest)
-    # ypred = model.predict(xtest)
-    # acc = accuracy_score(ytest, ypred)
-    # print(f"Test accuracy: {acc*100:.2f}%")
-
-    supvecs = model.support_vectors_.shape
-    print(f"Support vectors shape: {supvecs}")
-
-    qrand = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(1, -1)
-    pred = model.predict(qrand)
-    print("Random query:", qrand)
-    print("SVM prediction at random query:", pred)
-    qrand = np.array([3.0, 0.0, 0.0, 0.0, 0.0, 0.0]).reshape(1, -1)
-    pred = model.predict(qrand)
-    print("Random query:", qrand)
-    print("SVM prediction at random query:", pred)
-
-    show_env(qrand[0])
 
 
 if __name__ == "__main__":

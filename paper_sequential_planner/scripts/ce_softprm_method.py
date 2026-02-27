@@ -89,8 +89,8 @@ def build_adj_matrix(X):
     return AdjMat
 
 
-AdjMat = build_adj_matrix(supvecs)
-np.save(os.path.join(rsrc, "softprm_adjmat.npy"), AdjMat)
+# AdjMat = build_adj_matrix(supvecs)
+# np.save(os.path.join(rsrc, "softprm_adjmat.npy"), AdjMat)
 AdjMat = np.load(os.path.join(rsrc, "softprm_adjmat.npy"))
 Md = pairwise_distances(supvecs)
 DistAdjMat = Md * AdjMat

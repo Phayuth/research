@@ -1,8 +1,10 @@
 import os
 import numpy as np
+import matplotlib.pyplot as plt
+import tqdm
 from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
-import matplotlib.pyplot as plt
+
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -35,6 +37,8 @@ class PlanarRR:
         return link_end_pose
 
     def inverse_kinematic(self, X):
+        if X.shape == (2,):
+            X = X.reshape(2, 1)
         x = X[0, 0]
         y = X[1, 0]
 
@@ -58,16 +62,30 @@ class PlanarRR:
         theta1_up = np.arctan2(y, x) - np.arctan2(
             (self.a2 * np.sin(theta2_up)), (self.a1 + self.a2 * np.cos(theta2_up))
         )
-        return (
-            np.array([theta1_down, theta2_down]),
-            np.array([theta1_up, theta2_up]),
+
+        Q = np.array(
+            [
+                [theta1_down, theta2_down],
+                [theta1_up, theta2_up],
+            ]
         )
+        return Q
 
 
 class RobotScene:
 
     def __init__(self, robot, obstacles):
         self.robot = robot
+        shapes = {
+            # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
+            "shape1": {"x": -0.7, "y": 2.1, "h": 2, "w": 2.2},
+            "shape2": {"x": 2, "y": -2.0, "h": 1, "w": 4.0},
+            "shape3": {"x": -3, "y": -3, "h": 1.25, "w": 2},
+        }
+        obstacles = [
+            box(k["x"], k["y"], k["x"] + k["w"], k["y"] + k["h"])
+            for k in shapes.values()
+        ]
         self.obstacles = obstacles
 
     def robot_collision_links(self, theta):
@@ -135,15 +153,17 @@ class RobotScene:
         num_samples = 360
         theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
         theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+        Q1, Q2 = np.meshgrid(theta1_samples, theta2_samples, indexing="ij")
+        joints = np.column_stack([Q1.ravel(), Q2.ravel()])
+        print("Generated joint samples:", joints.shape)
         dataset = []
-        for i in range(num_samples):
-            for j in range(num_samples):
-                theta = np.array([[theta1_samples[i]], [theta2_samples[j]]])
-                best, _ = self.distance_to_obstacles(theta)
-                if best is not None and best["distance"] <= 0.0:
-                    dataset.append((theta1_samples[i], theta2_samples[j], 1))
-                else:
-                    dataset.append((theta1_samples[i], theta2_samples[j], -1))
+        for i in tqdm.tqdm(range(joints.shape[0])):
+            theta = joints[i].reshape(2, 1)
+            best, _ = self.distance_to_obstacles(theta)
+            if best is not None and best["distance"] <= 0.0:
+                dataset.append((joints[i][0], joints[i][1], 1))
+            else:
+                dataset.append((joints[i][0], joints[i][1], -1))
         dataset = np.array(dataset)
         np.save(os.path.join(rsrc, "cspace_dataset.npy"), dataset)
 
@@ -167,30 +187,43 @@ class RobotScene:
         np.save(os.path.join(rsrc, "cspace_dataset_nearest_distance.npy"), dataset)
 
     def show_env(self, theta):
-        links = self.robot_collision_links(theta)
+        links_xy = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
 
+        samples = sample_reachable_wspace(100)
+        print(samples.shape)  # (2, 100)
+
         fig, ax = plt.subplots()
-        for link in links:
+
+        # arm links
+        for link in links_xy:
             x, y = link.xy
             ax.plot(x, y, color="blue", linewidth=4, solid_capstyle="round")
 
+        # obstacles
         for shp in self.obstacles:
             x, y = shp.exterior.xy
             ax.fill(x, y, alpha=0.5, fc="red", ec="black")
 
+        ax.plot(
+            samples[0, :],
+            samples[1, :],
+            "x",
+            color="gray",
+            markersize=4,
+            alpha=0.5,
+        )
+        # nearest points and distance line
         if best is not None:
             lp = best["link_point"]
             sp = best["shape_point"]
             ax.plot(
                 [lp[0], sp[0]],
                 [lp[1], sp[1]],
-                color="green",
-                linewidth=2,
-                marker="o",
-                linestyle="--",
+                "o--",
+                color="purple",
+                markersize=12,
             )
-
         ax.set_aspect("equal", "box")
         ax.set_xlim(-4, 4)
         ax.set_ylim(-4, 4)
@@ -198,29 +231,38 @@ class RobotScene:
         plt.show()
 
 
+def sample_reachable_wspace(num_points):
+    u = np.random.normal(0.0, 1.0, (2 + 2, num_points))
+    norms = np.linalg.norm(u, axis=0)
+    u = u / norms
+    return 4 * u[:2, :]  # The first N coordinates are uniform in a unit N ball
+
+
+def wspace_ik(robot, X):
+    for x in X:
+        print("Desired pose:", x)
+    robot.inverse_kinematic(X)
+
+
 if __name__ == "__main__":
-    shapes = {
-        # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
-        "shape1": {"x": -0.7, "y": 2.1, "h": 2, "w": 2.2},
-        "shape2": {"x": 2, "y": -2.0, "h": 1, "w": 4.0},
-        "shape3": {"x": -3, "y": -3, "h": 1.25, "w": 2},
-    }
-    obstacles = [
-        box(k["x"], k["y"], k["x"] + k["w"], k["y"] + k["h"])
-        for k in shapes.values()
-    ]
     robot = PlanarRR()
-    scene = RobotScene(robot, obstacles)
+    scene = RobotScene(robot, None)
 
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
     # scene.cspace_dataset_nearest_distance()
 
-    theta = np.array([[-np.pi], [np.pi / 4.0]])
-    theta = np.array([[np.pi / 6.0], [-1.0]])
-    best, results = scene.distance_to_obstacles(theta)
-    print("Best distance:", best)
-    for res in results:
-        print(res)
+    # q = np.array([[np.pi / 6.0], [-1.0]])
+    # best, results = scene.distance_to_obstacles(q)
+    # print("Best distance:", best)
+    # for res in results:
+    #     print(res)
 
-    scene.show_env(theta)
+    # scene.show_env(q)
+
+    # q = robot.inverse_kinematic(np.array([[1.0], [1.0]]))
+    # print("Inverse kinematics solutions for (1.0, 1.0):")
+    # print(q)
+    X = sample_reachable_wspace(100).T
+    print(X.shape)
+    wspace_ik(robot, X)
