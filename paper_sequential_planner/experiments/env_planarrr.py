@@ -1,10 +1,20 @@
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 import tqdm
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
 
+try:
+    from ompl import base as ob
+    from ompl import geometric as og
+    from ompl import util as ou
+
+    ou.RNG.setSeed(42)
+
+except ImportError:
+    print("OMPL not available, limitted functionality without OMPL.")
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -46,7 +56,7 @@ class PlanarRR:
         rd = np.sqrt(x**2 + y**2)
         link_length = self.a1 + self.a2
         if rd > link_length:
-            print("The desired pose is outside of taskspace")
+            # print("The desired pose is outside of taskspace")
             return None
 
         elbow_down = -1
@@ -122,7 +132,7 @@ class RobotScene:
 
     def cspace_obstacles(self, generate=False, save=False, plot=False):
         if generate:
-            print("Generating C-space obstacle plot...")
+            # print("Generating C-space obstacle plot...")
             num_samples = 360
             theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
             theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
@@ -149,13 +159,13 @@ class RobotScene:
             return ax
 
     def cspace_dataset_collision(self):
-        print("Generating C-space dataset with collision labels...")
+        # print("Generating C-space dataset with collision labels...")
         num_samples = 360
         theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
         theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
         Q1, Q2 = np.meshgrid(theta1_samples, theta2_samples, indexing="ij")
         joints = np.column_stack([Q1.ravel(), Q2.ravel()])
-        print("Generated joint samples:", joints.shape)
+        # print("Generated joint samples:", joints.shape)
         dataset = []
         for i in tqdm.tqdm(range(joints.shape[0])):
             theta = joints[i].reshape(2, 1)
@@ -190,9 +200,6 @@ class RobotScene:
         links_xy = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
 
-        samples = sample_reachable_wspace(100)
-        print(samples.shape)  # (2, 100)
-
         fig, ax = plt.subplots()
 
         # arm links
@@ -205,14 +212,6 @@ class RobotScene:
             x, y = shp.exterior.xy
             ax.fill(x, y, alpha=0.5, fc="red", ec="black")
 
-        ax.plot(
-            samples[0, :],
-            samples[1, :],
-            "x",
-            color="gray",
-            markersize=4,
-            alpha=0.5,
-        )
         # nearest points and distance line
         if best is not None:
             lp = best["link_point"]
@@ -230,21 +229,144 @@ class RobotScene:
         ax.grid(True)
         plt.show()
 
+    def _show_wsenv_debug(self, theta):
+        links_xy = self.robot_collision_links(theta)
+        best, results = self.distance_to_obstacles(theta)
+        Xsample = sample_reachable_wspace(100)
+
+        fig, ax = plt.subplots()
+
+        # arm links
+        for link in links_xy:
+            x, y = link.xy
+            ax.plot(x, y, color="blue", linewidth=4, solid_capstyle="round")
+
+        # obstacles
+        for shp in self.obstacles:
+            x, y = shp.exterior.xy
+            ax.fill(x, y, alpha=0.5, fc="red", ec="black")
+
+        # task space samples
+        ax.plot(
+            Xsample[:, 0],
+            Xsample[:, 1],
+            "go",
+            markersize=4,
+            label="Task space samples",
+        )
+
+        # nearest points and distance line
+        if best is not None:
+            lp = best["link_point"]
+            sp = best["shape_point"]
+            ax.plot(
+                [lp[0], sp[0]],
+                [lp[1], sp[1]],
+                "o--",
+                color="purple",
+                markersize=12,
+            )
+        ax.set_aspect("equal", "box")
+        ax.set_xlim(-4, 4)
+        ax.set_ylim(-4, 4)
+        ax.grid(True)
+        plt.show()
+
+    def _show_cspace_debug(self):
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+
+        ntasks = 100
+        X = sample_reachable_wspace(ntasks)
+        MQaik = wspace_ik(robot, X)
+        MQaik_validity = wspace_ik_validity(MQaik, scene)
+        nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_validity)
+
+        # color code
+        hues = np.linspace(0, 1, ntasks, endpoint=False)
+        colors = [mcolors.hsv_to_rgb((h, 0.75, 0.9)) for h in hues]
+
+        fig, ax = plt.subplots()
+        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+
+        for i in range(ntasks):
+            q_sols = MQaik[i]
+            ax.plot(
+                q_sols[:, 0],
+                q_sols[:, 1],
+                "o--",
+                color=colors[i],
+                markersize=8,
+                alpha=0.8,
+            )
+
+        ax.set_aspect("equal", "box")
+        ax.set_xlim(-np.pi, np.pi)
+        ax.set_ylim(-np.pi, np.pi)
+        plt.show()
+
 
 def sample_reachable_wspace(num_points):
     u = np.random.normal(0.0, 1.0, (2 + 2, num_points))
     norms = np.linalg.norm(u, axis=0)
     u = u / norms
-    return 4 * u[:2, :]  # The first N coordinates are uniform in a unit N ball
+    scale = 4 * u[:2, :]  # The first N coordinates are uniform in a unit N ball
+    return scale.T
 
 
-def wspace_ik(robot, X):
-    for x in X:
-        print("Desired pose:", x)
-    robot.inverse_kinematic(X)
+def wspace_ik(robot: PlanarRR, Xtspace):
+    """
+    Compute AIK of all task points no matter whether they are reachable or not.
+    NaN values will be used to indicate unreachable points.
+    """
+    if Xtspace.shape[1] != 2:
+        Xtspace = Xtspace.T
+    ntasks = Xtspace.shape[0]
+    MQaik = np.full((ntasks, 2, 2), np.nan)  # (ntasks, num_solutions, dof)
+    for taski in range(ntasks):
+        q_sols = robot.inverse_kinematic(Xtspace[taski])
+        if q_sols is not None:
+            MQaik[taski] = q_sols
+    return MQaik
+
+
+def wspace_ik_validity(MQaik, robscene: RobotScene):
+    """
+    Compute the validity of each AIK solution in MQaik.
+    1 = Valid
+    -1 = NaN (no solution or unreachable)
+    -2 = In collision
+    -3 = awkward configuration (e.g. near singularity or joint limits)
+    """
+    # (ntasks, num_solutions)
+    MQaik_validity = np.full(shape=(MQaik.shape[0], 2), fill_value=np.nan)
+    for taski in range(MQaik.shape[0]):
+        for solj in range(MQaik.shape[1]):
+            q = MQaik[taski, solj]
+            if np.isnan(q).any():
+                MQaik_validity[taski, solj] = -1  # No solution
+            else:
+                best, _ = robscene.distance_to_obstacles(q.reshape(2, 1))
+                if best is not None and best["distance"] <= 0.0:
+                    MQaik_validity[taski, solj] = -2  # In collision
+                else:
+                    MQaik_validity[taski, solj] = 1  # Valid
+    return MQaik_validity
+
+
+def process_cluster(MQaik, MQaik_validity):
+    # flatten
+    MQaik_flat = MQaik.reshape(-1, 2)  # (ntasks * num_solutions, dof)
+    MQaik_validity_flat = MQaik_validity.reshape(-1)  # (ntasks * num_solutions,)
+    MQaik_valid_sols = MQaik_flat[MQaik_validity_flat == 1]
+    nsol_per_cluster = np.sum(MQaik_validity == 1, axis=1)
+    # filter out clusters with zero valid solutions
+    nsol_per_cluster_final = nsol_per_cluster[nsol_per_cluster > 0]
+    return nsol_per_cluster_final, MQaik_valid_sols
 
 
 if __name__ == "__main__":
+    from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
+
     robot = PlanarRR()
     scene = RobotScene(robot, None)
 
@@ -253,16 +375,18 @@ if __name__ == "__main__":
     # scene.cspace_dataset_nearest_distance()
 
     # q = np.array([[np.pi / 6.0], [-1.0]])
-    # best, results = scene.distance_to_obstacles(q)
-    # print("Best distance:", best)
-    # for res in results:
-    #     print(res)
-
     # scene.show_env(q)
+    # scene._show_wsenv_debug(q)
+    # scene._show_cspace_debug()
 
-    # q = robot.inverse_kinematic(np.array([[1.0], [1.0]]))
-    # print("Inverse kinematics solutions for (1.0, 1.0):")
-    # print(q)
-    X = sample_reachable_wspace(100).T
-    print(X.shape)
-    wspace_ik(robot, X)
+    ntasks = 100
+    X = sample_reachable_wspace(ntasks)
+    MQaik = wspace_ik(robot, X)
+    MQaik_validity = wspace_ik_validity(MQaik, scene)
+    nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_validity)
+    cluster = RTSP.build_cluster(nsol_per_cluster)
+    print(f"==>> cluster: {cluster}")
+    adjm = RTSP.make_adj_matrix(cluster, MQaik_valid_sols.shape[0])
+    print(f"==>> adjm: {adjm}")
+    num_unique_edges = RTSP.find_numedges_unique(nsol_per_cluster)
+    print(f"==>> num_unique_edges: {num_unique_edges}")

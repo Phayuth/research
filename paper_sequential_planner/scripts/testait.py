@@ -3,7 +3,7 @@ import numpy as np
 from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
 import matplotlib.pyplot as plt
-from problem_planarrr import PlanarRR, RobotScene
+from paper_sequential_planner.experiments.env_planarrr import PlanarRR, RobotScene
 from geometric_ellipse import *
 from scipy.spatial import KDTree
 import heapq
