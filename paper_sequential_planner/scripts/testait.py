@@ -13,17 +13,9 @@ np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
-shapes = {
-    # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
-    "shape1": {"x": -0.7, "y": 2.1, "h": 2, "w": 2.2},
-    "shape2": {"x": 2, "y": -2.0, "h": 1, "w": 4.0},
-    "shape3": {"x": -3, "y": -3, "h": 1.25, "w": 2},
-}
-obstacles = [
-    box(k["x"], k["y"], k["x"] + k["w"], k["y"] + k["h"]) for k in shapes.values()
-]
+
 robot = PlanarRR()
-scene = RobotScene(robot, obstacles)
+scene = RobotScene(robot, None)
 
 
 def collision_check(q):

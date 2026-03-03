@@ -1,6 +1,6 @@
 import os
 import numpy as np
-
+from scipy.spatial import KDTree
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -27,7 +27,7 @@ class RTSP:
 
     @staticmethod
     def make_adj_matrix(cluster, num_node):
-        adjm = np.full((num_node, num_node), np.inf)
+        adjm = np.full((num_node, num_node), 1)
         for c in cluster.values():
             for i in c:
                 for j in c:
@@ -40,43 +40,6 @@ class RTSP:
         self_connections = sum([n * (n - 1) / 2 for n in points_per_cluster])
         unique_edges = (totalnode * (totalnode - 1) / 2) - self_connections
         return unique_edges
-
-    @staticmethod
-    def nodecost_collision(config):
-        node_cost = np.zeros((config.shape[0],))
-        # dummy collision cost
-        for i in range(config.shape[0]):
-            if np.random.rand() < 0.3:
-                node_cost[i] = np.inf  # collision
-            else:
-                node_cost[i] = 0.0  # free
-        return node_cost
-
-    @staticmethod
-    def nodecost_sdf(config):
-        """compute signed distance function"""
-        node_cost = np.zeros((config.shape[0],))
-        # dummy sdf cost
-        for i in range(config.shape[0]):
-            node_cost[i] = np.random.uniform(0.0, 1.0)
-        return node_cost
-
-    @staticmethod
-    def nodecost_manipulability(config):
-        node_cost = np.zeros((config.shape[0],))
-        # dummy manipulability cost
-        for i in range(config.shape[0]):
-            node_cost[i] = np.random.uniform(0.0, 1.0)
-        return node_cost
-
-    @staticmethod
-    def nodecost_similarity(config, q0):
-        """compute similarity cost to a reference pose"""
-        node_cost = np.zeros((config.shape[0],))
-        # dummy similarity cost
-        for i in range(config.shape[0]):
-            node_cost[i] = np.random.uniform(0.0, 1.0)
-        return node_cost
 
     @staticmethod
     def edgecost_distance(config):
@@ -201,21 +164,22 @@ def example_usage():
     print("adjm:\n", adjm)
     print("num_unique_edges:", num_unique_edges)
 
-    node_cost_collision = RTSP.nodecost_collision(config)
-    node_cost_manipulability = RTSP.nodecost_manipulability(config)
-    node_cost_similarity = RTSP.nodecost_similarity(config, q0)
     edge_cost_distance = RTSP.edgecost_distance(config)
+    GLKHHelper.write_glkh_fullmatrix_file(
+        os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.gtsp"),
+        edge_cost_distance,
+        cluster,
+    )
 
-    # GLKHHelper.write_glkh_fullmatrix_file(
-    #     os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.gtsp"),
-    #     edge_cost_distance,
-    #     cluster,
-    # )
-
-    # # solve GTSP using GLKH
-    # tourmatix = GLKHHelper.read_tour_file(
-    #     os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
-    # )
+    # solve GTSP using GLKH
+    if os.path.exists(
+        os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
+    ):
+        tourmatix = GLKHHelper.read_tour_file(
+            os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
+        )
+    else:
+        print("Tour file not found. Please run GLKH solver file.")
 
 
 if __name__ == "__main__":

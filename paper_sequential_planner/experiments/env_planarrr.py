@@ -130,6 +130,13 @@ class RobotScene:
         best = min(results, key=lambda r: r["distance"])
         return best, results
 
+    def collision_checker(self, q):
+        best, res = self.distance_to_obstacles(q)
+        if best["distance"] <= 0:
+            return True
+        else:
+            return False
+
     def cspace_obstacles(self, generate=False, save=False, plot=False):
         if generate:
             # print("Generating C-space obstacle plot...")
@@ -232,7 +239,7 @@ class RobotScene:
     def _show_wsenv_debug(self, theta):
         links_xy = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
-        Xsample = sample_reachable_wspace(100)
+        Xsample = sample_reachable_wspace(30)
 
         fig, ax = plt.subplots()
 
@@ -275,7 +282,7 @@ class RobotScene:
     def _show_cspace_debug(self):
         cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 
-        ntasks = 100
+        ntasks = 30
         X = sample_reachable_wspace(ntasks)
         MQaik = wspace_ik(robot, X)
         MQaik_validity = wspace_ik_validity(MQaik, scene)
@@ -303,6 +310,80 @@ class RobotScene:
         ax.set_xlim(-np.pi, np.pi)
         ax.set_ylim(-np.pi, np.pi)
         plt.show()
+
+
+class OMPLPlanner:
+
+    def __init__(self, collision_checker):
+        self.collision_checker = collision_checker
+        self.dof = 2
+        self.space = ob.RealVectorStateSpace(self.dof)
+        self.bounds = ob.RealVectorBounds(self.dof)
+        self.limit2 = [
+            np.pi,
+            np.pi,
+        ]
+        for i in range(self.dof):
+            self.bounds.setLow(i, -self.limit2[i])
+            self.bounds.setHigh(i, self.limit2[i])
+        self.space.setBounds(self.bounds)
+
+        self.ss = og.SimpleSetup(self.space)
+        self.ss.setStateValidityChecker(
+            ob.StateValidityCheckerFn(self.isStateValid)
+        )
+        # self.planner = og.BITstar(self.ss.getSpaceInformation())
+        self.planner = og.ABITstar(self.ss.getSpaceInformation())
+        # self.planner = og.AITstar(self.ss.getSpaceInformation())
+        # self.planner.setRange(0.1)
+        self.ss.setPlanner(self.planner)
+
+    def isStateValid(self, state):
+        q = [state[0], state[1]]
+        col = self.collision_checker(q)
+        return not col
+
+    def query_planning(self, start_list, goal_list):
+        # Important!
+        # Clear previous planning data to ensure fresh planning because caching
+        self.ss.clear()
+
+        start = ob.State(self.space)
+        start[0] = start_list[0]
+        start[1] = start_list[1]
+        goal = ob.State(self.space)
+        goal[0] = goal_list[0]
+        goal[1] = goal_list[1]
+
+        lowest = np.linalg.norm(np.array(goal_list) - np.array(start_list))
+
+        self.ss.setStartAndGoalStates(start, goal)
+        status = self.ss.solve(100.0)
+        print(
+            "Plan from ", start_list, " to ", goal_list, "estimate cost:", lowest
+        )
+        (
+            print("EXACT")
+            if status.getStatus() == status.EXACT_SOLUTION
+            else print("Invalid result")
+        )
+        if status.getStatus() == status.EXACT_SOLUTION:
+            self.ss.simplifySolution()
+            path = self.ss.getSolutionPath()
+            path_cost = path.length()
+
+            print("Found solution:")
+            print(f"Path cost: {path_cost}")
+            print(self.ss.getSolutionPath())
+
+            pathlist = []
+            for i in range(path.getStateCount()):
+                pi = path.getState(i)
+                pathlist.append([pi[0], pi[1]])
+            return pathlist, path_cost
+        else:
+            print("No solution found")
+            return None
 
 
 def sample_reachable_wspace(num_points):
@@ -366,6 +447,11 @@ def process_cluster(MQaik, MQaik_validity):
 
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
+    from paper_sequential_planner.scripts.rtsp_lazyprm import (
+        separate_sample,
+        build_graph,
+        estimate_shortest_path,
+    )
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
@@ -374,19 +460,45 @@ if __name__ == "__main__":
     # scene.cspace_dataset_collision()
     # scene.cspace_dataset_nearest_distance()
 
-    # q = np.array([[np.pi / 6.0], [-1.0]])
+    q = np.array([[np.pi / 6.0], [-1.0]])
     # scene.show_env(q)
-    # scene._show_wsenv_debug(q)
-    # scene._show_cspace_debug()
+    scene._show_wsenv_debug(q)
+    scene._show_cspace_debug()
 
-    ntasks = 100
+    ntasks = 30
     X = sample_reachable_wspace(ntasks)
     MQaik = wspace_ik(robot, X)
     MQaik_validity = wspace_ik_validity(MQaik, scene)
     nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_validity)
+    print(f"==>> nsol_per_cluster: \n{nsol_per_cluster}")
+    num_valid_sols = MQaik_valid_sols.shape[0]
     cluster = RTSP.build_cluster(nsol_per_cluster)
-    print(f"==>> cluster: {cluster}")
+    print(f"==>> cluster: \n{cluster}")
     adjm = RTSP.make_adj_matrix(cluster, MQaik_valid_sols.shape[0])
-    print(f"==>> adjm: {adjm}")
+    print(f"==>> adjm: \n{adjm}")
     num_unique_edges = RTSP.find_numedges_unique(nsol_per_cluster)
-    print(f"==>> num_unique_edges: {num_unique_edges}")
+
+    QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
+    graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
+
+    adjm_cost_min = adjm.copy()
+    for i in range(adjm_cost_min.shape[0]):
+        for j in range(adjm_cost_min.shape[1]):
+            if adjm[i, j] == 1:
+                q1 = MQaik_valid_sols[i]
+                q2 = MQaik_valid_sols[j]
+                adjm_cost_min[i, j] = np.linalg.norm(q2 - q1)
+    print(f"==>> adjm_cost_min: \n{adjm_cost_min}")
+
+    adjm_cost_est = adjm.copy()
+    for i in range(adjm_cost_est.shape[0]):
+        for j in range(adjm_cost_est.shape[1]):
+            print(f"Estimating cost from {i} to {j}...")
+            if adjm[i, j] == 1:
+                q1 = MQaik_valid_sols[i]
+                q2 = MQaik_valid_sols[j]
+                pathq, cost = estimate_shortest_path(
+                    q1, q2, QfulRndfree, graph, kdtree
+                )
+                adjm_cost_est[i, j] = cost
+    print(f"==>> adjm_cost_est: \n{adjm_cost_est}")
