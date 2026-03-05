@@ -17,7 +17,7 @@ except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
 
 np.random.seed(42)
-np.set_printoptions(precision=2, suppress=True, linewidth=200)
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
@@ -28,6 +28,9 @@ class PlanarRR:
         self.a2 = 2
 
     def forward_kinematic(self, theta):
+        theta = np.asarray(theta)
+        if theta.shape == (2,):
+            theta = theta.reshape(2, 1)
         theta1 = theta[0, 0]
         theta2 = theta[1, 0]
 
@@ -320,8 +323,8 @@ class OMPLPlanner:
         self.space = ob.RealVectorStateSpace(self.dof)
         self.bounds = ob.RealVectorBounds(self.dof)
         self.limit2 = [
-            np.pi,
-            np.pi,
+            2 * np.pi,
+            2 * np.pi,
         ]
         for i in range(self.dof):
             self.bounds.setLow(i, -self.limit2[i])
@@ -333,9 +336,10 @@ class OMPLPlanner:
             ob.StateValidityCheckerFn(self.isStateValid)
         )
         # self.planner = og.BITstar(self.ss.getSpaceInformation())
-        self.planner = og.ABITstar(self.ss.getSpaceInformation())
+        # self.planner = og.ABITstar(self.ss.getSpaceInformation())
         # self.planner = og.AITstar(self.ss.getSpaceInformation())
-        # self.planner.setRange(0.1)
+        self.planner = og.RRTConnect(self.ss.getSpaceInformation())
+        self.planner.setRange(0.1)
         self.ss.setPlanner(self.planner)
 
     def isStateValid(self, state):
@@ -358,7 +362,7 @@ class OMPLPlanner:
         lowest = np.linalg.norm(np.array(goal_list) - np.array(start_list))
 
         self.ss.setStartAndGoalStates(start, goal)
-        status = self.ss.solve(100.0)
+        status = self.ss.solve(5.0)
         print(
             "Plan from ", start_list, " to ", goal_list, "estimate cost:", lowest
         )
@@ -419,6 +423,7 @@ def wspace_ik_validity(MQaik, robscene: RobotScene):
     -3 = awkward configuration (e.g. near singularity or joint limits)
     """
     # (ntasks, num_solutions)
+    limit = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
     MQaik_validity = np.full(shape=(MQaik.shape[0], 2), fill_value=np.nan)
     for taski in range(MQaik.shape[0]):
         for solj in range(MQaik.shape[1]):
@@ -455,7 +460,7 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-
+    planner = OMPLPlanner(scene.collision_checker)
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
     # scene.cspace_dataset_nearest_distance()
@@ -481,24 +486,71 @@ if __name__ == "__main__":
     QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
     graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
 
-    adjm_cost_min = adjm.copy()
-    for i in range(adjm_cost_min.shape[0]):
-        for j in range(adjm_cost_min.shape[1]):
-            if adjm[i, j] == 1:
-                q1 = MQaik_valid_sols[i]
-                q2 = MQaik_valid_sols[j]
-                adjm_cost_min[i, j] = np.linalg.norm(q2 - q1)
-    print(f"==>> adjm_cost_min: \n{adjm_cost_min}")
+    # adjm_cost_min = adjm.copy()
+    # for i in range(adjm_cost_min.shape[0]):
+    #     for j in range(adjm_cost_min.shape[1]):
+    #         if adjm[i, j] == 1:
+    #             q1 = MQaik_valid_sols[i]
+    #             q2 = MQaik_valid_sols[j]
+    #             adjm_cost_min[i, j] = np.linalg.norm(q2 - q1)
+    # print(f"==>> adjm_cost_min: \n{adjm_cost_min}")
 
-    adjm_cost_est = adjm.copy()
-    for i in range(adjm_cost_est.shape[0]):
-        for j in range(adjm_cost_est.shape[1]):
-            print(f"Estimating cost from {i} to {j}...")
-            if adjm[i, j] == 1:
-                q1 = MQaik_valid_sols[i]
-                q2 = MQaik_valid_sols[j]
-                pathq, cost = estimate_shortest_path(
-                    q1, q2, QfulRndfree, graph, kdtree
+    # adjm_cost_est = adjm.copy()
+    # for i in range(adjm_cost_est.shape[0]):
+    #     for j in range(adjm_cost_est.shape[1]):
+    #         print(f"Estimating cost from {i} to {j}...")
+    #         if adjm[i, j] == 1:
+    #             q1 = MQaik_valid_sols[i]
+    #             q2 = MQaik_valid_sols[j]
+    #             pathq, cost = estimate_shortest_path(
+    #                 q1, q2, QfulRndfree, graph, kdtree
+    #             )
+    #             print(f"Estimated cost from {i} to {j}: {cost}")
+    #             adjm_cost_est[i, j] = cost
+    # print(f"==>> adjm_cost_est: \n{adjm_cost_est}")
+
+    # GLKHHelper.write_glkh_fullmatrix_file(
+    #     os.path.join(GLKHHelper.problemdir, "problem_planarrr.gtsp"),
+    #     adjm_cost_est,
+    #     cluster,
+    # )
+
+    # solve GTSP using GLKH
+    if os.path.exists(
+        os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+    ):
+        tourmatix = GLKHHelper.read_tour_file(
+            os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+        )
+        print(f"==>> tourmatix: \n{tourmatix}")
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+
+        qtour = MQaik_valid_sols[tourmatix]
+
+        fig, ax = plt.subplots()
+        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+        ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
+        for i in range(len(tourmatix) - 1):
+            start_idx = tourmatix[i]
+            end_idx = tourmatix[i + 1]
+            q1 = MQaik_valid_sols[start_idx]
+            q2 = MQaik_valid_sols[end_idx]
+            path = planner.query_planning(q1, q2)
+            if path is not None:
+                qp, cp = path
+                qp = np.array(qp)
+                ax.plot(
+                    qp[:, 0],
+                    qp[:, 1],
+                    "b-",
+                    alpha=0.5,
+                    label="OMPL path" if i == 0 else None,
                 )
-                adjm_cost_est[i, j] = cost
-    print(f"==>> adjm_cost_est: \n{adjm_cost_est}")
+        ax.set_aspect("equal", "box")
+        ax.set_xlim(-4, 4)
+        ax.set_ylim(-4, 4)
+        ax.grid(True)
+        ax.legend()
+        plt.show()
+    else:
+        print("Tour file not found. Please run GLKH solver file.")

@@ -165,6 +165,7 @@ def example_usage():
     print("num_unique_edges:", num_unique_edges)
 
     edge_cost_distance = RTSP.edgecost_distance(config)
+    print(f"==>> edge_cost_distance: \n{edge_cost_distance}")
     GLKHHelper.write_glkh_fullmatrix_file(
         os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.gtsp"),
         edge_cost_distance,
@@ -178,6 +179,26 @@ def example_usage():
         tourmatix = GLKHHelper.read_tour_file(
             os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
         )
+        print(f"==>> tourmatix: \n{tourmatix}")
+
+
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        for key, c in cluster.items():
+            c = np.array(c)
+            ax.scatter(config[c, 0], config[c, 1], label=f"cluster {key}")
+        for i in range(len(tourmatix) - 1):
+            start_idx = tourmatix[i]
+            end_idx = tourmatix[i + 1]
+            ax.plot(
+                [config[start_idx, 0], config[end_idx, 0]],
+                [config[start_idx, 1], config[end_idx, 1]],
+                c="red",
+                label="tour" if i == 0 else None,
+            )
+        ax.set_title("GTSP Tour from GLKH")
+        ax.legend()
+        plt.show()
     else:
         print("Tour file not found. Please run GLKH solver file.")
 
