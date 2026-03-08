@@ -735,33 +735,6 @@ def example_planning():
 
 
 # helper functions---------------------------------------------------------------
-def task_to_task_interpolation(task1, task2, step):
-    if not isinstance(task1, SE3):
-        task1 = SE3(task1)
-        task2 = SE3(task2)
-    Hinterp = [task1.interp(task2, t) for t in np.linspace(0, 1, step)]
-    return Hinterp
-
-
-def check_joint_limit(q, qlimit):
-    ck = []
-    for i in range(len(q)):
-        if q[i] < qlimit[i][0] or q[i] > qlimit[i][1]:
-            ck.append(False)
-        else:
-            ck.append(True)
-    return all(ck)
-
-
-def generate_random_dh_tasks(bot, num_tasks=10):
-    angle = np.random.uniform(-np.pi, np.pi, size=(num_tasks, 6))
-    T = []
-    for i in range(num_tasks):
-        t = solve_fk(bot, angle[i])
-        T.append(t)
-    return T
-
-
 def generate_random_task_transformation():
     translation = np.random.uniform(-1, 1, size=(3,))
     rotation = np.random.uniform(-np.pi, np.pi, size=(4,))
@@ -786,26 +759,6 @@ def generate_linear_tasks_transformation(
     return Hlist
 
 
-def generate_linear_grid_tasks_transformation():
-    size = 4
-    H1 = generate_linear_tasks_transformation(
-        [0.5, 0.5, 0.6], [0.5, -0.5, 0.6], [0.0, 0.707106, 0.0, 0.707106], size
-    )
-    H2 = generate_linear_tasks_transformation(
-        [0.5, 0.5, 0.4], [0.5, -0.5, 0.4], [0.0, 0.707106, 0.0, 0.707106], size
-    )
-    H3 = generate_linear_tasks_transformation(
-        [0.5, 0.5, 0.2], [0.5, -0.5, 0.2], [0.0, 0.707106, 0.0, 0.707106], size
-    )
-    H4 = generate_linear_tasks_transformation(
-        [0.5, 0.5, 0.0], [0.5, -0.5, 0.0], [0.0, 0.707106, 0.0, 0.707106], size
-    )
-    Hlist = H1 + H2 + H3 + H4
-    for i in range(len(Hlist)):
-        Hlist[i] = convert_urdf_to_dh_frame(Hlist[i])
-    return Hlist
-
-
 def generate_linear_dual_side_tasks_transformation():
     size = 4
     H1 = generate_linear_tasks_transformation(
@@ -825,38 +778,6 @@ def generate_linear_dual_side_tasks_transformation():
     for h in Hlist:
         H1list.append(convert_urdf_to_dh_frame(h))
     return Hlist + H1list
-
-
-def generate_spiral_task_transformation():
-    turns = 5  # number of full rotations
-    points_per_turn = 5  # resolution along the curve
-    height = 0.7  # total height of the spiral
-    radius = 0.5  # constant radius (for a helix). Change below for conical
-
-    # Parametric variable
-    t = np.linspace(0, 2 * np.pi * turns, points_per_turn * turns)
-
-    x = radius * np.cos(t)
-    y = radius * np.sin(t)
-    z = (height / (2 * np.pi * turns)) * t
-
-    H = []
-    for i in range(len(x)):
-        Hi = np.eye(4)
-        Hi[:3, 3] = np.array([x[i], y[i], z[i]])
-        Hi[:3, :3] = R.from_quat([0.0, 0.707106, 0.0, 0.707106]).as_matrix()
-        H.append(Hi)
-
-    basisvector = np.array([1, 0])
-    Hx = []
-    for i in range(len(x)):
-        xyvector = np.array([x[i], y[i]])
-        alpha = np.arccos(np.dot(basisvector, xyvector) / np.linalg.norm(xyvector))
-        Hx.append(SE3.Rx(alpha).A)
-
-    for i in range(len(H)):
-        H[i] = H[i] @ Hx[i]
-    return H
 
 
 def simple_visualize():

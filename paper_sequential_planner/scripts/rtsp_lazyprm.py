@@ -210,10 +210,10 @@ def estimate_shortest_path_bulk(qs, qgs, Qfree, graph, kdtree):
 
     paths = []
     costs = []
-    for near_qg_id in near_qgs_ids:
+    for i, near_qg_id in enumerate(near_qgs_ids):
         pathid = reconstruct_path(parent, near_qg_id)
         pathq_mid = Qfree[pathid]
-        pathq_full = np.vstack([qs, pathq_mid, qgs])
+        pathq_full = np.vstack([qs, pathq_mid, qgs[i]])
         cost = get_path_cost(pathq_full)
         paths.append(pathq_full)
         costs.append(cost)
@@ -272,7 +272,11 @@ if __name__ == "__main__":
     qs = np.array([0.15, 0.60])
     qg1 = np.array([2.5, 1.5])
     qg2 = np.array([1.5, 2.5])
-    qgs = np.vstack([qg1, qg2])
+    qg3 = np.array([-2.5, -2.5])
+    qg4 = np.array([-2.5, 2.5])
+    qg5 = np.array([2.5, -2.5])
+    qg6 = np.array([-1.5, 0.0])
+    qgs = np.vstack([qg1, qg2, qg3, qg4, qg5, qg6])
     paths, costs = estimate_shortest_path_bulk(qs, qgs, QfulRndfree, graph, kdtree)
     for i, (path, cost) in enumerate(zip(paths, costs)):
         print(f"Estimated path {i+1} cost: {cost}")
@@ -302,9 +306,13 @@ if __name__ == "__main__":
     ax.scatter(qs[0], qs[1], color="cyan", marker="*", s=100, label="Start")
     ax.scatter(qg1[0], qg1[1], color="magenta", marker="*", s=100, label="Goal 1")
     ax.scatter(qg2[0], qg2[1], color="orange", marker="*", s=100, label="Goal 2")
+    ax.scatter(qg3[0], qg3[1], color="purple", marker="*", s=100, label="Goal 3")
+    ax.scatter(qg4[0], qg4[1], color="brown", marker="*", s=100, label="Goal 4")
+    ax.scatter(qg5[0], qg5[1], color="pink", marker="*", s=100, label="Goal 5")
+    ax.scatter(qg6[0], qg6[1], color="gray", marker="*", s=100, label="Goal 6")
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
     ax.set_aspect("equal")
     ax.set_title("Estimated Shortest Path in 2D Space")
-    ax.legend()
+    ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
     plt.show()

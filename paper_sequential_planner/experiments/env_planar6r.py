@@ -37,6 +37,9 @@ class Planar6R:
         result = np.concatenate([base, positions], axis=1)  # Shape (n, 7, 2)
         return result
 
+    def ik(self, X):
+        pass
+
 
 class RobotScene:
 

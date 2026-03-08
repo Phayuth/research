@@ -206,7 +206,7 @@ class RobotScene:
         dataset = np.array(dataset)
         np.save(os.path.join(rsrc, "cspace_dataset_nearest_distance.npy"), dataset)
 
-    def show_env(self, theta):
+    def show_wsenv(self, theta):
         links_xy = self.robot_collision_links(theta)
         best, results = self.distance_to_obstacles(theta)
 
@@ -300,14 +300,29 @@ class RobotScene:
 
         for i in range(ntasks):
             q_sols = MQaik[i]
-            ax.plot(
-                q_sols[:, 0],
-                q_sols[:, 1],
-                "o--",
-                color=colors[i],
-                markersize=8,
-                alpha=0.8,
-            )
+            q_valid = q_sols[MQaik_validity[i] == 1]
+            q_invalid = q_sols[MQaik_validity[i] != 1]
+
+            if q_valid.size > 0:
+                ax.plot(
+                    q_valid[:, 0],
+                    q_valid[:, 1],
+                    "o--",
+                    color=colors[i],
+                    markersize=8,
+                    alpha=0.8,
+                )
+
+            # Keep invalid samples visible for debugging, but clearly separated.
+            if q_invalid.size > 0:
+                ax.plot(
+                    q_invalid[:, 0],
+                    q_invalid[:, 1],
+                    "x",
+                    color="black",
+                    markersize=6,
+                    alpha=0.7,
+                )
 
         ax.set_aspect("equal", "box")
         ax.set_xlim(-np.pi, np.pi)
@@ -398,7 +413,7 @@ def sample_reachable_wspace(num_points):
     return scale.T
 
 
-def wspace_ik(robot: PlanarRR, Xtspace):
+def wspace_ik(robot, Xtspace):
     """
     Compute AIK of all task points no matter whether they are reachable or not.
     NaN values will be used to indicate unreachable points.
@@ -414,7 +429,7 @@ def wspace_ik(robot: PlanarRR, Xtspace):
     return MQaik
 
 
-def wspace_ik_validity(MQaik, robscene: RobotScene):
+def wspace_ik_validity(MQaik, robscene):
     """
     Compute the validity of each AIK solution in MQaik.
     1 = Valid
@@ -424,7 +439,10 @@ def wspace_ik_validity(MQaik, robscene: RobotScene):
     """
     # (ntasks, num_solutions)
     limit = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
-    MQaik_validity = np.full(shape=(MQaik.shape[0], 2), fill_value=np.nan)
+    eps = 1e-9
+    MQaik_validity = np.full(
+        shape=(MQaik.shape[0], MQaik.shape[1]), fill_value=np.nan
+    )
     for taski in range(MQaik.shape[0]):
         for solj in range(MQaik.shape[1]):
             q = MQaik[taski, solj]
@@ -435,7 +453,13 @@ def wspace_ik_validity(MQaik, robscene: RobotScene):
                 if best is not None and best["distance"] <= 0.0:
                     MQaik_validity[taski, solj] = -2  # In collision
                 else:
-                    MQaik_validity[taski, solj] = 1  # Valid
+                    is_in_limit = np.all(
+                        (q >= (limit[:, 0] - eps)) & (q <= (limit[:, 1] + eps))
+                    )
+                    if not is_in_limit:
+                        MQaik_validity[taski, solj] = -3  # Awkward configuration
+                    else:
+                        MQaik_validity[taski, solj] = 1  # Valid
     return MQaik_validity
 
 
@@ -460,13 +484,13 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-    planner = OMPLPlanner(scene.collision_checker)
+    # planner = OMPLPlanner(scene.collision_checker)
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
     # scene.cspace_dataset_nearest_distance()
 
     q = np.array([[np.pi / 6.0], [-1.0]])
-    # scene.show_env(q)
+    # scene.show_wsenv(q)
     scene._show_wsenv_debug(q)
     scene._show_cspace_debug()
 
