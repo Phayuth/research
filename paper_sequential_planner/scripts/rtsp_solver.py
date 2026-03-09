@@ -1,6 +1,5 @@
 import os
 import numpy as np
-from scipy.spatial import KDTree
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -27,7 +26,7 @@ class RTSP:
 
     @staticmethod
     def make_adj_matrix(cluster, num_node):
-        adjm = np.full((num_node, num_node), 1)
+        adjm = np.full((num_node, num_node), 0)
         for c in cluster.values():
             for i in c:
                 for j in c:

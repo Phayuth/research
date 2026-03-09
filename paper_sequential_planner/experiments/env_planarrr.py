@@ -288,8 +288,8 @@ class RobotScene:
         ntasks = 30
         X = sample_reachable_wspace(ntasks)
         MQaik = wspace_ik(robot, X)
-        MQaik_validity = wspace_ik_validity(MQaik, scene)
-        nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_validity)
+        MQaik_valid = wspace_ik_validity(MQaik, scene)
+        nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_valid)
 
         # color code
         hues = np.linspace(0, 1, ntasks, endpoint=False)
@@ -300,8 +300,8 @@ class RobotScene:
 
         for i in range(ntasks):
             q_sols = MQaik[i]
-            q_valid = q_sols[MQaik_validity[i] == 1]
-            q_invalid = q_sols[MQaik_validity[i] != 1]
+            q_valid = q_sols[MQaik_valid[i] == 1]
+            q_invalid = q_sols[MQaik_valid[i] != 1]
 
             if q_valid.size > 0:
                 ax.plot(
@@ -338,8 +338,8 @@ class OMPLPlanner:
         self.space = ob.RealVectorStateSpace(self.dof)
         self.bounds = ob.RealVectorBounds(self.dof)
         self.limit2 = [
-            2 * np.pi,
-            2 * np.pi,
+            np.pi,
+            np.pi,
         ]
         for i in range(self.dof):
             self.bounds.setLow(i, -self.limit2[i])
@@ -352,8 +352,8 @@ class OMPLPlanner:
         )
         # self.planner = og.BITstar(self.ss.getSpaceInformation())
         # self.planner = og.ABITstar(self.ss.getSpaceInformation())
-        # self.planner = og.AITstar(self.ss.getSpaceInformation())
-        self.planner = og.RRTConnect(self.ss.getSpaceInformation())
+        self.planner = og.AITstar(self.ss.getSpaceInformation())
+        # self.planner = og.RRTConnect(self.ss.getSpaceInformation())
         self.planner.setRange(0.1)
         self.ss.setPlanner(self.planner)
 
@@ -410,18 +410,19 @@ def sample_reachable_wspace(num_points):
     norms = np.linalg.norm(u, axis=0)
     u = u / norms
     scale = 4 * u[:2, :]  # The first N coordinates are uniform in a unit N ball
-    return scale.T
+    return scale.T  # (ntasks, 2)
 
 
 def wspace_ik(robot, Xtspace):
     """
+    Xtspace must be (ntasks, 2)
     Compute AIK of all task points no matter whether they are reachable or not.
     NaN values will be used to indicate unreachable points.
     """
-    if Xtspace.shape[1] != 2:
-        Xtspace = Xtspace.T
     ntasks = Xtspace.shape[0]
-    MQaik = np.full((ntasks, 2, 2), np.nan)  # (ntasks, num_solutions, dof)
+    num_sols = 2  # rr has up to 2 IK solutions
+    dof = 2
+    MQaik = np.full((ntasks, num_sols, dof), np.nan)  # (ntasks, num_sols, dof)
     for taski in range(ntasks):
         q_sols = robot.inverse_kinematic(Xtspace[taski])
         if q_sols is not None:
@@ -437,42 +438,88 @@ def wspace_ik_validity(MQaik, robscene):
     -2 = In collision
     -3 = awkward configuration (e.g. near singularity or joint limits)
     """
-    # (ntasks, num_solutions)
+    ntasks = MQaik.shape[0]
+    num_sols = MQaik.shape[1]
     limit = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
     eps = 1e-9
-    MQaik_validity = np.full(
-        shape=(MQaik.shape[0], MQaik.shape[1]), fill_value=np.nan
-    )
+    MQaik_valid = np.full((ntasks, num_sols, 1), np.nan)  # (ntasks, num_sols, 1)
     for taski in range(MQaik.shape[0]):
         for solj in range(MQaik.shape[1]):
             q = MQaik[taski, solj]
             if np.isnan(q).any():
-                MQaik_validity[taski, solj] = -1  # No solution
+                MQaik_valid[taski, solj] = -1  # No solution
             else:
                 best, _ = robscene.distance_to_obstacles(q.reshape(2, 1))
                 if best is not None and best["distance"] <= 0.0:
-                    MQaik_validity[taski, solj] = -2  # In collision
+                    MQaik_valid[taski, solj] = -2  # In collision
                 else:
                     is_in_limit = np.all(
                         (q >= (limit[:, 0] - eps)) & (q <= (limit[:, 1] + eps))
                     )
                     if not is_in_limit:
-                        MQaik_validity[taski, solj] = -3  # Awkward configuration
+                        MQaik_valid[taski, solj] = -3  # Awkward configuration
                     else:
-                        MQaik_validity[taski, solj] = 1  # Valid
-    return MQaik_validity
+                        MQaik_valid[taski, solj] = 1  # Valid
+    return MQaik_valid.astype(int)
 
 
-def process_cluster(MQaik, MQaik_validity):
+def info_validity(X, MQaik, MQaik_valid):
+    print("=== Validity Summary ===")
+
+    task_reachablemask = np.any(MQaik_valid == 1, axis=1).flatten()  # (ntasks,)
+    print(f"==>> task_reachablemask: \n{task_reachablemask}")
+
+    num_reachable_q_pertask = np.sum(
+        MQaik_valid == 1, axis=1
+    ).flatten()  # (ntasks, num_sols, 1) -> (ntasks,)
+    print(f"==>> num_reachable_q_pertask: \n{num_reachable_q_pertask}")
+
+    num_reachable = np.sum(task_reachablemask)
+    print(f"==>> num_reachable: \n{num_reachable} out of {MQaik.shape[0]} tasks")
+
+    task_reachable = X[task_reachablemask]
+    print(f"==>> task_reachable: \n{task_reachable}")
+
+    num_reachable_sols = num_reachable_q_pertask[num_reachable_q_pertask > 0]
+    print(f"==>> num_reachable_sols: \n{num_reachable_sols}")
+
+    MQaik_flat = MQaik.reshape(-1, 2)  # (ntasks * num_solutions, dof)
+    MQaik_valid_flat = MQaik_valid.reshape(-1)  # (ntasks * num_solutions,)
+    Q_reachable = MQaik_flat[MQaik_valid_flat == 1]
+    print(f"==>> Q_reachable: \n{Q_reachable}")
+    return task_reachable, num_reachable_sols, Q_reachable
+
+
+def process_cluster(MQaik, MQaik_valid):
     # flatten
     MQaik_flat = MQaik.reshape(-1, 2)  # (ntasks * num_solutions, dof)
-    MQaik_validity_flat = MQaik_validity.reshape(-1)  # (ntasks * num_solutions,)
-    MQaik_valid_sols = MQaik_flat[MQaik_validity_flat == 1]
-    nsol_per_cluster = np.sum(MQaik_validity == 1, axis=1)
+    MQaik_valid_flat = MQaik_valid.reshape(-1)  # (ntasks * num_solutions,)
+    MQaik_valid_sols = MQaik_flat[MQaik_valid_flat == 1]
+    nsol_per_cluster = np.sum(MQaik_valid == 1, axis=1)
     # filter out clusters with zero valid solutions
     nsol_per_cluster_final = nsol_per_cluster[nsol_per_cluster > 0]
     return nsol_per_cluster_final, MQaik_valid_sols
 
+
+def build_graph_valid(task_reachable, num_reachable_sols, Q_reachable):
+    # undirected version
+    n_tasks = task_reachable.shape[0]
+    taskspace_adjm = np.full((n_tasks, n_tasks), -1, dtype=int)
+    for i in range(n_tasks):
+        for j in range(i + 1, n_tasks):
+            if i == j:
+                continue
+            else:
+                taskspace_adjm[i, j] = 0
+                taskspace_adjm[j, i] = 0
+    print(f"==>> taskspace_adjm: \n{taskspace_adjm}")
+
+    cluster = RTSP.build_cluster(num_reachable_sols)
+    print(f"==>> cluster: \n{cluster}")
+    num_sols = sum(num_reachable_sols)
+    print(f"==>> num_sols: \n{num_sols}")
+    cspace_adjm = RTSP.make_adj_matrix(cluster, num_sols)
+    print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
@@ -491,24 +538,38 @@ if __name__ == "__main__":
 
     q = np.array([[np.pi / 6.0], [-1.0]])
     # scene.show_wsenv(q)
-    scene._show_wsenv_debug(q)
-    scene._show_cspace_debug()
+    # scene._show_wsenv_debug(q)
+    # scene._show_cspace_debug()
 
     ntasks = 30
     X = sample_reachable_wspace(ntasks)
-    MQaik = wspace_ik(robot, X)
-    MQaik_validity = wspace_ik_validity(MQaik, scene)
-    nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_validity)
-    print(f"==>> nsol_per_cluster: \n{nsol_per_cluster}")
-    num_valid_sols = MQaik_valid_sols.shape[0]
-    cluster = RTSP.build_cluster(nsol_per_cluster)
-    print(f"==>> cluster: \n{cluster}")
-    adjm = RTSP.make_adj_matrix(cluster, MQaik_valid_sols.shape[0])
-    print(f"==>> adjm: \n{adjm}")
-    num_unique_edges = RTSP.find_numedges_unique(nsol_per_cluster)
+    print(f"==>> X: \n{X}")
 
-    QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
-    graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
+    MQaik = wspace_ik(robot, X)
+    print(f"==>> MQaik: \n{MQaik}")
+
+    MQaik_valid = wspace_ik_validity(MQaik, scene)
+    print(f"==>> MQaik_valid: \n{MQaik_valid}")
+
+    task_reachable, num_reachable_sols, Q_reachable = info_validity(
+        X, MQaik, MQaik_valid
+    )
+    # nsol_per_cluster, MQaik_valid_sols = process_cluster(MQaik, MQaik_valid)
+    build_graph_valid(task_reachable, num_reachable_sols, Q_reachable)
+    # print(f"==>> nsol_per_cluster: \n{nsol_per_cluster}")
+
+    # num_valid_sols = MQaik_valid_sols.shape[0]
+    # cluster = RTSP.build_cluster(nsol_per_cluster)
+    # print(f"==>> cluster: \n{cluster}")
+
+    # adjm = RTSP.make_adj_matrix(cluster, MQaik_valid_sols.shape[0])
+    # print(f"==>> adjm: \n{adjm}")
+
+    # num_unique_edges = RTSP.find_numedges_unique(nsol_per_cluster)
+    # print(f"==>> num_unique_edges: \n{num_unique_edges}")
+
+    # QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
+    # graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
 
     # adjm_cost_min = adjm.copy()
     # for i in range(adjm_cost_min.shape[0]):
@@ -539,42 +600,42 @@ if __name__ == "__main__":
     #     cluster,
     # )
 
-    # solve GTSP using GLKH
-    if os.path.exists(
-        os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
-    ):
-        tourmatix = GLKHHelper.read_tour_file(
-            os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
-        )
-        print(f"==>> tourmatix: \n{tourmatix}")
-        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    # # solve GTSP using GLKH
+    # if os.path.exists(
+    #     os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+    # ):
+    #     tourmatix = GLKHHelper.read_tour_file(
+    #         os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+    #     )
+    #     print(f"==>> tourmatix: \n{tourmatix}")
+    #     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 
-        qtour = MQaik_valid_sols[tourmatix]
+    #     qtour = MQaik_valid_sols[tourmatix]
 
-        fig, ax = plt.subplots()
-        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-        ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
-        for i in range(len(tourmatix) - 1):
-            start_idx = tourmatix[i]
-            end_idx = tourmatix[i + 1]
-            q1 = MQaik_valid_sols[start_idx]
-            q2 = MQaik_valid_sols[end_idx]
-            path = planner.query_planning(q1, q2)
-            if path is not None:
-                qp, cp = path
-                qp = np.array(qp)
-                ax.plot(
-                    qp[:, 0],
-                    qp[:, 1],
-                    "b-",
-                    alpha=0.5,
-                    label="OMPL path" if i == 0 else None,
-                )
-        ax.set_aspect("equal", "box")
-        ax.set_xlim(-4, 4)
-        ax.set_ylim(-4, 4)
-        ax.grid(True)
-        ax.legend()
-        plt.show()
-    else:
-        print("Tour file not found. Please run GLKH solver file.")
+    #     fig, ax = plt.subplots()
+    #     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+    #     ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
+    #     for i in range(len(tourmatix) - 1):
+    #         start_idx = tourmatix[i]
+    #         end_idx = tourmatix[i + 1]
+    #         q1 = MQaik_valid_sols[start_idx]
+    #         q2 = MQaik_valid_sols[end_idx]
+    #         path = planner.query_planning(q1, q2)
+    #         if path is not None:
+    #             qp, cp = path
+    #             qp = np.array(qp)
+    #             ax.plot(
+    #                 qp[:, 0],
+    #                 qp[:, 1],
+    #                 "b-",
+    #                 alpha=0.5,
+    #                 label="OMPL path" if i == 0 else None,
+    #             )
+    #     ax.set_aspect("equal", "box")
+    #     ax.set_xlim(-4, 4)
+    #     ax.set_ylim(-4, 4)
+    #     ax.grid(True)
+    #     ax.legend()
+    #     plt.show()
+    # else:
+    #     print("Tour file not found. Please run GLKH solver file.")
