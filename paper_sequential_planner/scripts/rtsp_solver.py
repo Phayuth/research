@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from itertools import product
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -12,7 +13,11 @@ class RTSP:
         pass
 
     @staticmethod
-    def build_cluster(points_per_cluster):
+    def build_cluster_task_to_cspace(points_per_cluster):
+        """
+        Building cluster mapping from task to cspace.
+        Easy to access the cspace points given a task.
+        """
         cluster = {
             i: list(
                 range(
@@ -25,13 +30,55 @@ class RTSP:
         return cluster
 
     @staticmethod
-    def make_adj_matrix(cluster, num_node):
-        adjm = np.full((num_node, num_node), 0)
+    def build_cluster_cspace_to_task(points_per_cluster):
+        """
+        Building cluster mapping from cspace to task.
+        Easy to access the task given a cspace point.
+        """
+        cluster = {}
+        current_idx = 0
+        for task_idx, num_sols in enumerate(points_per_cluster):
+            for sol_idx in range(int(num_sols)):
+                cluster[current_idx] = task_idx
+                current_idx += 1
+        return cluster
+
+    @staticmethod
+    def build_taskspace_adjm(n_tasks):
+        """
+        Building task space adjacency matrix.
+         -1: same task,
+          0: different task
+
+        """
+        taskspace_adjm = np.full((n_tasks, n_tasks), -1, dtype=int)
+        for i in range(n_tasks):
+            for j in range(i + 1, n_tasks):
+                if i == j:
+                    continue
+                else:
+                    taskspace_adjm[i, j] = 0
+                    taskspace_adjm[j, i] = 0
+        return taskspace_adjm
+
+    @staticmethod
+    def build_cspace_adjm(cluster, num_sols):
+        cspace_adjm = np.full((num_sols, num_sols), 0.0)
         for c in cluster.values():
             for i in c:
                 for j in c:
-                    adjm[i, j] = -1
-        return adjm
+                    cspace_adjm[i, j] = -1.0
+        return cspace_adjm
+
+    @staticmethod
+    def check_connection(cluster, cspace_adjm, task1, task2):
+        c_task1 = cluster[task1]
+        c_task2 = cluster[task2]
+        l = list(product(c_task1, c_task2))
+        cc = []
+        for i, j in l:
+            cc.append(cspace_adjm[i, j].item())
+        return cc
 
     @staticmethod
     def find_numedges_unique(points_per_cluster):
@@ -156,8 +203,8 @@ def example_usage():
     H = np.random.uniform(-3, 3, size=(len(points_per_cluster), 16))
 
     # compute GTSP data
-    cluster = RTSP.build_cluster(points_per_cluster)
-    adjm = RTSP.make_adj_matrix(cluster, num_node)
+    cluster = RTSP.build_cluster_task_to_cspace(points_per_cluster)
+    adjm = RTSP.build_cspace_adjm(cluster, num_node)
     num_unique_edges = RTSP.find_numedges_unique(points_per_cluster)
     print("cluster:", cluster)
     print("adjm:\n", adjm)
@@ -180,8 +227,8 @@ def example_usage():
         )
         print(f"==>> tourmatix: \n{tourmatix}")
 
-
         import matplotlib.pyplot as plt
+
         fig, ax = plt.subplots()
         for key, c in cluster.items():
             c = np.array(c)

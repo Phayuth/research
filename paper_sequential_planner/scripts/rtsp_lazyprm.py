@@ -157,7 +157,7 @@ def separate_sample(collision_checker, Qful_snum=1000, lmts=None):
     )
     QfulRndcheck = np.zeros((Qful_snum, 1))
     for i in range(Qful_snum):
-        q = QfulRnd[i, :].reshape(-1, 1)
+        q = QfulRnd[i, :]
         in_collision = collision_checker(q)
         if in_collision:
             QfulRndcheck[i, 0] = 1
