@@ -217,9 +217,9 @@ class OMPLPlanner:
         self.space = ob.RealVectorStateSpace(self.dof)
         self.bounds = ob.RealVectorBounds(self.dof)
         self.limit3 = [
-            2 * np.pi,
-            2 * np.pi,
-            2 * np.pi,
+            np.pi,
+            np.pi,
+            np.pi,
         ]
         for i in range(self.dof):
             self.bounds.setLow(i, -self.limit3[i])
@@ -230,11 +230,11 @@ class OMPLPlanner:
         self.ss.setStateValidityChecker(
             ob.StateValidityCheckerFn(self.is_state_valid)
         )
-        # self.planner = og.BITstar(self.ss.getSpaceInformation())
+        self.planner = og.BITstar(self.ss.getSpaceInformation())
         # self.planner = og.ABITstar(self.ss.getSpaceInformation())
         # self.planner = og.AITstar(self.ss.getSpaceInformation())
-        self.planner = og.RRTConnect(self.ss.getSpaceInformation())
-        self.planner.setRange(0.1)
+        # self.planner = og.RRTConnect(self.ss.getSpaceInformation())
+        # self.planner.setRange(0.1)
         self.ss.setPlanner(self.planner)
 
     def is_state_valid(self, state):
@@ -395,7 +395,7 @@ if __name__ == "__main__":
     # scene.show_env(q)
     # scene._show_wsenv_debug(q2)
 
-    ntasks = 50
+    ntasks = 30
     X = sample_reachable_wspace(ntasks)
     print(f"==>> X: \n{X}")
 
@@ -427,6 +427,7 @@ if __name__ == "__main__":
     cspace_adjm_euc_min = cspace_adjm.copy()
     for i in range(cspace_adjm_euc_min.shape[0]):
         for j in range(i + 1, cspace_adjm_euc_min.shape[1]):
+            print(f"Estimated cost from {i} to {j}")
             if cspace_adjm_euc_min[i, j] != -1.0:
                 q1 = Q_reachable[i]
                 q2 = Q_reachable[j]
@@ -470,3 +471,24 @@ if __name__ == "__main__":
                     taskspace_adjm[task_i, task_j] += 1
                     taskspace_adjm[task_j, task_i] += 1
     print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
+
+    # # plot debug
+    # axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
+    # box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
+    # box.visual.face_colors = [100, 150, 255, 40]
+
+    # # scene setup
+    # scene = trimesh.Scene()
+    # scene.add_geometry(box)
+    # scene.add_geometry(axis)
+
+    # Qr = trimesh.points.PointCloud(Q_reachable)
+    # scene.add_geometry(Qr)
+
+    # # for i, path in enumerate(store_path.values()):
+    # #     path = np.array(path)
+    # #     scene.add_geometry(
+    # #         trimesh.load_path(path, colors=[255, 0, 0, 255], linewidth=2)
+    # #     )
+
+    # scene.show()

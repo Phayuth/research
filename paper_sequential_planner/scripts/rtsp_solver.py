@@ -1,6 +1,7 @@
 import os
 import numpy as np
 from itertools import product
+from sklearn.metrics.pairwise import euclidean_distances
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -18,7 +19,7 @@ class RTSP:
         Building cluster mapping from task to cspace.
         Easy to access the cspace points given a task.
         """
-        cluster = {
+        cluster_ttc = {
             i: list(
                 range(
                     sum(points_per_cluster[:i]),
@@ -27,7 +28,7 @@ class RTSP:
             )
             for i in range(len(points_per_cluster))
         }
-        return cluster
+        return cluster_ttc
 
     @staticmethod
     def build_cluster_cspace_to_task(points_per_cluster):
@@ -35,13 +36,13 @@ class RTSP:
         Building cluster mapping from cspace to task.
         Easy to access the task given a cspace point.
         """
-        cluster = {}
+        cluster_ctt = {}
         current_idx = 0
         for task_idx, num_sols in enumerate(points_per_cluster):
             for sol_idx in range(int(num_sols)):
-                cluster[current_idx] = task_idx
+                cluster_ctt[current_idx] = task_idx
                 current_idx += 1
-        return cluster
+        return cluster_ctt
 
     @staticmethod
     def build_taskspace_adjm(n_tasks):
@@ -59,6 +60,19 @@ class RTSP:
                 else:
                     taskspace_adjm[i, j] = 0
                     taskspace_adjm[j, i] = 0
+        return taskspace_adjm
+
+    @staticmethod
+    def update_taskspace_adjm(taskspace_adjm, cspace_adjm, cspace_to_taskspace):
+        """Update taskspace adjm by counting cspace edges between task pairs"""
+        for i in range(cspace_adjm.shape[0]):
+            for j in range(i + 1, cspace_adjm.shape[1]):
+                if cspace_adjm[i, j] != -1.0:  # Valid connection in cspace
+                    task_i = cspace_to_taskspace[i]
+                    task_j = cspace_to_taskspace[j]
+                    if task_i != task_j:  # Only count inter-task connections
+                        taskspace_adjm[task_i, task_j] += 1
+                        taskspace_adjm[task_j, task_i] += 1
         return taskspace_adjm
 
     @staticmethod
@@ -88,19 +102,90 @@ class RTSP:
         return unique_edges
 
     @staticmethod
-    def edgecost_distance(config):
-        num_node = config.shape[0]
-        cost = np.full((num_node, num_node), 0.0)
-        for i in range(num_node):
-            for j in range(num_node):
-                if i != j:
-                    diff = config[i] - config[j]
-                    cost[i, j] = np.linalg.norm(diff)
+    def edgecost_eucl_distance(config):
+        cost = euclidean_distances(config, config)
+        np.fill_diagonal(cost, -1.0)
         return cost
 
     @staticmethod
-    def edgecost_colfreepath_est(config):
-        pass
+    def edgecost_colfree_distance(
+        cspace_adjm,
+        config,
+        estimator,
+        estimator_params,
+    ):
+        """Here estimation can fail due to sampling nature and graph is disconnected"""
+        store_path = {}
+        store_cost = {}
+        for i in range(cspace_adjm.shape[0]):
+            for j in range(i + 1, cspace_adjm.shape[1]):
+                if cspace_adjm[i, j] != -1.0:
+                    q1 = config[i]
+                    q2 = config[j]
+                    res_ = estimator(q1, q2, **estimator_params)
+                    if res_ is not None:
+                        pathq, cost = res_
+                        cspace_adjm[i, j] = cost
+                        cspace_adjm[j, i] = cost
+                        store_path[(i, j)] = pathq
+                        store_cost[(i, j)] = cost
+                        print(f"Estimated cost from {i} to {j}: {cost}")
+                    else:
+                        cspace_adjm[i, j] = -2.0
+                        cspace_adjm[j, i] = -2.0
+                        store_path[(i, j)] = np.nan
+                        store_cost[(i, j)] = np.inf
+                        print(f"No path found from {i} to {j}, fail to est cost.")
+        return cspace_adjm, store_path, store_cost
+
+    @staticmethod
+    def preprocess(taskH, Qaik, Qaik_valid):
+        dof = Qaik.shape[2]
+        task_reachablemask = np.any(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
+        q_reachable_perH = np.sum(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
+        num_reachable = np.sum(task_reachablemask)
+        task_reachable = taskH[task_reachablemask]
+        num_qreachable = q_reachable_perH[q_reachable_perH > 0]
+        _Qaik_flat = Qaik.reshape(-1, dof)  # (ntasks * num_solutions, dof)
+        _Qaik_valid_flat = Qaik_valid.reshape(-1)  # (ntasks * num_solutions,)
+        Q_reachable = _Qaik_flat[_Qaik_valid_flat == 1]
+        taskspace_adjm = RTSP.build_taskspace_adjm(num_reachable)
+        cluster_ttc = RTSP.build_cluster_task_to_cspace(num_qreachable)
+        num_sols = sum(num_qreachable)
+        cspace_adjm = RTSP.build_cspace_adjm(cluster_ttc, num_sols)
+        return (
+            task_reachable,
+            num_qreachable,
+            Q_reachable,
+            cluster_ttc,
+            taskspace_adjm,
+            cspace_adjm,
+        )
+
+    @staticmethod
+    def postprocess(tourid, Q_reachable, colfree_planner):
+        """
+        tourid: the tour, e.g., [0, 2, 1, 0] (return back to start)
+        Q_reachable: the reachable configurations
+        """
+        qtour = Q_reachable[tourid]
+        store_path = {}
+        store_cost = {}
+        for i in range(len(tourid) - 1):
+            start_idx = tourid[i]
+            end_idx = tourid[i + 1]
+            q1 = Q_reachable[start_idx]
+            q2 = Q_reachable[end_idx]
+            res_ = colfree_planner(q1, q2)
+            if res_ is not None:
+                qp, cp = res_
+                qp = np.array(qp)
+                store_path[(start_idx, end_idx)] = qp
+                store_cost[(start_idx, end_idx)] = cp
+            else:
+                store_path[(start_idx, end_idx)] = np.nan
+                store_cost[(start_idx, end_idx)] = np.inf
+        return qtour, store_path, store_cost
 
 
 class GLKHHelper:
@@ -190,64 +275,3 @@ class GLKHHelper:
                     tour.append(idx)
         tour.append(tour[0])  # make it a round trip
         return np.array(tour)
-
-
-def example_usage():
-    # problem setup
-    dof = 2
-    points_per_cluster = [3, 3, 3, 2]
-    num_node = sum(points_per_cluster)
-    q0 = np.zeros((dof,))
-    config = np.random.uniform(-np.pi, np.pi, size=(num_node, dof))
-    # H 4x4 matrix flatten row-major
-    H = np.random.uniform(-3, 3, size=(len(points_per_cluster), 16))
-
-    # compute GTSP data
-    cluster = RTSP.build_cluster_task_to_cspace(points_per_cluster)
-    adjm = RTSP.build_cspace_adjm(cluster, num_node)
-    num_unique_edges = RTSP.find_numedges_unique(points_per_cluster)
-    print("cluster:", cluster)
-    print("adjm:\n", adjm)
-    print("num_unique_edges:", num_unique_edges)
-
-    edge_cost_distance = RTSP.edgecost_distance(config)
-    print(f"==>> edge_cost_distance: \n{edge_cost_distance}")
-    GLKHHelper.write_glkh_fullmatrix_file(
-        os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.gtsp"),
-        edge_cost_distance,
-        cluster,
-    )
-
-    # solve GTSP using GLKH
-    if os.path.exists(
-        os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
-    ):
-        tourmatix = GLKHHelper.read_tour_file(
-            os.path.join(GLKHHelper.problemdir, "problem2_fullmatrix.tour")
-        )
-        print(f"==>> tourmatix: \n{tourmatix}")
-
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots()
-        for key, c in cluster.items():
-            c = np.array(c)
-            ax.scatter(config[c, 0], config[c, 1], label=f"cluster {key}")
-        for i in range(len(tourmatix) - 1):
-            start_idx = tourmatix[i]
-            end_idx = tourmatix[i + 1]
-            ax.plot(
-                [config[start_idx, 0], config[end_idx, 0]],
-                [config[start_idx, 1], config[end_idx, 1]],
-                c="red",
-                label="tour" if i == 0 else None,
-            )
-        ax.set_title("GTSP Tour from GLKH")
-        ax.legend()
-        plt.show()
-    else:
-        print("Tour file not found. Please run GLKH solver file.")
-
-
-if __name__ == "__main__":
-    example_usage()
