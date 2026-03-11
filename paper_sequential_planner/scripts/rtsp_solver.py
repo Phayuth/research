@@ -14,7 +14,7 @@ class RTSP:
         pass
 
     @staticmethod
-    def build_cluster_task_to_cspace(points_per_cluster):
+    def build_cluster_task_to_cspace(num_qreachable):
         """
         Building cluster mapping from task to cspace.
         Easy to access the cspace points given a task.
@@ -22,23 +22,23 @@ class RTSP:
         cluster_ttc = {
             i: list(
                 range(
-                    sum(points_per_cluster[:i]),
-                    sum(points_per_cluster[: i + 1]),
+                    sum(num_qreachable[:i]),
+                    sum(num_qreachable[: i + 1]),
                 )
             )
-            for i in range(len(points_per_cluster))
+            for i in range(len(num_qreachable))
         }
         return cluster_ttc
 
     @staticmethod
-    def build_cluster_cspace_to_task(points_per_cluster):
+    def build_cluster_cspace_to_task(num_qreachable):
         """
         Building cluster mapping from cspace to task.
         Easy to access the task given a cspace point.
         """
         cluster_ctt = {}
         current_idx = 0
-        for task_idx, num_sols in enumerate(points_per_cluster):
+        for task_idx, num_sols in enumerate(num_qreachable):
             for sol_idx in range(int(num_sols)):
                 cluster_ctt[current_idx] = task_idx
                 current_idx += 1
@@ -64,7 +64,9 @@ class RTSP:
 
     @staticmethod
     def update_taskspace_adjm(taskspace_adjm, cspace_adjm, cspace_to_taskspace):
-        """Update taskspace adjm by counting cspace edges between task pairs"""
+        """
+        Update taskspace adjm by counting cspace edges between task pairs
+        """
         for i in range(cspace_adjm.shape[0]):
             for j in range(i + 1, cspace_adjm.shape[1]):
                 if cspace_adjm[i, j] != -1.0:  # Valid connection in cspace
@@ -76,30 +78,40 @@ class RTSP:
         return taskspace_adjm
 
     @staticmethod
-    def build_cspace_adjm(cluster, num_sols):
+    def build_cspace_adjm(cluster_ttc, num_sols):
         cspace_adjm = np.full((num_sols, num_sols), 0.0)
-        for c in cluster.values():
+        for c in cluster_ttc.values():
             for i in c:
                 for j in c:
                     cspace_adjm[i, j] = -1.0
         return cspace_adjm
 
     @staticmethod
-    def check_connection(cluster, cspace_adjm, task1, task2):
-        c_task1 = cluster[task1]
-        c_task2 = cluster[task2]
+    def get_cost_task_to_task(cluster_ttc, cspace_adjm, task1, task2):
+        """
+        Get cost from task1 to task2 by looking up the cspace adjm clusters.
+        cspace adjm must have cost in there.
+        """
+        c_task1 = cluster_ttc[task1]
+        c_task2 = cluster_ttc[task2]
         l = list(product(c_task1, c_task2))
+        print(f"task:{task1}, task:{task2}, have {len(l)} connections.")
+        print(f"id pairs: {l}")
         cc = []
         for i, j in l:
             cc.append(cspace_adjm[i, j].item())
         return cc
 
     @staticmethod
-    def find_numedges_unique(points_per_cluster):
-        totalnode = sum(points_per_cluster)
-        self_connections = sum([n * (n - 1) / 2 for n in points_per_cluster])
+    def num_edges_unique(num_qreachable):
+        totalnode = sum(num_qreachable)
+        self_connections = sum([n * (n - 1) / 2 for n in num_qreachable])
         unique_edges = (totalnode * (totalnode - 1) / 2) - self_connections
         return unique_edges
+
+    @staticmethod
+    def num_supercluster_edges(n_tasks):
+        return n_tasks * (n_tasks - 1) / 2
 
     @staticmethod
     def edgecost_eucl_distance(config):
@@ -151,6 +163,7 @@ class RTSP:
         Q_reachable = _Qaik_flat[_Qaik_valid_flat == 1]
         taskspace_adjm = RTSP.build_taskspace_adjm(num_reachable)
         cluster_ttc = RTSP.build_cluster_task_to_cspace(num_qreachable)
+        cluster_ctt = RTSP.build_cluster_cspace_to_task(num_qreachable)
         num_sols = sum(num_qreachable)
         cspace_adjm = RTSP.build_cspace_adjm(cluster_ttc, num_sols)
         return (
@@ -158,6 +171,7 @@ class RTSP:
             num_qreachable,
             Q_reachable,
             cluster_ttc,
+            cluster_ctt,
             taskspace_adjm,
             cspace_adjm,
         )

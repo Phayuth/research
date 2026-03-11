@@ -482,107 +482,123 @@ if __name__ == "__main__":
 
     (
         task_reachable,
-        num_reachable_sols,
+        num_qreachable,
         Q_reachable,
-        cluster,
+        cluster_ttc,
+        cluster_ctt,
         taskspace_adjm,
         cspace_adjm,
     ) = RTSP.preprocess(X, Qaik, Qaik_valid)
+    print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_qreachable: \n{num_qreachable}")
+    print(f"==>> Q_reachable: \n{Q_reachable}")
+    print(f"==>> cluster_ttc: \n{cluster_ttc}")
+    print(f"==>> cluster_ctt: \n{cluster_ctt}")
+    print(f"==>> taskspace_adjm: \n{taskspace_adjm}")
+    print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
-    num_unique_edges = RTSP.find_numedges_unique(num_reachable_sols)
+    num_unique_edges = RTSP.num_edges_unique(num_qreachable)
     print(f"==>> num_unique_edges: \n{num_unique_edges}")
+    num_supercluster_edges = RTSP.num_supercluster_edges(ntasks)
+    print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
 
-    # ------Estimation of Edges--------------------------------
-    QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
-    graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
-
+    # ------- Compute Initial Cost --------------------------------------
     cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
-    cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
-        cspace_adjm,
-        Q_reachable,
-        estimate_shortest_path,
-        {"Qfree": QfulRndfree, "graph": graph, "kdtree": kdtree},
-    )
-    cc = RTSP.check_connection(cluster, cspace_adjm, 0, 1)
+    cc = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, 5, 7)
     print(f"==>> cc: \n{cc}")
-    cspace_to_taskspace = RTSP.build_cluster_cspace_to_task(num_reachable_sols)
-    print(f"==>> cspace_to_taskspace mapping: \n{cspace_to_taskspace}")
-    taskspace_adjm = RTSP.update_taskspace_adjm(
-        taskspace_adjm, cspace_adjm, cspace_to_taskspace
-    )
-    print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
+    ast = np.argsort(cc)
+    print(f"==>> ast: \n{ast}")
+    # ------- End Compute Initial Cost ----------------------------------
 
-    # plot debug
-    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
-    fig, ax = plt.subplots()
-    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-    ax.plot(Q_reachable[:, 0], Q_reachable[:, 1], "g*", markersize=10)
-    for i, path in enumerate(store_path.values()):
-        ax.plot(
-            path[:, 0],
-            path[:, 1],
-            linewidth=2,
-        )
-    ax.set_aspect("equal", "box")
-    ax.set_xlim(-np.pi, np.pi)
-    ax.set_ylim(-np.pi, np.pi)
-    ax.grid(True)
-    plt.show()
+    # # ------ Estimation of Edges--------------------------------
+    # QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
+    # graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
+    # cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
+    #     cspace_adjm,
+    #     Q_reachable,
+    #     estimate_shortest_path,
+    #     {"Qfree": QfulRndfree, "graph": graph, "kdtree": kdtree},
+    # )
+    # taskspace_adjm = RTSP.update_taskspace_adjm(
+    #     taskspace_adjm, cspace_adjm, cluster_ctt
+    # )
+    # print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
+    # # ------ End Estimation of Edges-----------------------------
 
-    GLKHHelper.write_glkh_fullmatrix_file(
-        os.path.join(GLKHHelper.problemdir, "problem_planarrr.gtsp"),
-        cspace_adjm,
-        cluster,
-    )
-
-    # solve GTSP using GLKH
-    if os.path.exists(
-        os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
-    ):
-        tourid = GLKHHelper.read_tour_file(
-            os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
-        )
-        print(f"==>> tourid: \n{tourid}")
+    if False:
+        # plot debug
         cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
-        qtour, store_path, store_cost = RTSP.postprocess(
-            tourid, Q_reachable, planner.query_planning
-        )
-
         fig, ax = plt.subplots()
         ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-        ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
-        for i in range(len(tourid) - 1):
-            start_idx = tourid[i]
-            end_idx = tourid[i + 1]
-            qp = store_path.get((start_idx, end_idx))
-            qp = np.array(qp)
+        ax.plot(Q_reachable[:, 0], Q_reachable[:, 1], "g*", markersize=10)
+        for i, path in enumerate(store_path.values()):
             ax.plot(
-                qp[:, 0],
-                qp[:, 1],
-                "b-",
-                alpha=0.5,
-                label="OMPL path" if i == 0 else None,
-            )
-            ax.text(
-                (qp[0, 0] + qp[-1, 0]) / 2,
-                (qp[0, 1] + qp[-1, 1]) / 2 - 0.1,
-                f"{start_idx}->{end_idx}",
-                color="blue",
-                fontsize=8,
-            )
-            ax.text(
-                (qp[0, 0] + qp[-1, 0]) / 2,
-                (qp[0, 1] + qp[-1, 1]) / 2,
-                f"{store_cost.get((start_idx, end_idx), np.inf):.2f}",
-                color="blue",
-                fontsize=8,
+                path[:, 0],
+                path[:, 1],
+                linewidth=2,
             )
         ax.set_aspect("equal", "box")
         ax.set_xlim(-np.pi, np.pi)
         ax.set_ylim(-np.pi, np.pi)
         ax.grid(True)
-        ax.legend()
         plt.show()
-    else:
-        print("Tour file not found. Please run GLKH solver file.")
+
+        GLKHHelper.write_glkh_fullmatrix_file(
+            os.path.join(GLKHHelper.problemdir, "problem_planarrr.gtsp"),
+            cspace_adjm,
+            cluster_ttc,
+        )
+
+        # solve GTSP using GLKH
+        if os.path.exists(
+            os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+        ):
+            tourid = GLKHHelper.read_tour_file(
+                os.path.join(GLKHHelper.problemdir, "problem_planarrr.tour")
+            )
+            print(f"==>> tourid: \n{tourid}")
+            cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+            qtour, store_path, store_cost = RTSP.postprocess(
+                tourid, Q_reachable, planner.query_planning
+            )
+
+            fig, ax = plt.subplots()
+            ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+            ax.plot(
+                qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour"
+            )
+            for i in range(len(tourid) - 1):
+                start_idx = tourid[i]
+                end_idx = tourid[i + 1]
+                qp = store_path.get((start_idx, end_idx))
+                qp = np.array(qp)
+                ax.plot(
+                    qp[:, 0],
+                    qp[:, 1],
+                    "b-",
+                    alpha=0.5,
+                    label="OMPL path" if i == 0 else None,
+                )
+                ax.text(
+                    (qp[0, 0] + qp[-1, 0]) / 2,
+                    (qp[0, 1] + qp[-1, 1]) / 2 - 0.1,
+                    f"{start_idx}->{end_idx}",
+                    color="blue",
+                    fontsize=8,
+                )
+                ax.text(
+                    (qp[0, 0] + qp[-1, 0]) / 2,
+                    (qp[0, 1] + qp[-1, 1]) / 2,
+                    f"{store_cost.get((start_idx, end_idx), np.inf):.2f}",
+                    color="blue",
+                    fontsize=8,
+                )
+            ax.set_aspect("equal", "box")
+            ax.set_xlim(-np.pi, np.pi)
+            ax.set_ylim(-np.pi, np.pi)
+            ax.grid(True)
+            ax.legend()
+            plt.show()
+        else:
+            print("Tour file not found. Please run GLKH solver file.")

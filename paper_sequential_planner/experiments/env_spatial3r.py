@@ -412,7 +412,7 @@ if __name__ == "__main__":
         task_reachable, num_reachable_sols
     )
 
-    num_unique_edges = RTSP.find_numedges_unique(num_reachable_sols)
+    num_unique_edges = RTSP.num_edges_unique(num_reachable_sols)
     print(f"==>> num_unique_edges: \n{num_unique_edges}")
 
     # -----------------------------------------------------------
@@ -455,7 +455,7 @@ if __name__ == "__main__":
                     print(f"No path found from {i} to {j}, fail to estimate cost.")
     print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
-    cc = RTSP.check_connection(cluster, cspace_adjm, 0, 1)
+    cc = RTSP.get_cost_task_to_task(cluster, cspace_adjm, 0, 1)
     print(f"==>> cc: \n{cc}")
 
     cspace_to_taskspace = RTSP.build_cluster_cspace_to_task(num_reachable_sols)

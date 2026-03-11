@@ -22,7 +22,7 @@ def example_usage():
     # compute GTSP data
     cluster = RTSP.build_cluster_task_to_cspace(points_per_cluster)
     adjm = RTSP.build_cspace_adjm(cluster, num_node)
-    num_unique_edges = RTSP.find_numedges_unique(points_per_cluster)
+    num_unique_edges = RTSP.num_edges_unique(points_per_cluster)
     print("cluster:", cluster)
     print("adjm:\n", adjm)
     print("num_unique_edges:", num_unique_edges)
