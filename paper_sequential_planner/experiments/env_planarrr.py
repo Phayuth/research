@@ -391,8 +391,9 @@ class OMPLPlanner:
             return None
 
 
-def sample_reachable_wspace(num_points):
-    u = np.random.normal(0.0, 1.0, (2 + 2, num_points))
+def sample_reachable_wspace(ntasks):
+    dof = 2
+    u = np.random.normal(0.0, 1.0, (dof + 2, ntasks))
     norms = np.linalg.norm(u, axis=0)
     u = u / norms
     scale = 4 * u[:2, :]  # The first N coordinates are uniform in a unit N ball
@@ -449,10 +450,6 @@ def wspace_ik_validity(Qaik, robscene):
     return Qaik_valid.astype(int)
 
 
-def estimate_graph_costs():
-    pass
-
-
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
     from paper_sequential_planner.scripts.rtsp_lazyprm import (
@@ -463,8 +460,8 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-    q = np.array([[np.pi / 6.0], [-1.0]])
     planner = OMPLPlanner(scene.collision_checker)
+    q = np.array([[np.pi / 6.0], [-1.0]])
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
     # scene.cspace_dataset_nearest_distance()
