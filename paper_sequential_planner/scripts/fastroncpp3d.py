@@ -4,13 +4,15 @@ import matplotlib.pyplot as plt
 from fastronWrapper.fastronWrapper import PyFastron
 from sklearn.metrics import accuracy_score
 import time
+import trimesh
+
 
 np.random.seed(42)
 np.set_printoptions(linewidth=1000, suppress=True, precision=2)
 rsrc = os.environ["RSRC_DIR"]
 
-# load dataset
-dataset = np.load(os.path.join(rsrc, "cspace_dataset.npy"))
+dataset = np.load(os.path.join(rsrc, "spatial3r_cspace.npy"))
+print(f"==>> dataset.shape: \n{dataset.shape}")
 N_TRAIN = 9000
 samples_id = np.random.choice(range(dataset.shape[0]), size=N_TRAIN, replace=False)
 dataset_samples = dataset[samples_id]
@@ -18,6 +20,7 @@ data = dataset_samples[:, 0:2]
 y = dataset_samples[:, 2]
 data = np.ascontiguousarray(dataset_samples[:, :2])  # (N, 2), contiguous
 y = np.ascontiguousarray(dataset_samples[:, 2:3])  # (N, 1), contiguous col vector
+
 
 print(data.shape)  # (N, 2)
 print(y.shape)  # (N, 1)
@@ -46,19 +49,15 @@ fastron.updateModel()
 end_time = time.time()
 print(f"Model Update Time: {end_time - start_time:.2f} seconds")
 
-# Predict values for a test set (ask for collision)
-# data_test = np.array([[-3.14,0.2]])
-# pred = fastron.eval(data_test) # where data_test.shape = (N_test, d)
-# print(pred.shape)
-
 
 # results
 def ft_result():
     size = 360
     q1 = np.linspace(-np.pi, np.pi, size)
     q2 = np.linspace(-np.pi, np.pi, size)
-    XX, YY = np.meshgrid(q1, q2)
-    Q = np.column_stack([XX.ravel(), YY.ravel()])
+    q3 = np.linspace(-np.pi, np.pi, size)
+    XX, YY, ZZ = np.meshgrid(q1, q2, q3)
+    Q = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
     p = np.empty(Q.shape[0], dtype=int)
     for i, q in enumerate(Q):
         pred = fastron.eval(np.array([q]))
@@ -82,18 +81,15 @@ ytest = dataset[:, 2]
 ypred = fastron.eval(xtest)
 acc = accuracy_score(ytest, ypred)
 print(f"Test accuracy: {acc*100:.2f}%")
-
-fig, (ax1, ax2) = plt.subplots(1, 2)
-ax1.plot(gt_collision[:, 0], gt_collision[:, 1], "ro", markersize=3)
-ax1.plot(train_point[:, 0], train_point[:, 1], "go", markersize=2, label="Training samples")
-ax1.plot(data_support_points[:, 0], data_support_points[:, 1], "kx", markersize=5)
-ax2.plot(ft_collision[:, 0], ft_collision[:, 1], "bo", markersize=3)
-ax2.plot(data_support_points[:, 0], data_support_points[:, 1], "ko", markersize=2)
-ax1.set_xlim(-np.pi, np.pi)
-ax1.set_ylim(-np.pi, np.pi)
-ax2.set_xlim(-np.pi, np.pi)
-ax2.set_ylim(-np.pi, np.pi)
-ax1.set_aspect("equal")
-ax2.set_aspect("equal")
-fig.legend(loc="upper right", bbox_to_anchor=(0.9, 0.9))
-plt.show()
+# sc = trimesh.Scene()
+# Qfree = dataset[dataset[:, -1] == 0][:, :3]
+# Qcoll = dataset[dataset[:, -1] == 1][:, :3]
+# axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
+# box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
+# box.visual.face_colors = [100, 150, 255, 40]
+# scene = trimesh.Scene()
+# scene.add_geometry(box)
+# scene.add_geometry(axis)
+# Qr = trimesh.points.PointCloud(Qcoll)
+# scene.add_geometry(Qr)
+# scene.show()
