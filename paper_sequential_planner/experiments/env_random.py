@@ -165,7 +165,7 @@ def xlarge_size_problem():
     print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
 
 if __name__ == "__main__":
-    # small_size_problem()
+    small_size_problem()
     # mid_size_problem()
     # large_size_problem()
-    xlarge_size_problem()
+    # xlarge_size_problem()

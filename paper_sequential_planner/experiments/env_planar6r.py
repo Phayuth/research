@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from shapely.geometry import LineString, box, Polygon, MultiPolygon
 from shapely.ops import nearest_points
+from scipy.optimize import minimize
 
 try:
     from ompl import base as ob
@@ -37,20 +38,42 @@ class Planar6R:
         result = np.concatenate([base, positions], axis=1)  # Shape (n, 7, 2)
         return result
 
-    def ik(self, X):
-        pass
+    def ik(self, X, q_init):
+        X = np.asarray(X, dtype=float).reshape(
+            2,
+        )
+        q_init = np.asarray(q_init, dtype=float).reshape(
+            6,
+        )
+
+        def objective(q):
+            X_pred = self.fk_vectorized(q[np.newaxis, :])[0][-1]
+            e = X_pred - X
+            return float(np.dot(e, e))
+
+        res = minimize(
+            objective,
+            q_init,
+            method="L-BFGS-B",
+            bounds=[(-2 * np.pi, 2 * np.pi)] * 6,
+            options={"maxiter": 500, "ftol": 1e-9},
+        )
+        if not res.success:
+            return None
+        return res.x
 
 
 class RobotScene:
 
     def __init__(self, robot, obstacles):
         self.robot = robot
-        # o1 = Polygon([(3, 3), (4, 3), (4, 4), (3, 4)])
-        # o2 = Polygon([(-4, 3), (-3, 3), (-3, 4), (-4, 4)])
-        # oo = MultiPolygon([o1, o2])
-        o1 = Polygon([(-6, -6), (-2, -6), (-2, 6), (-6, 6)])
+        o1 = Polygon([(-2, -4), (3, -4), (3, -2.5), (-3, -2.5)])
+        o2 = Polygon([(-4, 3), (0, 3), (0, 4), (-4, 4)])
+        o3 = Polygon([(2, 2), (4, 2), (4, 4), (2, 4)])
+        self.obstacles = MultiPolygon([o1, o2, o3])
+        # o1 = Polygon([(-6, -6), (-2, -6), (-2, 6), (-6, 6)])
+        # self.obstacles = MultiPolygon([o1])
         self.arm_thinkness = 0.2
-        self.obstacles = MultiPolygon([o1])
 
     def distance_to_obstacles(self, q):
         links_xy = self.robot.fk_vectorized(q[np.newaxis, :])[0]
@@ -222,3 +245,8 @@ if __name__ == "__main__":
     scene = RobotScene(robot, None)
     q = np.array([0.7, 0.0, 0.0, 0.0, 0.0, 0.0])
     scene.show_env(q)
+
+    xd = np.array([4.0, 2.0])
+    qd = robot.ik(xd, q)
+    print("qd:", qd)
+    scene.show_env(qd)

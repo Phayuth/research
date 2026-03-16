@@ -1,10 +1,11 @@
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-import os
-from gtsp_ultra import GUUtil, GU
+
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
+rsrc = os.environ["RSRC_DIR"]
 
 
 class RandomCircleGen:
@@ -79,39 +80,40 @@ class RandomCircleGen:
 
 
 if __name__ == "__main__":
+    from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
+
     # problem setup
-    num_clusters = 4
+    num_clusters = 30
     each_cluster = 8
     cluster_radius = 0.2
     center_radius = 2.5
-    config, points_per_cluster, cluster_centers = RandomCircleGen.generate(
+    Q_reachable, num_qreachable, cluster_centers = RandomCircleGen.generate(
         num_clusters=num_clusters,
         each_cluster=each_cluster,
         center_radius=center_radius,
         cluster_radius=cluster_radius,
         thetashift=np.pi / 4,
     )
+    print(f"==>> Q_reachable: \n{Q_reachable}")
+    print(f"==>> num_qreachable: \n{num_qreachable}")
+    print(f"==>> cluster_centers: \n{cluster_centers}")
 
     # compute GTSP data
-    cluster = GU.build_cluster(points_per_cluster)
-    cost_adj_matrix = GU.edgecost_distance(config)
+    cluster_ttc = RTSP.build_cluster_task_to_cspace(num_qreachable)
+    print(f"==>> cluster_ttc: \n{cluster_ttc}")
+    num_sols = sum(num_qreachable)
+    cspace_adjm = RTSP.build_cspace_adjm(cluster_ttc, num_sols)
+    print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
-    # GUUtil.write_glkh_fullmatrix_file(
-    #     os.path.join(
-    #         GUUtil.problemdir,
-    #         f"{num_clusters}random{num_clusters*each_cluster}.gtsp",
-    #     ),
-    #     cost_adj_matrix,
-    #     cluster,
-    # )
-    # # solve GTSP using GLKH
-    # tourmatrix = GUUtil.read_tour_file(
-    #     os.path.join(GUUtil.problemdir, "random_gtsp_fullmatrix.tour")
+    # GLKHHelper.write_glkh_fullmatrix_file(
+    #     os.path.join(GLKHHelper.problemdir, "problem_randomcircle.gtsp"),
+    #     cspace_adjm,
+    #     cluster_ttc,
     # )
 
-    # plot result
+    # plot
     RandomCircleGen.plot(
-        config,
+        all_points=Q_reachable,
         tour=None,
         cluster_centers=cluster_centers,
         cluster_radius=cluster_radius,
