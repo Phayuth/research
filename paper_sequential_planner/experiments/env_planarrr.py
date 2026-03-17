@@ -13,7 +13,7 @@ try:
     from ompl import util as ou
 
     ou.RNG.setSeed(42)
-
+    ompl_available = True
 except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
 
@@ -460,7 +460,9 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-    planner = OMPLPlanner(scene.collision_checker)
+    if ompl_available:
+        planner = OMPLPlanner(scene.collision_checker)
+
     q = np.array([[np.pi / 6.0], [-1.0]])
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
@@ -507,6 +509,10 @@ if __name__ == "__main__":
     ast = np.argsort(cc)
     print(f"==>> ast: \n{ast}")
     # ------- End Compute Initial Cost ----------------------------------
+
+    # ------- Queuing System ------------------------------------
+
+    # ------- End Queuing System --------------------------------
 
     # # ------ Estimation of Edges--------------------------------
     # QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)

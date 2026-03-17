@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from geometric_ellipse import *
-from problem_planarrr import *
+from paper_sequential_planner.scripts.geometric_ellipse import *
+from paper_sequential_planner.experiments.env_planarrr import *
 from scipy.spatial import KDTree
 import heapq
 

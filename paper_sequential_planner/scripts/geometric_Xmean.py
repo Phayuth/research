@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.cluster import KMeans
-import math
 
 
 class XmeansObj:
@@ -40,21 +39,21 @@ def BIC(clusters, centres, weights=None):
         # in case of same points, sigma_sq can be zero
         sigma_multiplier = float("inf")
     else:
-        sigma_multiplier = m * 0.5 * math.log(sig_sq)
+        sigma_multiplier = m * 0.5 * np.log(sig_sq)
 
     # calculate splitting criterion
     for i in range(0, len(clusters)):
         rn = len(clusters[i])
 
         # calculate log likelihood
-        l1 = rn * math.log(rn)
-        l2 = -rn * math.log(r)
-        l3 = -rn * 0.5 * math.log(2 * np.pi)
+        l1 = rn * np.log(rn)
+        l2 = -rn * np.log(r)
+        l3 = -rn * 0.5 * np.log(2 * np.pi)
         l4 = -rn * sigma_multiplier
         l5 = -(rn - k) * 0.5
         l = l1 + l2 + l3 + l4 + l5
         scores[i] = l
-    bic = sum(scores) - p * 0.5 * math.log(r)
+    bic = sum(scores) - p * 0.5 * np.log(r)
 
     return bic
 
@@ -187,48 +186,3 @@ def fit(data, kmax=20, kmin=2, weights=None):
     xmeans_data.count = count
 
     return xmeans_data
-
-
-if __name__ == "__main__":
-    dof = 2
-    kmin = 3
-    kmax = 40
-    # weights = [0.2676, 0.3232, 0.2576, 0.0303, 0.0917, 0.0296]
-    # weights = [0.2676, 0.3232]
-    # weights effects the centeroid calculation along each dimension
-    weights = [0.5] * dof
-
-    data1 = np.random.multivariate_normal(
-        mean=[1.0] * dof,
-        cov=np.diag([0.5] * dof),
-        size=500,
-    )
-    data2 = np.random.multivariate_normal(
-        mean=[5.0] * dof,
-        cov=np.diag([0.8] * dof),
-        size=500,
-    )
-    data3 = np.random.multivariate_normal(
-        mean=[8.0] * dof,
-        cov=np.diag([0.3] * dof),
-        size=500,
-    )
-    selected_configurations = np.vstack((data1, data2, data3))
-
-    # selected_configurations = np.loadtxt(
-    xmeans = fit(
-        selected_configurations[:, 0:dof],
-        kmax=kmax,
-        kmin=kmin,
-        weights=np.array(weights) * dof,
-    )
-
-    N = xmeans.k
-    labels = xmeans.labels_
-    center = xmeans.centroid_centres_
-    points_per_cluster = xmeans.count
-
-    print("Number of clusters assigned: %d." % N)
-    print("Cluster centers:\n", center)
-    print("labels:\n", labels)
-    print("Points per cluster:\n", points_per_cluster)

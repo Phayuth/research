@@ -154,6 +154,9 @@ class RobotScene:
             q = joints[i]
             col[i] = self.collision_checker(q)
         joint_dataset = np.column_stack([joints, col])
+        joint_dataset[:, 3] = np.where(
+            joint_dataset[:, 3] == 0, -1, joint_dataset[:, 3]
+        )
         np.save(os.path.join(rsrc, "spatial3r_cspace.npy"), joint_dataset)
 
     def show_env(self, q):

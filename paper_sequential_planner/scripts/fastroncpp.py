@@ -59,11 +59,8 @@ def ft_result():
     q2 = np.linspace(-np.pi, np.pi, size)
     XX, YY = np.meshgrid(q1, q2)
     Q = np.column_stack([XX.ravel(), YY.ravel()])
-    p = np.empty(Q.shape[0], dtype=int)
-    for i, q in enumerate(Q):
-        pred = fastron.eval(np.array([q]))
-        p[i] = int(pred[0][0])
-    ft_dataset = np.column_stack([Q, p])
+    Y = fastron.eval(Q)
+    ft_dataset = np.column_stack([Q, Y])
     return ft_dataset
 
 
@@ -81,11 +78,17 @@ xtest = dataset[:, :2]
 ytest = dataset[:, 2]
 ypred = fastron.eval(xtest)
 acc = accuracy_score(ytest, ypred)
-print(f"Test accuracy: {acc*100:.2f}%")
+print(f"Test accuracy: {acc*100:.2f}%")  # Test accuracy: 99.00%
 
 fig, (ax1, ax2) = plt.subplots(1, 2)
 ax1.plot(gt_collision[:, 0], gt_collision[:, 1], "ro", markersize=3)
-ax1.plot(train_point[:, 0], train_point[:, 1], "go", markersize=2, label="Training samples")
+ax1.plot(
+    train_point[:, 0],
+    train_point[:, 1],
+    "go",
+    markersize=2,
+    label="Training samples",
+)
 ax1.plot(data_support_points[:, 0], data_support_points[:, 1], "kx", markersize=5)
 ax2.plot(ft_collision[:, 0], ft_collision[:, 1], "bo", markersize=3)
 ax2.plot(data_support_points[:, 0], data_support_points[:, 1], "ko", markersize=2)

@@ -100,21 +100,31 @@ if __name__ == "__main__":
 
     # compute GTSP data
     cluster_ttc = RTSP.build_cluster_task_to_cspace(num_qreachable)
-    print(f"==>> cluster_ttc: \n{cluster_ttc}")
     num_sols = sum(num_qreachable)
     cspace_adjm = RTSP.build_cspace_adjm(cluster_ttc, num_sols)
+    print(f"==>> num_sols: \n{num_sols}")
+    print(f"==>> cluster_ttc: \n{cluster_ttc}")
     print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
-    # GLKHHelper.write_glkh_fullmatrix_file(
-    #     os.path.join(GLKHHelper.problemdir, "problem_randomcircle.gtsp"),
-    #     cspace_adjm,
-    #     cluster_ttc,
-    # )
+    cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
+    print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
 
-    # plot
+    GLKHHelper.write_glkh_fullmatrix_file(
+        os.path.join(GLKHHelper.problemdir, "problem_randomcircle.gtsp"),
+        cspace_adjm_euc_min,
+        cluster_ttc,
+    )
+
+    tour = None
+    if os.path.exists(os.path.join(GLKHHelper.problemdir, "problem_randomcircle.tour")):
+        tour = GLKHHelper.read_tour_file(
+            os.path.join(GLKHHelper.problemdir, "problem_randomcircle.tour")
+        )
+        print(f"==>> tour: \n{tour}")
+
     RandomCircleGen.plot(
         all_points=Q_reachable,
-        tour=None,
+        tour=tour,
         cluster_centers=cluster_centers,
         cluster_radius=cluster_radius,
     )

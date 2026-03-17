@@ -221,6 +221,18 @@ def estimate_shortest_path_bulk(qs, qgs, Qfree, graph, kdtree):
     return paths, costs
 
 
+class RTSPLazyPRMEstimator:
+
+    def __init__(self, collision_checker):
+        self.collision_checker = collision_checker
+
+    def sample(self, num_samples, lmts):
+        pass
+
+    def estimate_shortest_path(self, qs, qg):
+        pass
+
+
 if __name__ == "__main__":
     from paper_sequential_planner.experiments.env_planarrr import (
         PlanarRR,
