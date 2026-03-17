@@ -100,3 +100,43 @@ ax1.set_aspect("equal")
 ax2.set_aspect("equal")
 fig.legend(loc="upper right", bbox_to_anchor=(0.9, 0.9))
 plt.show()
+
+
+class FastronCPP:
+
+    def __init__(self):
+        self.fastron = PyFastron(data)  # where data.shape = (N, d)
+        self.fastron.y = y  # where y.shape = (N,)
+        self.fastron.g = 10
+        self.fastron.maxUpdates = 5000
+        self.fastron.maxSupportPoints = 3000
+        self.fastron.beta = 100
+
+    def get_params(self):
+        alpha_trained = fastron.alpha
+        Gram = fastron.G
+        data_support_points = fastron.data
+        print(f"==>> data_support_points.shape: {data_support_points.shape}")
+
+    def active_learning(self):
+        start_time = time.time()
+        self.fastron.activeLearning()
+        end_time = time.time()
+        print(f"Active Learning Time: {end_time - start_time:.2f} seconds")
+
+    def update_model(self):
+        start_time = time.time()
+        self.fastron.updateModel()
+        end_time = time.time()
+        print(f"Model Update Time: {end_time - start_time:.2f} seconds")
+
+    def update_models(self):
+        pass
+
+    def eval(self, Q):
+        return self.fastron.eval(Q)
+
+    def accuracy(self, xtest, ytest):
+        ypred = self.fastron.eval(xtest)
+        acc = accuracy_score(ytest, ypred)
+        print(f"Test accuracy: {acc*100:.2f}%")

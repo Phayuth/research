@@ -5,23 +5,15 @@ from paper_sequential_planner.scripts.geometric_ellipse import *
 from paper_sequential_planner.experiments.env_planarrr import *
 from scipy.spatial import KDTree
 import heapq
+from scipy.spatial import Voronoi, voronoi_plot_2d, ConvexHull, Delaunay
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
-shapes = {
-    # "shape1": {"x": -0.7, "y": 1.3, "h": 2, "w": 2.2},
-    "shape1": {"x": -0.7, "y": 2.1, "h": 2, "w": 2.2},
-    "shape2": {"x": 2, "y": -2.0, "h": 1, "w": 4.0},
-    "shape3": {"x": -3, "y": -3, "h": 1.25, "w": 2},
-}
-obstacles = [
-    box(k["x"], k["y"], k["x"] + k["w"], k["y"] + k["h"]) for k in shapes.values()
-]
 robot = PlanarRR()
-scene = RobotScene(robot, obstacles)
+scene = RobotScene(robot, None)
 cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 
 
@@ -444,6 +436,18 @@ def allnode_RGG():
     goalid = 1
     rootnode = points[rootid]
     goalnode = points[goalid]
+    gg, ggi = kdt.query(goalnode, k=10)  # warm up the KD-tree
+
+    print(f"==>> gg: \n{gg}")
+    print(f"==>> ggi: \n{ggi}")
+    ggiq = points[ggi]
+    print(f"==>> ggiq: \n{ggiq}")
+    ch = ConvexHull(ggiq)
+    chvi = ch.vertices
+    print(f"==>> chvi: \n{chvi}")
+    chvq = ggiq[chvi]
+    print(f"==>> chvq: \n{chvq}")
+
     # solve shortest paths from root to all nodes
     distances, paths = dijkstra_all_paths(graph, root=rootid)
     print(distances)
@@ -461,6 +465,8 @@ def allnode_RGG():
     ax.scatter(
         goalnode[0], goalnode[1], s=100, c="g", marker="^", label="Goal Node"
     )
+    cluster_polygon = plt.Polygon(chvq, edgecolor="blue", facecolor="none")
+    ax.add_patch(cluster_polygon)
     for i, neighbors in graph.items():
         for j, _ in neighbors:
             ax.plot(
@@ -478,8 +484,10 @@ def allnode_RGG():
 
 
 if __name__ == "__main__":
-    method0()
+
+
+    # method0()
     # method1()
     # method2()
     # method3()
-    # allnode_RGG()
+    allnode_RGG()

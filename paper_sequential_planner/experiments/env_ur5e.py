@@ -19,10 +19,10 @@ try:
     from ompl import util as ou
 
     ou.RNG.setSeed(42)
-
+    ompl_available = True
 except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
-
+    ompl_available = False
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)

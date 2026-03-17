@@ -94,13 +94,13 @@ class RTSP:
         """
         c_task1 = cluster_ttc[task1]
         c_task2 = cluster_ttc[task2]
-        l = list(product(c_task1, c_task2))
-        print(f"task:{task1}, task:{task2}, have {len(l)} connections.")
-        print(f"id pairs: {l}")
-        cc = []
-        for i, j in l:
-            cc.append(cspace_adjm[i, j].item())
-        return cc
+        idpairs = list(product(c_task1, c_task2))
+        # print(f"task:{task1}, task:{task2}, have {len(idpairs)} connections.")
+        # print(f"id pairs: {idpairs}")
+        costpairs = []
+        for i, j in idpairs:
+            costpairs.append(cspace_adjm[i, j].item())
+        return costpairs, idpairs
 
     @staticmethod
     def num_edges_unique(num_qreachable):
@@ -124,7 +124,6 @@ class RTSP:
         cspace_adjm,
         config,
         estimator,
-        estimator_params,
     ):
         """Here estimation can fail due to sampling nature and graph is disconnected"""
         store_path = {}
@@ -134,7 +133,7 @@ class RTSP:
                 if cspace_adjm[i, j] != -1.0:
                     q1 = config[i]
                     q2 = config[j]
-                    res_ = estimator(q1, q2, **estimator_params)
+                    res_ = estimator(q1, q2)
                     if res_ is not None:
                         pathq, cost = res_
                         cspace_adjm[i, j] = cost
@@ -156,6 +155,7 @@ class RTSP:
         task_reachablemask = np.any(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
         q_reachable_perH = np.sum(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
         num_reachable = np.sum(task_reachablemask)
+        print(f"==>> num_reachable: \n{num_reachable}")
         task_reachable = taskH[task_reachablemask]
         num_qreachable = q_reachable_perH[q_reachable_perH > 0]
         _Qaik_flat = Qaik.reshape(-1, dof)  # (ntasks * num_solutions, dof)

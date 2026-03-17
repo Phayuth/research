@@ -16,6 +16,7 @@ try:
     ompl_available = True
 except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
+    ompl_available = False
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -452,11 +453,7 @@ def wspace_ik_validity(Qaik, robscene):
 
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
-    from paper_sequential_planner.scripts.rtsp_lazyprm import (
-        separate_sample,
-        build_graph,
-        estimate_shortest_path,
-    )
+    from paper_sequential_planner.scripts.rtsp_lazyprm import RTSPLazyPRMEstimator
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
@@ -504,30 +501,43 @@ if __name__ == "__main__":
     # ------- Compute Initial Cost --------------------------------------
     cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
-    cc = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, 5, 7)
-    print(f"==>> cc: \n{cc}")
-    ast = np.argsort(cc)
-    print(f"==>> ast: \n{ast}")
+    cp, idp = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, 5, 7)
+    print(f"==>> cp: \n{cp}")
+    print(f"==>> idp: \n{idp}")
+    cpsort = np.argsort(cp)
+    print(f"==>> cpsort: \n{cpsort}")
+    idpsort = [idp[i] for i in cpsort]
+    print(f"==>> idpsort: \n{idpsort}")
+    print("".center(50, "-"))
+
+    for i in range(ntasks):
+        for j in range(i + 1, ntasks):
+            cpij, idpij = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, i, j)
+            print(f"Cost from task {i} to task {j}: {cpij}, id pairs: {idpij}")
+
     # ------- End Compute Initial Cost ----------------------------------
 
     # ------- Queuing System ------------------------------------
-
+    # Queue priority edges to be estimated first
     # ------- End Queuing System --------------------------------
 
-    # # ------ Estimation of Edges--------------------------------
-    # QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
-    # graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
+    # ------ Estimation of Edges--------------------------------
+    # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+    # estor = RTSPLazyPRMEstimator(
+    #     collision_checker=scene.collision_checker,
+    #     initial_samples=1000,
+    #     lmts=lmts,
+    # )
     # cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
     #     cspace_adjm,
     #     Q_reachable,
-    #     estimate_shortest_path,
-    #     {"Qfree": QfulRndfree, "graph": graph, "kdtree": kdtree},
+    #     estor.estimate_shortest_path,
     # )
     # taskspace_adjm = RTSP.update_taskspace_adjm(
     #     taskspace_adjm, cspace_adjm, cluster_ctt
     # )
     # print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
-    # # ------ End Estimation of Edges-----------------------------
+    # ------ End Estimation of Edges-----------------------------
 
     if False:
         # plot debug

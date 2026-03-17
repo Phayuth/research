@@ -9,9 +9,10 @@ try:
     from ompl import util as ou
 
     ou.RNG.setSeed(42)
-
+    ompl_available = True
 except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
+    ompl_available = False
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -357,7 +358,9 @@ if __name__ == "__main__":
 
     robot = Spatial3R()
     scene = RobotScene(robot, None)
-    planner = OMPLPlanner(scene.collision_checker)
+    if ompl_available:
+        planner = OMPLPlanner(scene.collision_checker)
+
     q = np.array([0.0, 0.0, np.pi])
     X = np.array([0.5, 0.5, 0.5])
     qik = robot.ik(X)

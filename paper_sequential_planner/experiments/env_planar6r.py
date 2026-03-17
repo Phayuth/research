@@ -11,10 +11,10 @@ try:
     from ompl import util as ou
 
     ou.RNG.setSeed(42)
-
+    ompl_available = True
 except ImportError:
     print("OMPL not available, limitted functionality without OMPL.")
-
+    ompl_available = False
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -241,8 +241,18 @@ class OMPLPlanner:
 
 
 if __name__ == "__main__":
+    from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
+    from paper_sequential_planner.scripts.rtsp_lazyprm import (
+        separate_sample,
+        build_graph,
+        estimate_shortest_path,
+    )
+
     robot = Planar6R()
     scene = RobotScene(robot, None)
+    if ompl_available:
+        planner = OMPLPlanner(scene.collision_check)
+
     q = np.array([0.7, 0.0, 0.0, 0.0, 0.0, 0.0])
     scene.show_env(q)
 

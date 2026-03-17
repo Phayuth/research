@@ -164,9 +164,7 @@ def separate_sample(collision_checker, Qful_snum=1000, lmts=None):
         else:
             QfulRndcheck[i, 0] = 0
     QfulRndfree = QfulRnd[QfulRndcheck.flatten() == 0]
-    print(f"==>> QfulRndfree.shape: {QfulRndfree.shape}")
     QfulRndcoll = QfulRnd[QfulRndcheck.flatten() == 1]
-    print(f"==>> QfulRndcoll.shape: {QfulRndcoll.shape}")
     return QfulRndfree, QfulRndcoll
 
 
@@ -223,14 +221,101 @@ def estimate_shortest_path_bulk(qs, qgs, Qfree, graph, kdtree):
 
 class RTSPLazyPRMEstimator:
 
-    def __init__(self, collision_checker):
+    def __init__(self, collision_checker, initial_samples=1000, lmts=None):
         self.collision_checker = collision_checker
+        self.lmts = lmts
+        self.Qrandfree = None
+        self.Qrandcols = None
+        self.kdt = None
+        self.graph = None
+        self.samples(initial_samples)
 
-    def sample(self, num_samples, lmts):
-        pass
+    def print_info(self):
+        print(f"==>> Qrandfree.shape: {self.Qrandfree.shape}")
+        print(f"==>> Qrandcols.shape: {self.Qrandcols.shape}")
+        print(f"==>> kdtree.shape: {self.kdt.n}")
+        print(f"==>> graph.nodes: {len(self.graph)}")
+
+    def samples(self, num_samples):
+        Qrand = np.random.uniform(
+            self.lmts[:, 0],
+            self.lmts[:, 1],
+            size=(num_samples, self.lmts.shape[0]),
+        )
+        Qrandstat = np.zeros((num_samples, 1))
+        for i in range(num_samples):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+        if self.Qrandfree is None:
+            self.Qrandfree = Qrand[Qrandstat.flatten() == 0]
+            self.Qrandcols = Qrand[Qrandstat.flatten() == 1]
+        else:
+            self.Qrandfree = np.vstack(
+                [self.Qrandfree, Qrand[Qrandstat.flatten() == 0]]
+            )
+            self.Qrandcols = np.vstack(
+                [self.Qrandcols, Qrand[Qrandstat.flatten() == 1]]
+            )
+        # rebuild kdtree, graph with new samples
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=10, dist_thres=0.5)
+
+    def build_graph(self, k, dist_thres=np.inf):
+        graph = {i: [] for i in range(len(self.Qrandfree))}
+        for i, p in enumerate(self.Qrandfree):
+            dists, idx = self.kdt.query(p, k + 1, distance_upper_bound=dist_thres)
+            for j, d in zip(idx[1:], dists[1:]):
+                if j == len(self.Qrandfree) or np.isinf(d):
+                    continue
+                graph[i].append((int(j), float(d)))
+        return graph
 
     def estimate_shortest_path(self, qs, qg):
-        pass
+        _, near_qs_id = self.kdt.query(qs, k=1)
+        _, near_qg_id = self.kdt.query(qg, k=1)
+
+        # dijkstra mode : single path from root to target, online knn query
+        _, parent = dijkstra_single_path_online_knn(
+            nodes=self.Qrandfree,
+            root=near_qs_id,
+            target=near_qg_id,
+            kdtree=self.kdt,
+            dist_thres=0.5,
+        )
+        pathid = reconstruct_path(parent, near_qg_id)
+        pathq_mid = self.Qrandfree[pathid]
+        pathq_full = np.vstack([qs, pathq_mid, qg])
+        cost = get_path_cost(pathq_full)
+        return pathq_full, cost
+
+    def estimate_shortest_path_bulk(self, qs, qgs):
+        _, near_qs_id = self.kdt.query(qs, k=1)
+
+        near_qgs_ids = []
+        for qg in qgs:
+            _, near_qg_id = self.kdt.query(qg, k=1)
+            near_qgs_ids.append(near_qg_id)
+
+        targets = set(near_qgs_ids)
+        _, parent = dijkstra_bulk_paths(
+            self.graph, root=near_qs_id, targets=targets
+        )
+
+        paths = []
+        costs = []
+        for i, near_qg_id in enumerate(near_qgs_ids):
+            pathid = reconstruct_path(parent, near_qg_id)
+            pathq_mid = self.Qrandfree[pathid]
+            pathq_full = np.vstack([qs, pathq_mid, qgs[i]])
+            cost = get_path_cost(pathq_full)
+            paths.append(pathq_full)
+            costs.append(cost)
+
+        return paths, costs
 
 
 if __name__ == "__main__":
@@ -241,69 +326,42 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-
-    QfulRndfree, QfulRndcoll = separate_sample(scene.collision_checker)
-    graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
-
+    lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+    estor = RTSPLazyPRMEstimator(
+        scene.collision_checker,
+        initial_samples=1000,
+        lmts=lmts,
+    )
+    estor.samples(1000)  # add more samples to improve connectivity
+    estor.print_info()
+    estor.samples(1000)  # add more samples to improve connectivity
+    estor.print_info()
     qs = np.array([0.15, 0.60])
-    qg = np.array([2.5, 1.5])
-    pathq, cost = estimate_shortest_path(qs, qg, QfulRndfree, graph, kdtree)
-    print(f"Estimated path cost: {cost}")
-
-    fig, ax = plt.subplots()
-    ax.scatter(
-        QfulRndfree[:, 0],
-        QfulRndfree[:, 1],
-        color="blue",
-        s=10,
-        label="Free Samples",
+    qgs = np.array(
+        [
+            [2.5, 1.5],
+            [1.5, 2.5],
+            [-2.5, -2.5],
+            [-2.5, 2.5],
+            [2.5, -2.5],
+            [-1.5, 0.0],
+        ]
     )
-    ax.scatter(
-        QfulRndcoll[:, 0],
-        QfulRndcoll[:, 1],
-        color="red",
-        s=10,
-        label="Collision Samples",
-    )
-    ax.plot(
-        pathq[:, 0],
-        pathq[:, 1],
-        color="green",
-        linewidth=2,
-        label="Estimated Shortest Path",
-    )
-    ax.scatter(qs[0], qs[1], color="cyan", marker="*", s=100, label="Start")
-    ax.scatter(qg[0], qg[1], color="magenta", marker="*", s=100, label="Goal")
-    ax.set_xlabel("x1")
-    ax.set_ylabel("x2")
-    ax.set_aspect("equal")
-    ax.set_title("Estimated Shortest Path in 2D Space")
-    ax.legend()
-    plt.show()
-
-    qs = np.array([0.15, 0.60])
-    qg1 = np.array([2.5, 1.5])
-    qg2 = np.array([1.5, 2.5])
-    qg3 = np.array([-2.5, -2.5])
-    qg4 = np.array([-2.5, 2.5])
-    qg5 = np.array([2.5, -2.5])
-    qg6 = np.array([-1.5, 0.0])
-    qgs = np.vstack([qg1, qg2, qg3, qg4, qg5, qg6])
-    paths, costs = estimate_shortest_path_bulk(qs, qgs, QfulRndfree, graph, kdtree)
+    paths, costs = estor.estimate_shortest_path_bulk(qs, qgs)
     for i, (path, cost) in enumerate(zip(paths, costs)):
         print(f"Estimated path {i+1} cost: {cost}")
 
     fig, ax = plt.subplots()
     ax.scatter(
-        QfulRndfree[:, 0],
-        QfulRndfree[:, 1],
+        estor.Qrandfree[:, 0],
+        estor.Qrandfree[:, 1],
         color="blue",
         s=10,
         label="Free Samples",
     )
     ax.scatter(
-        QfulRndcoll[:, 0],
-        QfulRndcoll[:, 1],
+        estor.Qrandcols[:, 0],
+        estor.Qrandcols[:, 1],
         color="red",
         s=10,
         label="Collision Samples",
@@ -316,12 +374,14 @@ if __name__ == "__main__":
             label=f"Estimated Shortest Path {i+1}",
         )
     ax.scatter(qs[0], qs[1], color="cyan", marker="*", s=100, label="Start")
-    ax.scatter(qg1[0], qg1[1], color="magenta", marker="*", s=100, label="Goal 1")
-    ax.scatter(qg2[0], qg2[1], color="orange", marker="*", s=100, label="Goal 2")
-    ax.scatter(qg3[0], qg3[1], color="purple", marker="*", s=100, label="Goal 3")
-    ax.scatter(qg4[0], qg4[1], color="brown", marker="*", s=100, label="Goal 4")
-    ax.scatter(qg5[0], qg5[1], color="pink", marker="*", s=100, label="Goal 5")
-    ax.scatter(qg6[0], qg6[1], color="gray", marker="*", s=100, label="Goal 6")
+    for i, qg in enumerate(qgs):
+        ax.scatter(
+            qg[0],
+            qg[1],
+            marker="*",
+            s=100,
+            label=f"Goal {i+1}",
+        )
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
     ax.set_aspect("equal")
