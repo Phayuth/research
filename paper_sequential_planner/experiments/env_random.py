@@ -8,6 +8,15 @@ from paper_sequential_planner.scripts.rtsp_lazyprm import (
     estimate_shortest_path,
 )
 
+# def generate_random_task_transformation():
+#     translation = np.random.uniform(-1, 1, size=(3,))
+#     rotation = np.random.uniform(-np.pi, np.pi, size=(4,))
+#     RR = R.from_quat(rotation)
+#     transformation = np.eye(4)
+#     transformation[:3, :3] = RR.as_matrix()
+#     transformation[:3, 3] = translation
+#     return transformation
+
 
 def sample_reachable_wspace(num_points):
     # x,y,z,qx,qy,qz,qw
@@ -131,6 +140,7 @@ def large_size_problem():
     num_supercluster_edges = RTSP.num_supercluster_edges(ntasks)
     print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
 
+
 def xlarge_size_problem():
     # this is to benchmark againt the other paper
     ntasks = 2000
@@ -163,6 +173,7 @@ def xlarge_size_problem():
     print(f"==>> num_unique_edges: \n{num_unique_edges}")
     num_supercluster_edges = RTSP.num_supercluster_edges(ntasks)
     print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
+
 
 if __name__ == "__main__":
     small_size_problem()

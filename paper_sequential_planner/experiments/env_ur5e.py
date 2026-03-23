@@ -1,4 +1,5 @@
 import os
+import tqdm
 import numpy as np
 import pybullet as p
 import pybullet_data
@@ -244,38 +245,6 @@ class UR5eBullet:
         self.ghost_model.append(ur5e_ghost_id)
         return self.ghost_model
 
-    def draw_frame(self, pos, quat, length=1, width=3, text=None):
-        rot_matrix = np.array(p.getMatrixFromQuaternion(quat)).reshape(3, 3)
-        x_axis = rot_matrix[:, 0]
-        y_axis = rot_matrix[:, 1]
-        z_axis = rot_matrix[:, 2]
-
-        p.addUserDebugLine(
-            pos,
-            pos + length * x_axis,
-            [1, 0, 0],
-            lineWidth=width,
-        )
-        p.addUserDebugLine(
-            pos,
-            pos + length * y_axis,
-            [0, 1, 0],
-            lineWidth=width,
-        )
-        p.addUserDebugLine(
-            pos,
-            pos + length * z_axis,
-            [0, 0, 1],
-            lineWidth=width,
-        )
-        if text is not None:
-            p.addUserDebugText(
-                text,
-                pos,
-                textColorRGB=[1, 0, 1],
-                textSize=1,
-            )
-
     def load_slider(self):
         self.redSlider = p.addUserDebugParameter("red", 0, 1, 1)
         self.greenSlider = p.addUserDebugParameter("green", 0, 1, 0)
@@ -294,28 +263,14 @@ class UR5eBullet:
         green = p.readUserDebugParameter(self.greenSlider)
         blue = p.readUserDebugParameter(self.blueSlider)
         alpha = p.readUserDebugParameter(self.alphaSlider)
-        return red, green, blue, alpha
 
-    def read_joint_slider(self):
         j1 = p.readUserDebugParameter(self.j1s)
         j2 = p.readUserDebugParameter(self.j2s)
         j3 = p.readUserDebugParameter(self.j3s)
         j4 = p.readUserDebugParameter(self.j4s)
         j5 = p.readUserDebugParameter(self.j5s)
         j6 = p.readUserDebugParameter(self.j6s)
-        return j1, j2, j3, j4, j5, j6
-
-    def change_color(self, urdf_id, red=1, green=0, blue=0, alpha=1):
-        num_joints = p.getNumJoints(urdf_id)
-        for link_index in range(-1, num_joints):  # -1 includes the base link
-            visuals = p.getVisualShapeData(urdf_id)
-            for visual in visuals:
-                if visual[1] == link_index:
-                    p.changeVisualShape(
-                        objectUniqueId=urdf_id,
-                        linkIndex=link_index,
-                        rgbaColor=[red, green, blue, alpha],
-                    )
+        return (red, green, blue, alpha), (j1, j2, j3, j4, j5, j6)
 
     def get_visualizer_camera(self):
         (
@@ -360,6 +315,50 @@ class UR5eBullet:
             cameraTargetPosition=cameraTargetPosition,
         )
 
+    def draw_frame(self, pos, quat, length=1, width=3, text=None):
+        rot_matrix = np.array(p.getMatrixFromQuaternion(quat)).reshape(3, 3)
+        x_axis = rot_matrix[:, 0]
+        y_axis = rot_matrix[:, 1]
+        z_axis = rot_matrix[:, 2]
+
+        p.addUserDebugLine(
+            pos,
+            pos + length * x_axis,
+            [1, 0, 0],
+            lineWidth=width,
+        )
+        p.addUserDebugLine(
+            pos,
+            pos + length * y_axis,
+            [0, 1, 0],
+            lineWidth=width,
+        )
+        p.addUserDebugLine(
+            pos,
+            pos + length * z_axis,
+            [0, 0, 1],
+            lineWidth=width,
+        )
+        if text is not None:
+            p.addUserDebugText(
+                text,
+                pos,
+                textColorRGB=[1, 0, 1],
+                textSize=1,
+            )
+
+    def change_color(self, urdf_id, red=1, green=0, blue=0, alpha=1):
+        num_joints = p.getNumJoints(urdf_id)
+        for link_index in range(-1, num_joints):  # -1 includes the base link
+            visuals = p.getVisualShapeData(urdf_id)
+            for visual in visuals:
+                if visual[1] == link_index:
+                    p.changeVisualShape(
+                        objectUniqueId=urdf_id,
+                        linkIndex=link_index,
+                        rgbaColor=[red, green, blue, alpha],
+                    )
+
     def link_viewer(self):
         for j in range(self.numJoints):
             link_state = p.getLinkState(self.ur5eID, j)[0]
@@ -386,10 +385,6 @@ class UR5eBullet:
             color_list.append([cr, cg, cb])
         return color_list
 
-    def normalize(self, v):
-        v = np.array(v)
-        return v / (np.linalg.norm(v) + 1e-9)
-
     def get_joint_line(self):
         pos_list = []
         end_pos_list = []
@@ -407,7 +402,7 @@ class UR5eBullet:
             axis_world, _ = p.multiplyTransforms(
                 [0, 0, 0], joint_orn_world, joint_axis_local, [0, 0, 0, 1]
             )
-            axis_world = self.normalize(axis_world)
+            axis_world = np.array(axis_world) / (np.linalg.norm(axis_world) + 1e-9)
 
             end_pos = [
                 joint_pos_world[0] + axis_world[0] * self.axis_len,
@@ -632,6 +627,39 @@ class UR5eBullet:
                 targetValue=targetValues[i],
             )
 
+    def collision_dataset(self):
+        model_id = self.load_models_other(Constants.model_list_shelf)
+        num_sample = 10
+        q1 = np.linspace(-np.pi, np.pi, num_sample)
+        q2 = np.linspace(-np.pi, np.pi, num_sample)
+        q3 = np.linspace(-np.pi, np.pi, num_sample)
+        q4 = np.linspace(-np.pi, np.pi, num_sample)
+        q5 = np.linspace(-np.pi, np.pi, num_sample)
+        q6 = np.linspace(-np.pi, np.pi, num_sample)
+        X, Y, Z, N, M, O = np.meshgrid(q1, q2, q3, q4, q5, q6)
+        joints = np.column_stack(
+            [
+                X.ravel(),
+                Y.ravel(),
+                Z.ravel(),
+                N.ravel(),
+                M.ravel(),
+                O.ravel(),
+            ]
+        )
+        jointstat = np.zeros((joints.shape[0],))
+        for i in tqdm.tqdm(range(joints.shape[0])):
+            iscollision = self.collision_check_at_config(joints[i])
+            if iscollision:
+                jointstat[i] = 1  # collision
+            else:
+                jointstat[i] = -1  # no collision
+        dataset = np.column_stack([joints, jointstat])
+        dataset = np.array(dataset)
+        np.save(
+            os.path.join(Constants.rsrcpath, "ur5e_collision_dataset.npy"), dataset
+        )
+
 
 class OMPLPlanner:
 
@@ -734,17 +762,6 @@ def example_planning():
         print(f"Path cost: {path_cost}")
 
 
-# helper functions---------------------------------------------------------------
-def generate_random_task_transformation():
-    translation = np.random.uniform(-1, 1, size=(3,))
-    rotation = np.random.uniform(-np.pi, np.pi, size=(4,))
-    transformation = np.eye(4)
-    RR = R.from_quat(rotation)
-    transformation[:3, :3] = RR.as_matrix()
-    transformation[:3, 3] = translation
-    return transformation
-
-
 def generate_linear_tasks_transformation(
     s=[1, 1, 1],
     e=[1, -1, 1],
@@ -788,25 +805,8 @@ def simple_visualize():
 
     try:
         while True:
-            jp = robot.read_joint_slider()
+            _, jp = robot.read_slider()
             robot.reset_array_joint_state(jp)
-            p.stepSimulation()
-
-    except KeyboardInterrupt:
-        p.disconnect()
-
-
-def simple_visualize_change_color():
-    robot = UR5eBullet("gui")
-    robot.load_models_ghost()
-    robot.load_slider()
-
-    robot.set_visualizer_camera(*Constants.camera_exp3)
-
-    try:
-        while True:
-            rgba = robot.read_slider()
-            robot.change_color(robot.ghost_model[0], *rgba)
             p.stepSimulation()
 
     except KeyboardInterrupt:
@@ -839,198 +839,6 @@ def collision_check():
         p.disconnect()
 
 
-def collision_dataset():
-    robot = UR5eBullet("no_gui")
-    model_id = robot.load_models_other(Constants.model_list_shelf)
-    num_sample = 20
-    q1 = np.linspace(-np.pi, np.pi, num_sample)
-    q2 = np.linspace(-np.pi, np.pi, num_sample)
-    q3 = np.linspace(-np.pi, np.pi, num_sample)
-    q4 = np.linspace(-np.pi, np.pi, num_sample)
-    q5 = np.linspace(-np.pi, np.pi, num_sample)
-    q6 = np.linspace(-np.pi, np.pi, num_sample)
-    np.meshgrid(q1, q2, q3, q4, q5, q6)
-    # collision dataset
-    dataset = []
-
-    for q1i in q1:
-        for q2i in q2:
-            for q3i in q3:
-                for q4i in q4:
-                    for q5i in q5:
-                        for q6i in q6:
-                            q = [q1i, q2i, q3i, q4i, q5i, q6i]
-                            iscollision = robot.collision_check_at_config(q)
-                            dataset.append(
-                                (q1i, q2i, q3i, q4i, q5i, q6i, int(iscollision))
-                            )
-                            print("collecting ...")
-    dataset = np.array(dataset)
-    print(dataset.shape)
-    print(dataset)
-    np.save(
-        os.path.join(Constants.rsrcpath, "ur5e_collision_dataset.npy"), dataset
-    )
-
-
-def joint_trajectory_visualize():
-    robot = UR5eBullet("gui")
-
-    robot.set_visualizer_camera(*Constants.camera_exp3)
-
-    # exp 2
-    qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
-    qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    qg2_long = [-1.12 + 2 * np.pi, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    n_steps = 100
-    path_short = np.linspace(qs, qg1_short, n_steps)
-    path_long = np.linspace(qs, qg2_long, n_steps)
-
-    # exp 3
-    qg_a = [0.0, -0.98, 1.57, -0.47, 1.57, 0.0]
-    qg_b = [1.47, -0.11, -1.22, 3.53, -1.57, 6.23]
-    qg_c = [-3.22, -1.09, 1.59, 5.86, 1.59, 0.0]
-    qg_d = [-1.52, -1.02, 0.81, 5.35, 6.23, 2.36]
-    path_seq = np.loadtxt("../build/zzz_path.csv", delimiter=",")
-
-    path = path_short
-    try:
-        j = 0
-        while True:
-            nkey = ord("n")
-            keys = p.getKeyboardEvents()
-            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
-                q = path[j % n_steps]
-                print(f"step {j}: {q}")
-                robot.reset_array_joint_state(q)
-                p.stepSimulation()
-                j += 1
-
-    except KeyboardInterrupt:
-        p.disconnect()
-
-
-def joint_trajectory_visualize_ghost():
-    robot = UR5eBullet("gui")
-    robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
-    robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
-
-    # camera for exp3
-    robot.set_visualizer_camera(*Constants.camera_exp3)
-
-    # path exp 2
-    qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
-    qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    qg2_long = [-1.12 + 2 * np.pi, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    n_steps = 1000
-    path_short = np.linspace(qs, qg1_short, n_steps)
-    path_long = np.linspace(qs, qg2_long, n_steps)
-
-    # initialize ghost model joint state
-    path = path_short
-    robot.reset_array_joint_state(path[0])
-    robot.reset_array_joint_state_ghost(path[0], robot.ghost_model[0])
-    robot.reset_array_joint_state_ghost(path[-1], robot.ghost_model[-1])
-
-    try:
-        j = 0
-        while True:
-            nkey = ord("n")
-            keys = p.getKeyboardEvents()
-            if nkey in keys and keys[nkey] & p.KEY_WAS_TRIGGERED:
-                q = path[j % n_steps]
-                robot.reset_array_joint_state(q)
-                j += 1
-                p.stepSimulation()
-
-    except KeyboardInterrupt:
-        p.disconnect()
-
-
-def joint_trajectory_control():
-    import time
-
-    robot = UR5eBullet("gui")
-
-    # path exp 2
-    qs = [0.0, -np.pi / 2, np.pi / 2, np.pi / 2, np.pi / 2, 0.0]
-    qg1_short = [-1.12, -1.86, 1.87, 0.0, np.pi / 2, 0.0]
-    n_steps = 1000
-    path = np.linspace(qs, qg1_short, n_steps)
-
-    # initialize ghost model joint state
-    robot.reset_array_joint_state(path[0])
-
-    try:
-        j = 0
-        while True:
-            # dynamic control
-            q = path[j]
-            robot.control_array_motors(q)
-            p.stepSimulation()
-            time.sleep(1 / 240)
-            if j < n_steps - 1:
-                j += 1
-
-    except KeyboardInterrupt:
-        p.disconnect()
-
-
-def visualize_analytical_ik_pose():
-    from util import ur5e_dh, solve_ik, generate_random_dh_tasks
-
-    dhbot = ur5e_dh()
-    T = np.array(
-        [
-            1.0000,
-            0.0000,
-            0.0000,
-            -0.4000,
-            -0.0000,
-            -0.0000,
-            1.0000,
-            0.6000,
-            0.0000,
-            -1.0000,
-            -0.0000,
-            0.5000,
-            0.0000,
-            0.0000,
-            0.0000,
-            1.0000,
-        ]
-    ).reshape(4, 4)
-    num, qik = solve_ik(dhbot, T)
-    print(qik)
-
-    robot = UR5eBullet("gui")
-    robot.load_models_ghost(color=[0, 1, 0, 0.1])  # green ghost model
-    robot.load_models_ghost(color=[1, 0, 0, 0.1])  # red ghost model
-    robot.load_models_ghost(color=[0, 0, 1, 0.1])  # blue ghost model
-    robot.load_models_ghost(color=[1, 1, 0, 0.1])  # yellow ghost model
-    robot.load_models_ghost(color=[1, 0, 1, 0.1])  # purple ghost model
-    robot.load_models_ghost(color=[0, 1, 1, 0.1])  # cyan ghost model
-    robot.load_models_ghost(color=[1, 0.5, 0, 0.1])  # orange ghost model
-    robot.load_models_ghost(color=[0.5, 0, 1, 0.1])  # violet ghost model
-
-    # initialize ghost model joint state
-    robot.reset_array_joint_state_ghost(qik[0], robot.ghost_model[0])
-    robot.reset_array_joint_state_ghost(qik[1], robot.ghost_model[1])
-    robot.reset_array_joint_state_ghost(qik[2], robot.ghost_model[2])
-    robot.reset_array_joint_state_ghost(qik[3], robot.ghost_model[3])
-    robot.reset_array_joint_state_ghost(qik[4], robot.ghost_model[4])
-    robot.reset_array_joint_state_ghost(qik[5], robot.ghost_model[5])
-    robot.reset_array_joint_state_ghost(qik[6], robot.ghost_model[6])
-    robot.reset_array_joint_state_ghost(qik[7], robot.ghost_model[7])
-
-    try:
-        while True:
-            p.stepSimulation()
-
-    except KeyboardInterrupt:
-        p.disconnect()
-
-
 def kinematic_test():
     robot = RobotUR5eKin()
 
@@ -1046,5 +854,5 @@ def kinematic_test():
 
 
 if __name__ == "__main__":
-    # collision_dataset()
-    kinematic_test()
+    simple_visualize()
+    # kinematic_test()
