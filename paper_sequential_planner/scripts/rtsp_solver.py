@@ -52,18 +52,18 @@ class RTSP:
           0: different task
 
         """
-        taskspace_adjm = np.full((n_tasks, n_tasks), -1, dtype=int)
+        tspace_adjm = np.full((n_tasks, n_tasks), -1, dtype=int)
         for i in range(n_tasks):
             for j in range(i + 1, n_tasks):
                 if i == j:
                     continue
                 else:
-                    taskspace_adjm[i, j] = 0
-                    taskspace_adjm[j, i] = 0
-        return taskspace_adjm
+                    tspace_adjm[i, j] = 0
+                    tspace_adjm[j, i] = 0
+        return tspace_adjm
 
     @staticmethod
-    def update_taskspace_adjm(taskspace_adjm, cspace_adjm, cspace_to_taskspace):
+    def update_taskspace_adjm(tspace_adjm, cspace_adjm, cspace_to_taskspace):
         """
         Update taskspace adjm by counting cspace edges between task pairs
         """
@@ -73,9 +73,9 @@ class RTSP:
                     task_i = cspace_to_taskspace[i]
                     task_j = cspace_to_taskspace[j]
                     if task_i != task_j:  # Only count inter-task connections
-                        taskspace_adjm[task_i, task_j] += 1
-                        taskspace_adjm[task_j, task_i] += 1
-        return taskspace_adjm
+                        tspace_adjm[task_i, task_j] += 1
+                        tspace_adjm[task_j, task_i] += 1
+        return tspace_adjm
 
     @staticmethod
     def build_cspace_adjm(cluster_ttc, num_sols):
@@ -114,9 +114,12 @@ class RTSP:
         return n_tasks * (n_tasks - 1) / 2
 
     @staticmethod
-    def edgecost_eucl_distance(config):
+    def edgecost_eucl_distance(config, cspace_adjm=None):
         cost = euclidean_distances(config, config)
         np.fill_diagonal(cost, -1.0)
+        # If cspace_adjm is provided, set the cost to -1.0 for self-connections
+        if cspace_adjm is not None:
+            cost = np.where(cspace_adjm == -1.0, -1.0, cost)
         return cost
 
     @staticmethod
@@ -151,34 +154,38 @@ class RTSP:
 
     @staticmethod
     def preprocess(taskH, Qaik, Qaik_valid):
+        """
+        Compute nessary information to form the GTSP
+        """
         dof = Qaik.shape[2]
         task_reachablemask = np.any(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
         q_reachable_perH = np.sum(Qaik_valid == 1, axis=1).flatten()  # (ntasks,)
-        num_reachable = np.sum(task_reachablemask)
-        print(f"==>> num_reachable: \n{num_reachable}")
+        num_treachable = np.sum(task_reachablemask)
         task_reachable = taskH[task_reachablemask]
         num_qreachable = q_reachable_perH[q_reachable_perH > 0]
         _Qaik_flat = Qaik.reshape(-1, dof)  # (ntasks * num_solutions, dof)
         _Qaik_valid_flat = Qaik_valid.reshape(-1)  # (ntasks * num_solutions,)
         Q_reachable = _Qaik_flat[_Qaik_valid_flat == 1]
-        taskspace_adjm = RTSP.build_taskspace_adjm(num_reachable)
+        tspace_adjm = RTSP.build_taskspace_adjm(num_treachable)
         cluster_ttc = RTSP.build_cluster_task_to_cspace(num_qreachable)
         cluster_ctt = RTSP.build_cluster_cspace_to_task(num_qreachable)
         num_sols = sum(num_qreachable)
         cspace_adjm = RTSP.build_cspace_adjm(cluster_ttc, num_sols)
         return (
             task_reachable,
+            num_treachable,
             num_qreachable,
             Q_reachable,
             cluster_ttc,
             cluster_ctt,
-            taskspace_adjm,
+            tspace_adjm,
             cspace_adjm,
         )
 
     @staticmethod
     def postprocess(tourid, Q_reachable, colfree_planner):
         """
+        After getting the tour id and q tour, plan collision free path
         tourid: the tour, e.g., [0, 2, 1, 0] (return back to start)
         Q_reachable: the reachable configurations
         """

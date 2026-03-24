@@ -15,7 +15,7 @@ except ImportError:
     ompl_available = False
 
 np.random.seed(42)
-np.set_printoptions(precision=2, suppress=True, linewidth=200)
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
@@ -92,7 +92,6 @@ class RobotScene:
             "box3": ((0.5, 0.5, 1), (0, 1.5, 0)),
             "box4": ((0.5, 0.5, 1), (0, -1.5, 0)),
             "box5": ((0.5, 0.5, 1), (0, 0, 1.5)),
-            "box6": ((0.5, 0.5, 1), (0, 0, -1.5)),
         }
         self.obstacles = []
         for name, (size, pos) in self.boxsize.items():
@@ -350,17 +349,14 @@ def wspace_ik_validity(Qaik, robscene):
 
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
-    from paper_sequential_planner.scripts.rtsp_lazyprm import (
-        separate_sample,
-        build_graph,
-        estimate_shortest_path,
-    )
+    from paper_sequential_planner.scripts.rtsp_lazyprm import RTSPLazyPRMEstimator
 
     robot = Spatial3R()
     scene = RobotScene(robot, None)
     if ompl_available:
         planner = OMPLPlanner(scene.collision_checker)
 
+    # example
     q = np.array([0.0, 0.0, np.pi])
     X = np.array([0.5, 0.5, 0.5])
     qik = robot.ik(X)
@@ -370,8 +366,9 @@ if __name__ == "__main__":
     # scene.distance_to_obstacles(q)
     # scene.cspace_dataset_collision()
     # scene.show_env(q)
-    scene._show_wsenv_debug(q)
+    # scene._show_wsenv_debug(q)
 
+    # ------- RTSP Preprocessing --------------------------------------
     ntasks = 30
     X = sample_reachable_wspace(ntasks)
     Qaik = wspace_ik(robot, X)
@@ -382,6 +379,7 @@ if __name__ == "__main__":
 
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
@@ -390,6 +388,7 @@ if __name__ == "__main__":
         cspace_adjm,
     ) = RTSP.preprocess(X, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
@@ -399,52 +398,59 @@ if __name__ == "__main__":
 
     num_unique_edges = RTSP.num_edges_unique(num_qreachable)
     print(f"==>> num_unique_edges: \n{num_unique_edges}")
-    num_supercluster_edges = RTSP.num_supercluster_edges(ntasks)
+    num_supercluster_edges = RTSP.num_supercluster_edges(num_treachable)
     print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
+    # ------- End RTSP Preprocessing --------------------------------------
 
     # ------- Compute Initial Cost --------------------------------------
-    cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
+    cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable, cspace_adjm)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
-    cc = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, 5, 7)
-    print(f"==>> cc: \n{cc}")
-    ast = np.argsort(cc)
-    print(f"==>> ast: \n{ast}")
     # ------- End Compute Initial Cost ----------------------------------
 
+    # ------- Queuing System ------------------------------------
+    # Queue priority edges to be estimated first
+    for i in range(num_treachable):
+        for j in range(i + 1, num_treachable):
+            cpij, idpij = RTSP.get_cost_task_to_task(
+                cluster_ttc, cspace_adjm_euc_min, i, j
+            )
+            cpsortidx = np.argsort(cpij)
+            cpsort = [cpij[i] for i in cpsortidx]
+            idpsort = [idpij[i] for i in cpsortidx]
+            print(f"Sorted t{i}->{j}: costs: {cpsort}, id pairs: {idpsort}")
+    # ------- End Queuing System --------------------------------
+
     # ------ Estimation of Edges--------------------------------
-    limit3 = np.array([[-np.pi, np.pi], [-np.pi, np.pi], [-np.pi, np.pi]])
-    QfulRndfree, QfulRndcoll = separate_sample(
+    lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi], [-np.pi, np.pi]])
+    estor = RTSPLazyPRMEstimator(
         collision_checker=scene.collision_checker,
-        Qful_snum=5000,
-        lmts=limit3,
+        initial_samples=1000,
+        lmts=lmts,
     )
-    graph, kdtree = build_graph(QfulRndfree, k=10, dist_thres=0.5)
     cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
         cspace_adjm,
         Q_reachable,
-        estimate_shortest_path,
-        {"Qfree": QfulRndfree, "graph": graph, "kdtree": kdtree},
+        estor.estimate_shortest_path,
     )
+    print(f"==>> cspace_adjm: \n{cspace_adjm}")
+
     taskspace_adjm = RTSP.update_taskspace_adjm(
         taskspace_adjm, cspace_adjm, cluster_ctt
     )
     print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
     # ------ End Estimation of Edges-----------------------------
 
-    s = np.array([-np.pi] * 3)
-    g = np.array([np.pi] * 3)
-
     if True:
-        # plot debug
+        # plot debug cspace
         # dataset = np.load(os.path.join(rsrc, "spatial3r_cspace.npy"))
         # Qfree = dataset[dataset[:, -1] == 0][:, :3]
         # Qcoll = dataset[dataset[:, -1] == 1][:, :3]
-        axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
-        box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
-        box.visual.face_colors = [100, 150, 255, 40]
 
         # scene setup
         scene = trimesh.Scene()
+        axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
+        box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
+        box.visual.face_colors = [100, 150, 255, 40]
         scene.add_geometry(box)
         scene.add_geometry(axis)
 

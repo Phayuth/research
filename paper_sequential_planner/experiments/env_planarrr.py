@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
-from sklearn.metrics.pairwise import euclidean_distances
 
 try:
     from ompl import base as ob
@@ -460,6 +459,7 @@ if __name__ == "__main__":
     if ompl_available:
         planner = OMPLPlanner(scene.collision_checker)
 
+    # example
     q = np.array([[np.pi / 6.0], [-1.0]])
     # scene.cspace_obstacles(generate=True, save=True, plot=False)
     # scene.cspace_dataset_collision()
@@ -468,6 +468,7 @@ if __name__ == "__main__":
     # scene._show_wsenv_debug(q)
     # scene._show_cspace_debug()
 
+    # ------- RTSP Preprocessing --------------------------------------
     ntasks = 30
     X = sample_reachable_wspace(ntasks)
     Qaik = wspace_ik(robot, X)
@@ -478,69 +479,67 @@ if __name__ == "__main__":
 
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
         cluster_ctt,
-        taskspace_adjm,
+        tspace_adjm,
         cspace_adjm,
     ) = RTSP.preprocess(X, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
     print(f"==>> cluster_ctt: \n{cluster_ctt}")
-    print(f"==>> taskspace_adjm: \n{taskspace_adjm}")
+    print(f"==>> tspace_adjm: \n{tspace_adjm}")
     print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
     num_unique_edges = RTSP.num_edges_unique(num_qreachable)
     print(f"==>> num_unique_edges: \n{num_unique_edges}")
-    num_supercluster_edges = RTSP.num_supercluster_edges(ntasks)
+    num_supercluster_edges = RTSP.num_supercluster_edges(num_treachable)
     print(f"==>> num_supercluster_edges: \n{num_supercluster_edges}")
+    # ------- End RTSP Preprocessing --------------------------------------
 
     # ------- Compute Initial Cost --------------------------------------
-    cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
+    cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable, cspace_adjm)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
-    cp, idp = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, 5, 7)
-    print(f"==>> cp: \n{cp}")
-    print(f"==>> idp: \n{idp}")
-    cpsort = np.argsort(cp)
-    print(f"==>> cpsort: \n{cpsort}")
-    idpsort = [idp[i] for i in cpsort]
-    print(f"==>> idpsort: \n{idpsort}")
-    print("".center(50, "-"))
-
-    for i in range(ntasks):
-        for j in range(i + 1, ntasks):
-            cpij, idpij = RTSP.get_cost_task_to_task(cluster_ttc, cspace_adjm_euc_min, i, j)
-            print(f"Cost from task {i} to task {j}: {cpij}, id pairs: {idpij}")
-
     # ------- End Compute Initial Cost ----------------------------------
 
     # ------- Queuing System ------------------------------------
     # Queue priority edges to be estimated first
+    for i in range(num_treachable):
+        for j in range(i + 1, num_treachable):
+            cpij, idpij = RTSP.get_cost_task_to_task(
+                cluster_ttc, cspace_adjm_euc_min, i, j
+            )
+            cpsortidx = np.argsort(cpij)
+            cpsort = [cpij[i] for i in cpsortidx]
+            idpsort = [idpij[i] for i in cpsortidx]
+            print(f"Sorted t{i}->{j}: costs: {cpsort}, id pairs: {idpsort}")
     # ------- End Queuing System --------------------------------
 
     # ------ Estimation of Edges--------------------------------
-    # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
-    # estor = RTSPLazyPRMEstimator(
-    #     collision_checker=scene.collision_checker,
-    #     initial_samples=1000,
-    #     lmts=lmts,
-    # )
-    # cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
-    #     cspace_adjm,
-    #     Q_reachable,
-    #     estor.estimate_shortest_path,
-    # )
-    # taskspace_adjm = RTSP.update_taskspace_adjm(
-    #     taskspace_adjm, cspace_adjm, cluster_ctt
-    # )
-    # print(f"==>> taskspace_adjm (updated with edge counts): \n{taskspace_adjm}")
+    lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+    estor = RTSPLazyPRMEstimator(
+        collision_checker=scene.collision_checker,
+        initial_samples=1000,
+        lmts=lmts,
+    )
+    cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
+        cspace_adjm,
+        Q_reachable,
+        estor.estimate_shortest_path,
+    )
+    print(f"==>> cspace_adjm: \n{cspace_adjm}")
+
+    tspace_adjm = RTSP.update_taskspace_adjm(tspace_adjm, cspace_adjm, cluster_ctt)
+    print(f"==>> tspace_adjm (updated with edge counts): \n{tspace_adjm}")
     # ------ End Estimation of Edges-----------------------------
 
-    if False:
-        # plot debug
+    if True:
+        # plot debug cspace
         cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
         fig, ax = plt.subplots()
         ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
@@ -557,6 +556,8 @@ if __name__ == "__main__":
         ax.grid(True)
         plt.show()
 
+    if False:
+        # write GTSP problem file for GLKH
         GLKHHelper.write_glkh_fullmatrix_file(
             os.path.join(GLKHHelper.problemdir, "problem_planarrr.gtsp"),
             cspace_adjm,

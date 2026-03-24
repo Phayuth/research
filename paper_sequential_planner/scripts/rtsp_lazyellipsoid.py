@@ -6,6 +6,8 @@ from paper_sequential_planner.experiments.env_planarrr import *
 from scipy.spatial import KDTree
 import heapq
 from scipy.spatial import Voronoi, voronoi_plot_2d, ConvexHull, Delaunay
+from sklearn.metrics.pairwise import euclidean_distances
+import trimesh
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -86,14 +88,14 @@ def sampling_xstartgoal_dataset_():
 
 def bulk_collisioncheck(X):
     print(X.shape)
-    Xresult = np.zeros((X.shape[0], 1))
+    Xresult = np.zeros((X.shape[0]))
     for i in range(X.shape[0]):
         q = X[i, :].reshape(-1, 1)
         best, res = scene.distance_to_obstacles(q)
         if best["distance"] <= 0:
-            Xresult[i, 0] = 1  # in collision
+            Xresult[i] = 1  # in collision
         else:
-            Xresult[i, 0] = 0  # free
+            Xresult[i] = 0  # free
     return Xresult
 
 
@@ -103,79 +105,72 @@ def is_node_in_collision(q):
 
 
 def is_edge_in_collision(q1, q2):
-    qs = np.linspace(q1.flatten(), q2.flatten(), num=10).reshape(-1, 2)
+    qs = np.linspace(q1, q2, num=10)
     for q in qs:
-        if is_node_in_collision(q.reshape(-1, 1)):
+        if is_node_in_collision(q):
             return True
     return False
 
 
-q1 = np.array([-1.0, 2.5]).reshape(-1, 1)
-q2 = np.array([1.0, 2.5]).reshape(-1, 1)
-q3 = np.array([0.15, 0.60]).reshape(-1, 1)
-q4 = np.array([2.5, 1.5]).reshape(-1, 1)
-q5 = np.array([-2.5, -1.5]).reshape(-1, 1)
-q6 = np.array([2.40, -0.4]).reshape(-1, 1)
-q7 = np.array([-2.0, 2.5]).reshape(-1, 1)
-q8 = np.array([1.0, -2.0]).reshape(-1, 1)
-q9 = np.array([-3.0, 0.0]).reshape(-1, 1)
-q10 = np.array([-3.0, 2.5]).reshape(-1, 1)
-
-qs = q5
-qg = q6
-qpath34 = np.array(
+Q = np.array(
     [
-        0.15,
-        0.60,
-        0.06,
-        0.86,
-        -0.02,
-        1.16,
-        -0.04,
-        1.50,
-        -0.04,
-        1.76,
-        0.04,
-        1.91,
-        0.24,
-        2.04,
-        0.72,
-        2.12,
-        1.12,
-        2.03,
-        1.31,
-        1.94,
-        1.61,
-        1.85,
-        1.90,
-        1.75,
-        2.22,
-        1.59,
-        2.5,
-        1.5,
+        [-1.0, 2.5],
+        [1.0, 2.5],
+        [0.15, 0.60],
+        [2.5, 1.5],
+        [-2.5, -1.5],
+        [2.40, -0.4],
+        [-2.0, 2.5],
+        [1.0, -2.0],
+        [-3.0, 0.0],
+        [-3.0, 2.5],
+        [-1.4, 0.5],
+        [-0.56, -2.37],
+        [3.00, -2.00],
     ]
-).reshape(-1, 2)
+)
+qs = Q[0].reshape(-1, 1)
+qg = Q[6].reshape(-1, 1)
 
 
-def method0():
+def method_0000():
+    print(f"==>> Q.shape: \n{Q.shape}")
+
+    euc_dist = euclidean_distances(Q)
+    print(f"==>> euc_dist: \n{euc_dist}")
+    print(f"==>> euc_dist.shape: \n{euc_dist.shape}")
+
+    straight_valid = np.zeros((Q.shape[0], Q.shape[0]), dtype=bool)
+    for i in range(Q.shape[0]):
+        for j in range(i + 1, Q.shape[0]):
+            if is_edge_in_collision(Q[i], Q[j]):
+                straight_valid[i, j] = False
+                print(f"Edge between q{i+1} and q{j+1} is in collision.")
+            else:
+                straight_valid[i, j] = True
+                print(f"Edge between q{i+1} and q{j+1} is free.")
+
     fig, ax = plt.subplots()
-    Q = np.array([q1, q2, q3, q4, q5, q6, q7, q8, q9, q10]).reshape(-1, 2)
-    print(Q.shape)
     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
-    ax.scatter(q1[0], q1[1], s=50, c="b", marker="o", label="q1")
-    ax.scatter(q2[0], q2[1], s=50, c="g", marker="o", label="q2")
-    ax.scatter(q3[0], q3[1], s=50, c="m", marker="o", label="q3")
-    ax.scatter(q4[0], q4[1], s=50, c="c", marker="o", label="q4")
-    ax.scatter(q5[0], q5[1], s=50, c="y", marker="o", label="q5")
-    ax.scatter(q6[0], q6[1], s=50, c="r", marker="o", label="q6")
-    ax.scatter(q7[0], q7[1], s=50, c="orange", marker="o", label="q7")
-    ax.scatter(q8[0], q8[1], s=50, c="purple", marker="o", label="q8")
-    ax.scatter(q9[0], q9[1], s=50, c="brown", marker="o", label="q9")
-    ax.scatter(q10[0], q10[1], s=50, c="pink", marker="o", label="q10")
+    for i in range(Q.shape[0]):
+        ax.scatter(Q[i, 0], Q[i, 1], s=50, marker="o", label=f"q{i+1}")
+    for i in range(Q.shape[0]):
+        for j in range(i + 1, Q.shape[0]):
+            if straight_valid[i, j]:
+                ax.plot([Q[i, 0], Q[j, 0]], [Q[i, 1], Q[j, 1]], "g-", alpha=0.5)
+            else:
+                ax.plot([Q[i, 0], Q[j, 0]], [Q[i, 1], Q[j, 1]], "r-", alpha=0.5)
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
     ax.set_aspect("equal", adjustable="box")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+
+    def onclick(event):
+        if event.inaxes:
+            print(f"{event.xdata:.2f}, {event.ydata:.2f}")
+
+    fig.canvas.mpl_connect("button_press_event", onclick)
+    plt.grid()
     plt.show()
 
 
@@ -216,16 +211,6 @@ def method1():
     Xb5 = custom_surface_sampling(qs, qg, la5, sa5, 1000)
     Xi5 = custom_inside_sampling(qs, qg, la5, sa5, 1000)
 
-    # Xcol_bulk = bulk_collisioncheck(Xinf_surf)
-    # print(Xcol_bulk.shape)
-    # print(Xcol_bulk)
-
-    qqq = np.array([-0.75, 3.08]).reshape(-1, 1)
-    B1 = bezier_curve(qs, qqq, qg, 100)
-    print(B1.shape)
-    B2 = three_point_path(qs, qqq, qg, 100)
-    print(B2.shape)
-
     fig, ax = plt.subplots()
     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
     ax.scatter(Xinf_surf[:, 0], Xinf_surf[:, 1], s=5, c="b", label="informed")
@@ -235,68 +220,6 @@ def method1():
     ax.scatter(Xb3[:, 0], Xb3[:, 1], s=5, c="m", label="case2")
     ax.scatter(Xb4[:, 0], Xb4[:, 1], s=5, c="c", label="case3")
     ax.scatter(Xb5[:, 0], Xb5[:, 1], s=5, c="y", label="case4")
-    ax.plot(B1[0, :], B1[1, :], "k-", linewidth=2, label="bezier")
-    ax.plot(B2[0, :], B2[1, :], "k--", linewidth=2, label="3-point path")
-    ax.plot(qqq[0], qqq[1], "kx", markersize=10, label="control point")
-    # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
-    ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
-    ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
-    ax.set_xlim(-np.pi, np.pi)
-    ax.set_ylim(-np.pi, np.pi)
-
-    def onclick(event):
-        if event.inaxes:
-            print(f"{event.xdata:.2f}, {event.ydata:.2f}")
-
-    fig.canvas.mpl_connect("button_press_event", onclick)
-    ax.legend()
-    ax.set_aspect("equal", adjustable="box")
-    plt.grid()
-    plt.show()
-
-
-def method2():
-    cmin = np.linalg.norm(qg - qs)
-    # cMaxguess = 1.5 * cmin
-    numguess = 5
-    cMaxguesses = np.linspace(cmin, 1.5 * cmin, num=numguess)
-    sampler_per_guess = 100
-
-    Xinf_insides = np.empty((sampler_per_guess * numguess, 2))
-    Xinf_surfaces = np.empty((sampler_per_guess * numguess, 2))
-    for i, cMaxguess in enumerate(cMaxguesses):
-        Xinf_inside = informed_sampling_bulk(qs, qg, cMaxguess, sampler_per_guess)
-        Xinf_surf = informed_surface_sampling_bulk(
-            qs, qg, cMaxguess, sampler_per_guess
-        )
-        Xinf_insides[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
-            Xinf_inside
-        )
-        Xinf_surfaces[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
-            Xinf_surf
-        )
-
-    fig, ax = plt.subplots()
-    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3, alpha=0.1)
-    for i in range(numguess):
-        cMaxguess = cMaxguesses[i]
-        idx_start = i * sampler_per_guess
-        idx_end = (i + 1) * sampler_per_guess
-        ax.scatter(
-            Xinf_surfaces[idx_start:idx_end, 0],
-            Xinf_surfaces[idx_start:idx_end, 1],
-            s=5,
-            color=plt.cm.viridis(i / numguess),
-            label=f"surface {i+1}, c_max = {cMaxguess:.2f}",
-        )
-        ax.scatter(
-            Xinf_insides[idx_start:idx_end, 0],
-            Xinf_insides[idx_start:idx_end, 1],
-            s=5,
-            color=plt.cm.viridis(i / numguess),
-            alpha=0.5,
-        )
-    # # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="k", marker="x")
     ax.scatter(qg[0], qg[1], s=50, c="k", marker="x")
     ax.set_xlim(-np.pi, np.pi)
@@ -307,31 +230,23 @@ def method2():
     plt.show()
 
 
-def method3():
+def method3(qs=qs, qg=qg):
     cmin = np.linalg.norm(qg - qs)
-    # cMaxguess = 1.5 * cmin
-    numguess = 5
-    cMaxguesses = np.linspace(cmin, 1.5 * cmin, num=numguess)
-    sampler_per_guess = 100
+    num_guess = 5
+    cMaxguesses = np.linspace(cmin, 1.5 * cmin, num=num_guess)
+    num_per_guess = 100
 
-    Xinf_insides = np.empty((sampler_per_guess * numguess, 2))
-    Xinf_surfaces = np.empty((sampler_per_guess * numguess, 2))
+    Xinf_insides = np.empty((num_per_guess * num_guess, 2))
+    Xinf_surfaces = np.empty((num_per_guess * num_guess, 2))
     for i, cMaxguess in enumerate(cMaxguesses):
-        Xinf_inside = informed_sampling_bulk(qs, qg, cMaxguess, sampler_per_guess)
+        Xinf_inside = informed_sampling_bulk(qs, qg, cMaxguess, num_per_guess)
         Xinf_surf = informed_surface_sampling_bulk(
-            qs, qg, cMaxguess, sampler_per_guess
+            qs, qg, cMaxguess, num_per_guess
         )
-        Xinf_insides[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
-            Xinf_inside
-        )
-        Xinf_surfaces[i * sampler_per_guess : (i + 1) * sampler_per_guess] = (
-            Xinf_surf
-        )
-    Xsampleall = np.vstack((Xinf_surfaces, Xinf_insides))
-    Xfree = np.array(
-        [x for x in Xinf_inside if not is_node_in_collision(x.reshape(-1, 1))]
-    )
-    print(f"There are {Xfree.shape} collision-free samples")
+        Xinf_insides[i * num_per_guess : (i + 1) * num_per_guess] = Xinf_inside
+        Xinf_surfaces[i * num_per_guess : (i + 1) * num_per_guess] = Xinf_surf
+    Xstat = bulk_collisioncheck(Xinf_insides)
+    Xfree = Xinf_insides[Xstat == 0]
 
     # build some KD-trees for nearest neighbor queries
     Vkdt_sg = np.vstack((qs.flatten(), qg.flatten(), Xfree))
@@ -353,29 +268,28 @@ def method3():
 
     fig, ax = plt.subplots()
     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3, alpha=0.1)
-    for i in range(numguess):
+    for i in range(num_guess):
         cMaxguess = cMaxguesses[i]
-        idx_start = i * sampler_per_guess
-        idx_end = (i + 1) * sampler_per_guess
+        idx_start = i * num_per_guess
+        idx_end = (i + 1) * num_per_guess
         ax.scatter(
             Xinf_surfaces[idx_start:idx_end, 0],
             Xinf_surfaces[idx_start:idx_end, 1],
             s=5,
-            color=plt.cm.viridis(i / numguess),
+            color=plt.cm.viridis(i / num_guess),
             label=f"surface {i+1}, c_max = {cMaxguess:.2f}",
         )
         ax.scatter(
             Xinf_insides[idx_start:idx_end, 0],
             Xinf_insides[idx_start:idx_end, 1],
             s=5,
-            color=plt.cm.viridis(i / numguess),
+            color=plt.cm.viridis(i / num_guess),
             alpha=0.5,
         )
     # # ax.plot(qpath34[:, 0], qpath34[:, 1], "r-o", linewidth=2, label="planned path")
     ax.scatter(qs[0], qs[1], s=50, c="g", marker="s", label="Start")
     ax.scatter(qg[0], qg[1], s=50, c="r", marker="s", label="Goal")
     ax.plot(qpath[:, 0], qpath[:, 1], "r-o", linewidth=2, label="Dijkstra path")
-
     ax.set_xlim(-np.pi, np.pi)
     ax.set_ylim(-np.pi, np.pi)
     ax.legend()
@@ -427,6 +341,48 @@ def build_graph(points, k, dist_threshold=np.inf):
     return graph, tree
 
 
+def sparsify_nodes(points, eps):
+    tree = KDTree(points)
+    keep = np.ones(len(points), dtype=bool)
+
+    for i, p in enumerate(points):
+        if not keep[i]:
+            continue
+        idx = tree.query_ball_point(p, eps)
+        for j in idx:
+            if j != i:
+                keep[j] = False
+
+    return points[keep]
+
+
+def prune_edges_triangle(graph, points, delta=0.1):
+    new_graph = {i: [] for i in graph}
+
+    for u in graph:
+        for v, d_uv in graph[u]:
+            keep = True
+
+            for w, d_uw in graph[u]:
+                if w == v:
+                    continue
+
+                # check if w connects to v
+                for x, d_wv in graph[w]:
+                    if x == v:
+                        if d_uw + d_wv <= (1 + delta) * d_uv:
+                            keep = False
+                        break
+
+                if not keep:
+                    break
+
+            if keep:
+                new_graph[u].append((v, d_uv))
+
+    return new_graph
+
+
 def allnode_RGG():
     points = np.random.rand(100, 2)
     k = 5
@@ -448,15 +404,6 @@ def allnode_RGG():
     chvq = ggiq[chvi]
     print(f"==>> chvq: \n{chvq}")
 
-    # solve shortest paths from root to all nodes
-    distances, paths = dijkstra_all_paths(graph, root=rootid)
-    print(distances)
-    pathgoal = paths[goalid]
-    qpath = points[pathgoal]
-    print(f"Shortest path from root to goal (id {goalid}): {pathgoal}")
-    print(f"Path length: {distances[goalid]:.3f}")
-    print("Path coordinates:\n", qpath)
-
     fig, ax = plt.subplots()
     ax.scatter(points[:, 0], points[:, 1], s=50, c="b", label="Nodes")
     ax.scatter(
@@ -475,7 +422,6 @@ def allnode_RGG():
                 "k--",
                 alpha=0.2,
             )
-    ax.plot(qpath[:, 0], qpath[:, 1], "r-o", linewidth=2, label="Shortest Path")
     ax.set_title("Random Geometric Graph with Dijkstra's Paths")
     ax.legend()
     ax.set_aspect("equal", adjustable="box")
@@ -483,11 +429,94 @@ def allnode_RGG():
     plt.show()
 
 
+def allnode_RGG_sparse():
+    points = np.random.uniform(-np.pi, np.pi, size=(200, 2))
+
+    # --- 1. node sparsification ---
+    points = sparsify_nodes(points, eps=0.05*2*np.pi)
+
+    k = 8
+    graph, kdt = build_graph(points, k)
+
+    # --- 2. edge pruning ---
+    graph = prune_edges_triangle(graph, points, delta=0.1)
+
+    rootid = 0
+    goalid = 1
+    rootnode = points[rootid]
+    goalnode = points[goalid]
+    gg, ggi = kdt.query(goalnode, k=10)
+    ggiq = points[ggi]
+    ch = ConvexHull(ggiq)
+    chvq = ggiq[ch.vertices]
+
+    fig, ax = plt.subplots()
+    ax.scatter(points[:, 0], points[:, 1], s=50, c="b")
+
+    ax.scatter(rootnode[0], rootnode[1], s=100, c="r", marker="s")
+    ax.scatter(goalnode[0], goalnode[1], s=100, c="g", marker="^")
+
+    cluster_polygon = plt.Polygon(chvq, edgecolor="blue", facecolor="none")
+    ax.add_patch(cluster_polygon)
+
+    for i, neighbors in graph.items():
+        for j, _ in neighbors:
+            ax.plot(
+                [points[i, 0], points[j, 0]],
+                [points[i, 1], points[j, 1]],
+                "k-",
+                alpha=0.4,
+            )
+
+    ax.set_aspect("equal")
+    plt.grid()
+    plt.show()
+
+
+def allnode_RGG_sparse_3d():
+    # points = np.random.rand(100, 3)
+    points = np.random.uniform(-np.pi, np.pi, size=(200, 3))
+
+    # --- 1. node sparsification ---
+    points = sparsify_nodes(points, eps=0.05*2*np.pi)
+
+    k = 8
+    graph, kdt = build_graph(points, k)
+
+    # --- 2. edge pruning ---
+    graph = prune_edges_triangle(graph, points, delta=0.1)
+
+    rootid = 0
+    goalid = 1
+    rootnode = points[rootid]
+    goalnode = points[goalid]
+
+    scene = trimesh.Scene()
+    axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
+    box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
+    box.visual.face_colors = [100, 150, 255, 40]
+    scene.add_geometry(box)
+    scene.add_geometry(axis)
+
+    for i, neighbors in graph.items():
+        for j, _ in neighbors:
+            line = trimesh.load_path(
+                np.array([points[i], points[j]]), color=[0, 0, 0, 100]
+            )
+            scene.add_geometry(line)
+    scene.show()
+
+
+class RTSPLazyEllipsoid:
+
+    def __init__(self):
+        pass
+
+
 if __name__ == "__main__":
-
-
-    # method0()
+    # method_0000()
     # method1()
-    # method2()
     # method3()
     allnode_RGG()
+    allnode_RGG_sparse()
+    allnode_RGG_sparse_3d()
