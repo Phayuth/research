@@ -383,92 +383,73 @@ def prune_edges_triangle(graph, points, delta=0.1):
     return new_graph
 
 
-def allnode_RGG():
-    points = np.random.rand(100, 2)
+def allnode_RGG_sparse():
+    points = np.random.uniform(-np.pi, np.pi, size=(200, 2))
+    points_sparse = sparsify_nodes(points, eps=0.05 * 2 * np.pi)  # node sparse
+
     k = 5
-
     graph, kdt = build_graph(points, k)
-    rootid = 0
-    goalid = 1
-    rootnode = points[rootid]
-    goalnode = points[goalid]
-    gg, ggi = kdt.query(goalnode, k=10)  # warm up the KD-tree
+    graph_sparse, kdt_sparse = build_graph(points_sparse, k)
+    graph_sparse = prune_edges_triangle(graph_sparse, points_sparse, delta=0.1)
 
-    print(f"==>> gg: \n{gg}")
-    print(f"==>> ggi: \n{ggi}")
-    ggiq = points[ggi]
-    print(f"==>> ggiq: \n{ggiq}")
+    rootnode = points_sparse[0]
+    print(f"==>> rootnode: \n{rootnode}")
+    goalnode = points_sparse[1]
+    print(f"==>> goalnode: \n{goalnode}")
+    gg, ggi = kdt_sparse.query(goalnode, k=10)
+    ggiq = points_sparse[ggi]
     ch = ConvexHull(ggiq)
-    chvi = ch.vertices
-    print(f"==>> chvi: \n{chvi}")
-    chvq = ggiq[chvi]
-    print(f"==>> chvq: \n{chvq}")
+    chvq = ggiq[ch.vertices]
 
     fig, ax = plt.subplots()
-    ax.scatter(points[:, 0], points[:, 1], s=50, c="b", label="Nodes")
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
+    ax.scatter(
+        points[:, 0],
+        points[:, 1],
+        s=100,
+        c="lightgray",
+        marker="x",
+        label="Original Nodes",
+    )
+    ax.scatter(
+        points_sparse[:, 0], points_sparse[:, 1], s=50, c="b", label="Sparse Nodes"
+    )
     ax.scatter(
         rootnode[0], rootnode[1], s=100, c="r", marker="s", label="Root Node"
     )
     ax.scatter(
         goalnode[0], goalnode[1], s=100, c="g", marker="^", label="Goal Node"
     )
-    cluster_polygon = plt.Polygon(chvq, edgecolor="blue", facecolor="none")
+
+    cluster_polygon = plt.Polygon(
+        chvq,
+        edgecolor="blue",
+        facecolor="none",
+        linestyle="--",
+        label="Convex Hull of Neighbors",
+    )
     ax.add_patch(cluster_polygon)
+
     for i, neighbors in graph.items():
         for j, _ in neighbors:
             ax.plot(
                 [points[i, 0], points[j, 0]],
                 [points[i, 1], points[j, 1]],
-                "k--",
-                alpha=0.2,
+                "r--",
+                alpha=0.1,
             )
-    ax.set_title("Random Geometric Graph with Dijkstra's Paths")
-    ax.legend()
-    ax.set_aspect("equal", adjustable="box")
-    plt.grid()
-    plt.show()
 
-
-def allnode_RGG_sparse():
-    points = np.random.uniform(-np.pi, np.pi, size=(200, 2))
-
-    # --- 1. node sparsification ---
-    points = sparsify_nodes(points, eps=0.05*2*np.pi)
-
-    k = 8
-    graph, kdt = build_graph(points, k)
-
-    # --- 2. edge pruning ---
-    graph = prune_edges_triangle(graph, points, delta=0.1)
-
-    rootid = 0
-    goalid = 1
-    rootnode = points[rootid]
-    goalnode = points[goalid]
-    gg, ggi = kdt.query(goalnode, k=10)
-    ggiq = points[ggi]
-    ch = ConvexHull(ggiq)
-    chvq = ggiq[ch.vertices]
-
-    fig, ax = plt.subplots()
-    ax.scatter(points[:, 0], points[:, 1], s=50, c="b")
-
-    ax.scatter(rootnode[0], rootnode[1], s=100, c="r", marker="s")
-    ax.scatter(goalnode[0], goalnode[1], s=100, c="g", marker="^")
-
-    cluster_polygon = plt.Polygon(chvq, edgecolor="blue", facecolor="none")
-    ax.add_patch(cluster_polygon)
-
-    for i, neighbors in graph.items():
+    for i, neighbors in graph_sparse.items():
         for j, _ in neighbors:
             ax.plot(
-                [points[i, 0], points[j, 0]],
-                [points[i, 1], points[j, 1]],
+                [points_sparse[i, 0], points_sparse[j, 0]],
+                [points_sparse[i, 1], points_sparse[j, 1]],
                 "k-",
                 alpha=0.4,
             )
 
     ax.set_aspect("equal")
+    ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
     plt.grid()
     plt.show()
 
@@ -478,9 +459,9 @@ def allnode_RGG_sparse_3d():
     points = np.random.uniform(-np.pi, np.pi, size=(200, 3))
 
     # --- 1. node sparsification ---
-    points = sparsify_nodes(points, eps=0.05*2*np.pi)
+    points = sparsify_nodes(points, eps=0.05 * 2 * np.pi)
 
-    k = 8
+    k = 5
     graph, kdt = build_graph(points, k)
 
     # --- 2. edge pruning ---
@@ -501,10 +482,73 @@ def allnode_RGG_sparse_3d():
     for i, neighbors in graph.items():
         for j, _ in neighbors:
             line = trimesh.load_path(
-                np.array([points[i], points[j]]), color=[0, 0, 0, 100]
+                np.array([points[i], points[j]]), color=[0, 0, 0, 40]
             )
             scene.add_geometry(line)
     scene.show()
+
+
+def graph_mid_point_collision_prune(graph, points):
+    new_graph = {i: [] for i in graph}
+    for u in graph:
+        for v, d_uv in graph[u]:
+            # d = np.linalg.norm(points[u] - points[v])
+            mid_point = (points[u] + points[v]) / 2
+            if not is_node_in_collision(mid_point):
+                new_graph[u].append((v, d_uv))
+    return new_graph
+
+
+def allnode_RGG_sparse_robot():
+    X = np.random.uniform(-np.pi, np.pi, size=(500, 2))
+    print(f"==>> X.shape: \n{X.shape}")
+    Xs = bulk_collisioncheck(X)
+    points = X[Xs == 0]  # only keep collision-free nodes
+    points_sparse = sparsify_nodes(points, eps=0.05 * 2 * np.pi)  # node sparse
+    print(f"==>> points_sparse.shape: \n{points_sparse.shape}")
+
+    k = 5
+    graph, kdt = build_graph(points, k)
+    graph_sparse, kdt_sparse = build_graph(points_sparse, k)
+    graph_sparse = prune_edges_triangle(graph_sparse, points_sparse, delta=0.1)
+    graph_sparse = graph_mid_point_collision_prune(graph_sparse, points_sparse)
+
+    fig, ax = plt.subplots()
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
+    ax.scatter(
+        points[:, 0],
+        points[:, 1],
+        s=100,
+        c="lightgray",
+        marker="x",
+        label="Original Nodes",
+    )
+    ax.scatter(
+        points_sparse[:, 0], points_sparse[:, 1], s=50, c="b", label="Sparse Nodes"
+    )
+
+    for i, neighbors in graph.items():
+        for j, _ in neighbors:
+            ax.plot(
+                [points[i, 0], points[j, 0]],
+                [points[i, 1], points[j, 1]],
+                "r--",
+                alpha=0.1,
+            )
+
+    for i, neighbors in graph_sparse.items():
+        for j, _ in neighbors:
+            ax.plot(
+                [points_sparse[i, 0], points_sparse[j, 0]],
+                [points_sparse[i, 1], points_sparse[j, 1]],
+                "k-",
+                alpha=0.4,
+            )
+
+    ax.set_aspect("equal")
+    ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+    plt.grid()
+    plt.show()
 
 
 class RTSPLazyEllipsoid:
@@ -517,6 +561,6 @@ if __name__ == "__main__":
     # method_0000()
     # method1()
     # method3()
-    allnode_RGG()
-    allnode_RGG_sparse()
-    allnode_RGG_sparse_3d()
+    # allnode_RGG_sparse()
+    allnode_RGG_sparse_robot()
+    # allnode_RGG_sparse_3d()
