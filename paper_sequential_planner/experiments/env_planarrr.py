@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from shapely.geometry import LineString, box
 from shapely.ops import nearest_points
+from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
 
 try:
     from ompl import base as ob
@@ -141,42 +142,69 @@ class RobotScene:
         else:
             return False
 
-    def cspace_obstacles(self, generate=False, save=False, plot=False):
+    def cspace_obstacles(
+        self,
+        extended_space=False,
+        generate=False,
+        plot=False,
+    ):
         if generate:
-            # print("Generating C-space obstacle plot...")
+            print("Generating C-space obstacle plot...")
+            if not extended_space:
+                num_samples = 360
+                theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
+                theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+            else:
+                num_samples = 720
+                theta1_samples = np.linspace(-2 * np.pi, 2 * np.pi, num_samples)
+                theta2_samples = np.linspace(-2 * np.pi, 2 * np.pi, num_samples)
+            Q1, Q2 = np.meshgrid(theta1_samples, theta2_samples, indexing="ij")
+            joints = np.column_stack([Q1.ravel(), Q2.ravel()])
+            cspace_obs = []
+            for i in tqdm.tqdm(range(joints.shape[0])):
+                theta = joints[i].reshape(2, 1)
+                best, _ = self.distance_to_obstacles(theta)
+                if best is not None and best["distance"] <= 0.0:
+                    cspace_obs.append((joints[i][0], joints[i][1]))
+            cspace_obs = np.array(cspace_obs)
+
+            if not extended_space:
+                np.save(os.path.join(rsrc, "cspace_obstacles.npy"), cspace_obs)
+            else:
+                np.save(
+                    os.path.join(rsrc, "cspace_obstacles_extended.npy"), cspace_obs
+                )
+
+        if plot:
+            print("Plotting C-space obstacles...")
+            fig, ax = plt.subplots()
+            if not extended_space:
+                cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+                ax.set_xlim(-np.pi, np.pi)
+                ax.set_ylim(-np.pi, np.pi)
+            else:
+                cspace_obs = np.load(
+                    os.path.join(rsrc, "cspace_obstacles_extended.npy")
+                )
+                ax.set_xlim(-2 * np.pi, 2 * np.pi)
+                ax.set_ylim(-2 * np.pi, 2 * np.pi)
+            ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+            ax.set_aspect("equal", "box")
+            plt.show()
+            return ax
+
+    def cspace_dataset_collision(self, extended_space=False):
+        print("Generating C-space dataset with collision labels...")
+        if not extended_space:
             num_samples = 360
             theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
             theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
-            cspace_obs = []
-
-            for i in range(num_samples):
-                for j in range(num_samples):
-                    theta = np.array([[theta1_samples[i]], [theta2_samples[j]]])
-                    best, _ = self.distance_to_obstacles(theta)
-                    if best is not None and best["distance"] <= 0.0:
-                        cspace_obs.append((theta1_samples[i], theta2_samples[j]))
-            cspace_obs = np.array(cspace_obs)
-
-        if save:
-            np.save(os.path.join(rsrc, "cspace_obstacles.npy"), cspace_obs)
-
-        if plot:
-            cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
-            fig, ax = plt.subplots()
-            ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-            ax.set_aspect("equal", "box")
-            ax.set_xlim(-np.pi, np.pi)
-            ax.set_ylim(-np.pi, np.pi)
-            return ax
-
-    def cspace_dataset_collision(self):
-        # print("Generating C-space dataset with collision labels...")
-        num_samples = 360
-        theta1_samples = np.linspace(-np.pi, np.pi, num_samples)
-        theta2_samples = np.linspace(-np.pi, np.pi, num_samples)
+        else:
+            num_samples = 720
+            theta1_samples = np.linspace(-2 * np.pi, 2 * np.pi, num_samples)
+            theta2_samples = np.linspace(-2 * np.pi, 2 * np.pi, num_samples)
         Q1, Q2 = np.meshgrid(theta1_samples, theta2_samples, indexing="ij")
         joints = np.column_stack([Q1.ravel(), Q2.ravel()])
-        # print("Generated joint samples:", joints.shape)
         dataset = []
         for i in tqdm.tqdm(range(joints.shape[0])):
             theta = joints[i].reshape(2, 1)
@@ -186,7 +214,10 @@ class RobotScene:
             else:
                 dataset.append((joints[i][0], joints[i][1], -1))
         dataset = np.array(dataset)
-        np.save(os.path.join(rsrc, "cspace_dataset.npy"), dataset)
+        if not extended_space:
+            np.save(os.path.join(rsrc, "cspace_dataset.npy"), dataset)
+        else:
+            np.save(os.path.join(rsrc, "cspace_dataset_extended.npy"), dataset)
 
     def cspace_dataset_nearest_distance(self):
         print("Generating C-space dataset with nearest distance...")
@@ -450,6 +481,58 @@ def wspace_ik_validity(Qaik, robscene):
     return Qaik_valid.astype(int)
 
 
+def wspace_ik_extended(robot, Xtspace):
+    """
+    Same as wspace_ik but compute AIK in extended space with torus geometry.
+    """
+    limit2 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    ntasks = Xtspace.shape[0]
+    num_sols = 2 * 4  # rr has up to 2 IK, each has up to 4 alternative configs.
+    dof = 2
+    Qaik = np.full((ntasks, num_sols, dof), np.nan)  # (ntasks, num_sols, dof)
+    for taski in range(ntasks):
+        q_sols = robot.inverse_kinematic(Xtspace[taski])
+        if q_sols is not None:
+            for qi, q in enumerate(q_sols):
+                alt_qs = find_alt_config2(q, limit2, filterOriginalq=False)
+                Qaik[taski, qi * 4 : (qi + 1) * 4] = alt_qs
+    return Qaik
+
+
+def wspace_ik_validity_extended(Qaik, robscene):
+    """
+    Same as wspace_ik_validity but with extended space limits.
+    """
+    ntasks = Qaik.shape[0]
+    num_sols = Qaik.shape[1]
+    limit = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+    eps = 1e-9
+    Qaik_valid = np.full((ntasks, num_sols, 1), np.nan)  # (ntasks, num_sols, 1)
+    for taski in range(Qaik.shape[0]):
+        for solj in range(Qaik.shape[1]):
+            q = Qaik[taski, solj]
+            if np.isnan(q).any():
+                Qaik_valid[taski, solj] = -1  # No solution
+            else:
+                best, _ = robscene.distance_to_obstacles(q.reshape(2, 1))
+                if best is not None and best["distance"] <= 0.0:
+                    Qaik_valid[taski, solj] = -2  # In collision
+                else:
+                    is_in_limit = np.all(
+                        (q >= (limit[:, 0] - eps)) & (q <= (limit[:, 1] + eps))
+                    )
+                    if not is_in_limit:
+                        Qaik_valid[taski, solj] = -3  # Awkward configuration
+                    else:
+                        Qaik_valid[taski, solj] = 1  # Valid
+    return Qaik_valid.astype(int)
+
+
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
     from paper_sequential_planner.scripts.rtsp_lazyprm import RTSPLazyPRMEstimator
@@ -461,8 +544,8 @@ if __name__ == "__main__":
 
     # example
     q = np.array([[np.pi / 6.0], [-1.0]])
-    # scene.cspace_obstacles(generate=True, save=True, plot=False)
-    # scene.cspace_dataset_collision()
+    # scene.cspace_obstacles(extended_space=True, generate=True)
+    # scene.cspace_dataset_collision(extended_space=True)
     # scene.cspace_dataset_nearest_distance()
     # scene.show_wsenv(q)
     # scene._show_wsenv_debug(q)
@@ -524,9 +607,9 @@ if __name__ == "__main__":
     lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
     estor = RTSPLazyPRMEstimator(
         collision_checker=scene.collision_checker,
-        initial_samples=1000,
         lmts=lmts,
     )
+    estor.samples(1000)
     cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
         cspace_adjm,
         Q_reachable,

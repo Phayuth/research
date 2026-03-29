@@ -3,6 +3,7 @@ import numpy as np
 import heapq
 import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
+from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -221,14 +222,14 @@ def estimate_shortest_path_bulk(qs, qgs, Qfree, graph, kdtree):
 
 class RTSPLazyPRMEstimator:
 
-    def __init__(self, collision_checker, initial_samples=1000, lmts=None):
+    def __init__(self, collision_checker, lmts=None):
         self.collision_checker = collision_checker
         self.lmts = lmts
         self.Qrandfree = None
         self.Qrandcols = None
         self.kdt = None
         self.graph = None
-        self.samples(initial_samples)
+        # self.samples(initial_samples)
 
     def print_info(self):
         print(f"==>> Qrandfree.shape: {self.Qrandfree.shape}")
@@ -318,6 +319,57 @@ class RTSPLazyPRMEstimator:
         return paths, costs
 
 
+class RTSPLazyPRMEstimatorExtended(RTSPLazyPRMEstimator):
+
+    def __init__(self, collision_checker, lmts=None):
+        super().__init__(collision_checker, lmts)
+
+    def samples(self, num_samples):
+        Qrand = np.random.uniform(
+            self.lmts[:, 0],
+            self.lmts[:, 1],
+            size=(num_samples, self.lmts.shape[0]),
+        )
+        Qrandstat = np.zeros((num_samples, 1))
+        for i in range(num_samples):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+
+        Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        Qrandcols = Qrand[Qrandstat.flatten() == 1]
+
+        numext_per_q = 4
+        Qrandfree_ext = np.zeros(
+            (Qrandfree.shape[0] * numext_per_q, Qrandfree.shape[1])
+        )
+        Qrandcols_ext = np.zeros(
+            (Qrandcols.shape[0] * numext_per_q, Qrandcols.shape[1])
+        )
+        for i in range(Qrandfree.shape[0]):
+            q = Qrandfree[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandfree_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
+        for i in range(Qrandcols.shape[0]):
+            q = Qrandcols[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandcols_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
+
+        if self.Qrandfree is None:
+            self.Qrandfree = Qrandfree_ext
+            self.Qrandcols = Qrandcols_ext
+        else:
+            self.Qrandfree = np.vstack([self.Qrandfree, Qrandfree_ext])
+            self.Qrandcols = np.vstack([self.Qrandcols, Qrandcols_ext])
+
+        # rebuild kdtree, graph with new samples
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=10, dist_thres=0.5)
+
+
 if __name__ == "__main__":
     from paper_sequential_planner.experiments.env_planarrr import (
         PlanarRR,
@@ -326,16 +378,22 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
-    lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
-    estor = RTSPLazyPRMEstimator(
+    # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+    # estor = RTSPLazyPRMEstimator(
+    #     scene.collision_checker,
+    #   ,
+    #     lmts=lmts,
+    # )
+    lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+    estor = RTSPLazyPRMEstimatorExtended(
         scene.collision_checker,
-        initial_samples=1000,
-        lmts=lmts,
+        lmts=lmts2,
     )
     estor.samples(1000)  # add more samples to improve connectivity
     estor.print_info()
     estor.samples(1000)  # add more samples to improve connectivity
     estor.print_info()
+
     qs = np.array([0.15, 0.60])
     qgs = np.array(
         [
