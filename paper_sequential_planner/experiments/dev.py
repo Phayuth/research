@@ -1,7 +1,7 @@
 from paper_sequential_planner.experiments.env_planarrr import *
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_Xmean import fit
-from sklearn.metrics.pairwise import euclidean_distances
+from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -33,10 +33,12 @@ print(f"==>> Qreachable: \n{Qreachable}")
 Qaik_valid_filtered = Qaik_valid[~is_unreachable]
 print(f"==>> Qaik_valid_filtered: \n{Qaik_valid_filtered}")
 Qreachable = np.where(Qaik_valid_filtered == 1, Qreachable, np.nan)
+print(f"==>> Qreachable.shape: \n{Qreachable.shape}")
 print(f"==>> Qreachable (after filtering): \n{Qreachable}")
 
 
 tspace_dist = euclidean_distances(Xreachable)
+print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 print(f"==>> tspace_dist: \n{tspace_dist}")
 
 t12_dist = tspace_dist[0, 1]
@@ -46,9 +48,38 @@ t1Q = Qreachable[0]
 print(f"==>> t1Q: \n{t1Q}")
 t2Q = Qreachable[1]
 print(f"==>> t2Q: \n{t2Q}")
-cspace_dist = euclidean_distances(t1Q, t2Q)
-print(f"==>> cspace_dist: \n{cspace_dist}")
+# Distance between IK sets of two tasks -> shape (8, 8)
+cspace_dist_withnan = nan_euclidean_distances(t1Q, t2Q)
+print(f"==>> cspace_dist_withnan.shape: \n{cspace_dist_withnan.shape}")
+print(f"==>> cspace_dist_withnan: \n{cspace_dist_withnan}")
 
+
+# Keep matrix structure: (n_task, n_task, n_ik, n_ik)
+n_task, n_ik, dof = Qreachable.shape
+Qflat = Qreachable.reshape(n_task * n_ik, dof)
+cspace_dist_flat = nan_euclidean_distances(Qflat, Qflat)
+cspace_dist_all = cspace_dist_flat.reshape(n_task, n_ik, n_task, n_ik).transpose(
+    0, 2, 1, 3
+)
+print(
+    f"==>> cspace_dist_all.shape (task, task, ik, ik): \n{cspace_dist_all.shape}"
+)
+
+# accessing same id will give us dist to itself, which we dont need.
+# always access different task id to get task-to-task distance, which we need
+t1t2 = cspace_dist_all[0, 1]
+print(f"==>> t1t2: \n{t1t2}")
+mint1t2 = np.nanmin(t1t2)
+print(f"==>> mint1t2: \n{mint1t2}")
+argmint1t2 = np.nanargmin(t1t2)
+print(f"==>> argmint1t2: \n{argmint1t2}")
+
+# Optional task-to-task distance by best IK pairing -> shape (n_task, n_task)
+cspace_dist_all_safe = np.where(np.isnan(cspace_dist_all), np.inf, cspace_dist_all)
+cspace_task_min = cspace_dist_all_safe.min(axis=(2, 3))
+cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
+print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
+print(f"==>> cspace_task_min: \n{cspace_task_min}")
 
 raise
 
@@ -97,7 +128,6 @@ points_per_cluster = xmeans.count
 print(f"==>> points_per_cluster: \n{points_per_cluster}")
 
 #
-
 
 
 raise
