@@ -142,6 +142,15 @@ class RobotScene:
         else:
             return False
 
+    def collsion_checker_edge(self, q1, q2, num_samples=10):
+        q1 = np.asarray(q1).reshape(2, 1)
+        q2 = np.asarray(q2).reshape(2, 1)
+        qs = np.linspace(q1, q2, num=num_samples)
+        for q in qs:
+            if self.collision_checker(q):
+                return True
+        return False
+
     def cspace_obstacles(
         self,
         extended_space=False,
@@ -588,6 +597,10 @@ if __name__ == "__main__":
     # ------- Compute Initial Cost --------------------------------------
     cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable, cspace_adjm)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
+    cspace_adjm_straight = RTSP.initial_estimate(
+        Q_reachable, scene.collsion_checker_edge
+    )
+    print(f"==>> cspace_adjm_straight: \n{cspace_adjm_straight}")
     # ------- End Compute Initial Cost ----------------------------------
 
     # ------- Queuing System ------------------------------------
@@ -633,6 +646,15 @@ if __name__ == "__main__":
                 path[:, 1],
                 linewidth=2,
             )
+        for i in range(Q_reachable.shape[0]):
+            for j in range(i + 1, Q_reachable.shape[0]):
+                if cspace_adjm_straight[i, j]:
+                    ax.plot(
+                        [Q_reachable[i, 0], Q_reachable[j, 0]],
+                        [Q_reachable[i, 1], Q_reachable[j, 1]],
+                        "b--",
+                        alpha=0.5,
+                    )
         ax.set_aspect("equal", "box")
         ax.set_xlim(-np.pi, np.pi)
         ax.set_ylim(-np.pi, np.pi)

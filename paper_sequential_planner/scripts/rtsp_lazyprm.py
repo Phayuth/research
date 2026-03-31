@@ -381,7 +381,6 @@ if __name__ == "__main__":
     # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
     # estor = RTSPLazyPRMEstimator(
     #     scene.collision_checker,
-    #   ,
     #     lmts=lmts,
     # )
     lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])

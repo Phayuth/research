@@ -318,6 +318,4 @@ def allnode_RGG_sparse_robot():
 
 
 if __name__ == "__main__":
-    # allnode_RGG_sparse()
     allnode_RGG_sparse_robot()
-    # allnode_RGG_sparse_3d()

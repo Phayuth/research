@@ -81,6 +81,7 @@ cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
 print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
 print(f"==>> cspace_task_min: \n{cspace_task_min}")
 
+
 raise
 
 (

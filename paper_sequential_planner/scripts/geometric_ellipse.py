@@ -142,6 +142,7 @@ def isPointinEllipse(ecx, ecy, ela, elb, eRM, px, py):
     else:
         return False
 
+
 def isPointinEllipseBulk(ecx, ecy, ela, elb, eRM, points):
     ellipsoidCenter = np.array([ecx, ecy]).reshape(2, 1)
     ellipsoidAxis = np.array([ela, elb]).reshape(2, 1)
@@ -151,6 +152,7 @@ def isPointinEllipseBulk(ecx, ecy, ela, elb, eRM, points):
     midsq = mid**2
     eq = np.sum(midsq, axis=0)
     return eq <= 1.0
+
 
 #
 def sampling_circle_in_jointlimit(roffset, dof=2):
@@ -319,6 +321,73 @@ def get_2d_circle_mplpatch(qcenter, r):
 def interplolate_line(q1, q2, n=10):
     path = np.linspace(q1, q2, n)
     return path
+
+
+def ellipsoid_size_ratio():
+    dof = 2  # degrees of freedom for the configuration space
+    xStart = np.array([-0.5] * dof).reshape(-1, 1)
+    xGoal = np.array([0.5] * dof).reshape(-1, 1)
+    cmin_mulpr = np.linspace(1, 5, num=10, endpoint=True)
+    cMin = np.linalg.norm(xGoal - xStart)
+    cMaxs = cmin_mulpr * cMin
+    perc = 100 * (cMaxs - cMin) / cMin
+
+    for i in range(len(cMaxs)):
+        print(
+            f"cMax: {cMaxs[i]:.2f}, Max/Min: {cMaxs[i]/cMin:.2f} |{perc[i]:.2f}%"
+        )
+
+    # plot
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.plot(xStart[0], xStart[1], marker="o", color="blue", label="Start")
+    ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
+    for cMax in cMaxs:
+        el = get_2d_ellipse_informed_mplpatch(xStart, xGoal, cMax)
+        ax.add_patch(el)
+    ax.set_aspect("equal", "box")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.grid(True)
+    ax.legend()
+    ax.set_title("Informed Sampling in 2D Ellipse")
+    plt.show()
+
+
+def sampling_xstartgoal_dataset_():
+    dof = 2
+    Rbest = 1.0
+    cMax = 2 * Rbest
+    cmin = 1.0
+    ndata = 5
+    shape = (ndata, dof + dof)
+    Qcircle = np.empty(shape=(ndata, dof))
+    Qrand = np.empty(shape=shape)
+    for i in range(ndata):
+        qcenter = sampling_circle_in_jointlimit(Rbest, dof)
+        Qcircle[i, :] = qcenter.ravel()
+        qs, qe = sampling_Xstartgoal(qcenter.reshape(-1, 1), Rbest, cmin, dof)
+        Qrand[i, 0:dof] = qs.ravel()
+        Qrand[i, dof : dof + dof] = qe.ravel()
+
+    fig, ax = plt.subplots(1, 1)
+    for i in range(ndata):
+        qcenter = Qcircle[i, :].reshape(-1, 1)
+        qs = Qrand[i, 0:dof].reshape(-1, 1)
+        qe = Qrand[i, dof : dof + dof].reshape(-1, 1)
+
+        ax.plot(qs[0], qs[1], marker="o", color="blue")
+        ax.plot(qe[0], qe[1], marker="o", color="green")
+        e = get_2d_ellipse_informed_mplpatch(qs, qe, cMax)
+        ax.add_patch(e)
+        c = get_2d_circle_mplpatch(qcenter, Rbest)
+        ax.add_patch(c)
+
+    ax.set_aspect("equal", "box")
+    ax.set_xlim(-np.pi, np.pi)
+    ax.set_ylim(-np.pi, np.pi)
+    ax.grid(True)
+    ax.set_title("Dataset of Start and Goal Sampling in Informed Ellipses")
+    plt.show()
 
 
 # -------------------------------------------------------------------------------

@@ -183,6 +183,22 @@ class RTSP:
         )
 
     @staticmethod
+    def initial_estimate(Q_reachable, edge_collsion_checker):
+        """
+        Initial estimation of the cost between q pairs.
+        Check straight line connection for each q pair.
+        If collision free, we don't need to call expensive estimator.
+        """
+        n = Q_reachable.shape[0]
+        straight_valid = np.zeros((n, n), dtype=bool)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if not edge_collsion_checker(Q_reachable[i], Q_reachable[j]):
+                    straight_valid[i, j] = True
+                    straight_valid[j, i] = True
+        return straight_valid
+
+    @staticmethod
     def postprocess(tourid, Q_reachable, colfree_planner):
         """
         After getting the tour id and q tour, plan collision free path
