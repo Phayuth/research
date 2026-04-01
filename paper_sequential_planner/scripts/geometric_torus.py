@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from itertools import product
 
 
@@ -95,6 +96,14 @@ def find_alt_config(
 def find_alt_config2(q, configLimit, configConstrict=None, filterOriginalq=False):
     """
     The row vector version of find_alt_config. The output is in row vector format as well.
+    >>> q2 = np.array([3.1, 1.0])
+    >>> limt2 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    gg = find_alt_config2(q2, limt2, filterOriginalq=False)
     """
     qw = wrap_to_pi(q)
     qcomb = np.array(
@@ -149,24 +158,19 @@ def minimum_dist_torus(qa, qb):
     return np.linalg.norm(deltat)
 
 
-if __name__ == "__main__":
-    q2 = np.array([3.1, 1.0]).reshape(2, 1)
-    limt2 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    gg = find_alt_config(q2, limt2, filterOriginalq=False)
-    ww = find_alt_config2(q2.flatten(), limt2, filterOriginalq=False)
-    print(f"==>> gg: \n{gg}")
-    print("".center(50, "-"))
-    print(f"==>> ww: \n{ww}")
+def find_alt_config_redudancy(Q1, Q2):
+    D = nan_euclidean_distances(Q1, Q2)
+    print(f"==>> D: \n{D}")
+    u = np.unique(D)
+    print(f"==>> u: \n{u}")
 
-    Q = np.array(
-        [
-            [0.0, 0.0],
-            [3.1, 1.0],
-            [-3.1, 1.0],
-        ]
-    )
+
+if __name__ == "__main__":
+    q1 = np.array([3.1, 0.1])
+    q2 = np.array([3.1, 1.0])
+    l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+    Q1 = find_alt_config2(q1, l)
+    Q2 = find_alt_config2(q2, l)
+    print("Q1: \n", Q1)
+    print("Q2: \n", Q2)
+    redundancy = find_alt_config_redudancy(Q1, Q2)

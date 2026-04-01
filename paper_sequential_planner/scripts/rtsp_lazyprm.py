@@ -370,6 +370,45 @@ class RTSPLazyPRMEstimatorExtended(RTSPLazyPRMEstimator):
         self.graph = self.build_graph(k=10, dist_thres=0.5)
 
 
+class RTSPLazyPRMSparseEstimator(RTSPLazyPRMEstimator):
+
+    def __init__(self, collision_checker, lmts=None):
+        super().__init__(collision_checker, lmts)
+
+    def samples(self, num_samples):
+        Qrand = np.random.uniform(
+            self.lmts[:, 0],
+            self.lmts[:, 1],
+            size=(num_samples, self.lmts.shape[0]),
+        )
+        Qrandstat = np.zeros((num_samples, 1))
+        for i in range(num_samples):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+
+        Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        Qrandcols = Qrand[Qrandstat.flatten() == 1]
+
+        # sparsify nodes
+        Qrandfree_sparse = sparsify_nodes(Qrandfree, eps=0.05 * 2 * np.pi)
+        Qrandcols_sparse = sparsify_nodes(Qrandcols, eps=0.05 * 2 * np.pi)
+
+        if self.Qrandfree is None:
+            self.Qrandfree = Qrandfree_sparse
+            self.Qrandcols = Qrandcols_sparse
+        else:
+            self.Qrandfree = np.vstack([self.Qrandfree, Qrandfree_sparse])
+            self.Qrandcols = np.vstack([self.Qrandcols, Qrandcols_sparse])
+
+        # rebuild kdtree, graph with new samples
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=10, dist_thres=0.5)
+
+
 if __name__ == "__main__":
     from paper_sequential_planner.experiments.env_planarrr import (
         PlanarRR,
