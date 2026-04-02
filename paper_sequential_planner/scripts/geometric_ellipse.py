@@ -27,6 +27,14 @@ def informed_sampling_bulk(xStart, xGoal, cMax, numsample):
     return xRand.T
 
 
+def informed_sampling_ellipse(xStart, xGoal, cMax):
+    xCenter = (xStart + xGoal) / 2
+    rotationAxisC = rotation_to_world(xStart, xGoal)
+    cMin = np.linalg.norm(xGoal - xStart)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin)
+    return xCenter, rotationAxisC, L, cMin
+
+
 def informed_surface_sampling_bulk(xStart, xGoal, cMax, numsample):
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
@@ -149,6 +157,29 @@ def isPointinEllipseBulk(ecx, ecy, ela, elb, eRM, points):
     pointCheck = points.T - ellipsoidCenter
     pointCheckRotateBack = eRM.T @ pointCheck
     mid = pointCheckRotateBack / ellipsoidAxis
+    midsq = mid**2
+    eq = np.sum(midsq, axis=0)
+    return eq <= 1.0
+
+
+def isPointinEllipseBulk2(xCenter, rotationAxisC, L, points):
+    """
+    >>> p1 = (4.58, 1.14)
+    >>> p2 = (0.0, 0.0)
+    >>> p3 = (4.0, 3.8)
+    >>> p4 = (-2.5, 6.4)
+    >>> points = np.array([p1, p2, p3, p4])
+    >>> xstart = np.array([-2, 0]).reshape(2, 1)
+    >>> xgoal = np.array([4.0, 0]).reshape(2, 1)
+    >>> cMax = 1.5 * np.linalg.norm(xgoal - xstart)
+    >>> xCenter, rotationAxisC, L, cMin = informed_sampling_ellipse(
+        xstart, xgoal, cMax
+    )
+    >>> states2 = isPointinEllipseBulk2(xCenter, rotationAxisC, L, points)
+    """
+    pointCheck = points.T - xCenter
+    pointCheckRotateBack = rotationAxisC.T @ pointCheck
+    mid = pointCheckRotateBack / np.diag(L).reshape(-1, 1)
     midsq = mid**2
     eq = np.sum(midsq, axis=0)
     return eq <= 1.0
@@ -457,35 +488,3 @@ def sorting_sampling_():
 
 if __name__ == "__main__":
     sorting_sampling_()
-
-    theta = 1.0
-    rM = np.array(
-        [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
-    )
-    ellipse = (0, 4, 5, 3, rM)
-    p1 = (4.58, 1.14)
-    p2 = (0.0, 0.0)
-    p3 = (4.0, 3.8)
-    p4 = (-2.5, 6.4)
-    points = np.array([p1, p2, p3, p4])
-    states = isPointinEllipseBulk(*ellipse, points)
-
-    fig, ax = plt.subplots()
-    ax.set_aspect("equal", "box")
-    ax.grid()
-    e = patches.Ellipse(
-        (ellipse[0], ellipse[1]),
-        width=ellipse[2] * 2,
-        height=ellipse[3] * 2,
-        angle=np.degrees(np.arctan2(ellipse[4][1, 0], ellipse[4][0, 0])),
-        fill=False,
-        edgecolor="red",
-        linewidth=2,
-    )
-    ax.add_patch(e)
-    ax.scatter(p1[0], p1[1], color="red", label=f"p1, state: {states[0]}")
-    ax.scatter(p2[0], p2[1], color="blue", label=f"p2, state: {states[1]}")
-    ax.scatter(p3[0], p3[1], color="green", label=f"p3, state: {states[2]}")
-    ax.scatter(p4[0], p4[1], color="orange", label=f"p4, state: {states[3]}")
-    ax.legend()
-    plt.show()

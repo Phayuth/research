@@ -22,6 +22,59 @@ def build_graph(points, k, dist_thres=np.inf):
     return graph, kdtree
 
 
+def sparsify_nodes(points, eps):
+    tree = KDTree(points)
+    keep = np.ones(len(points), dtype=bool)
+
+    for i, p in enumerate(points):
+        if not keep[i]:
+            continue
+        idx = tree.query_ball_point(p, eps)
+        for j in idx:
+            if j != i:
+                keep[j] = False
+
+    return points[keep]
+
+
+def prune_edges_triangle(graph, points, delta=0.1):
+    new_graph = {i: [] for i in graph}
+
+    for u in graph:
+        for v, d_uv in graph[u]:
+            keep = True
+
+            for w, d_uw in graph[u]:
+                if w == v:
+                    continue
+
+                # check if w connects to v
+                for x, d_wv in graph[w]:
+                    if x == v:
+                        if d_uw + d_wv <= (1 + delta) * d_uv:
+                            keep = False
+                        break
+
+                if not keep:
+                    break
+
+            if keep:
+                new_graph[u].append((v, d_uv))
+
+    return new_graph
+
+
+def graph_mid_point_collision_prune(graph, points, collision_checker):
+    new_graph = {i: [] for i in graph}
+    for u in graph:
+        for v, d_uv in graph[u]:
+            # d = np.linalg.norm(points[u] - points[v])
+            mid_point = (points[u] + points[v]) / 2
+            if not collision_checker(mid_point):
+                new_graph[u].append((v, d_uv))
+    return new_graph
+
+
 def dijkstra_all_paths(graph, root):
     dist = {node: float("inf") for node in graph}
     parent = {node: None for node in graph}
@@ -265,6 +318,31 @@ class RTSPLazyPRMEstimator:
         self.kdt = KDTree(self.Qrandfree)
         self.graph = self.build_graph(k=10, dist_thres=0.5)
 
+    def samples_sparse(self, num_samples, eps):
+        Qrand = np.random.uniform(
+            self.lmts[:, 0],
+            self.lmts[:, 1],
+            size=(num_samples, self.lmts.shape[0]),
+        )
+        Qrandstat = np.zeros((num_samples, 1))
+        for i in range(num_samples):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+        self.Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        self.Qrandcols = Qrand[Qrandstat.flatten() == 1]
+        self.Qrandfree = sparsify_nodes(self.Qrandfree, eps)
+
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=5)
+        self.graph = prune_edges_triangle(self.graph, self.Qrandfree, delta=0.1)
+        self.graph = graph_mid_point_collision_prune(
+            self.graph, self.Qrandfree, self.collision_checker
+        )
+
     def build_graph(self, k, dist_thres=np.inf):
         graph = {i: [] for i in range(len(self.Qrandfree))}
         for i, p in enumerate(self.Qrandfree):
@@ -369,13 +447,7 @@ class RTSPLazyPRMEstimatorExtended(RTSPLazyPRMEstimator):
         self.kdt = KDTree(self.Qrandfree)
         self.graph = self.build_graph(k=10, dist_thres=0.5)
 
-
-class RTSPLazyPRMSparseEstimator(RTSPLazyPRMEstimator):
-
-    def __init__(self, collision_checker, lmts=None):
-        super().__init__(collision_checker, lmts)
-
-    def samples(self, num_samples):
+    def samples_sparse(self, num_samples, eps):
         Qrand = np.random.uniform(
             self.lmts[:, 0],
             self.lmts[:, 1],
@@ -392,21 +464,33 @@ class RTSPLazyPRMSparseEstimator(RTSPLazyPRMEstimator):
 
         Qrandfree = Qrand[Qrandstat.flatten() == 0]
         Qrandcols = Qrand[Qrandstat.flatten() == 1]
+        Qrandfree = sparsify_nodes(Qrandfree, eps)
 
-        # sparsify nodes
-        Qrandfree_sparse = sparsify_nodes(Qrandfree, eps=0.05 * 2 * np.pi)
-        Qrandcols_sparse = sparsify_nodes(Qrandcols, eps=0.05 * 2 * np.pi)
+        numext_per_q = 4
+        Qrandfree_ext = np.zeros(
+            (Qrandfree.shape[0] * numext_per_q, Qrandfree.shape[1])
+        )
+        Qrandcols_ext = np.zeros(
+            (Qrandcols.shape[0] * numext_per_q, Qrandcols.shape[1])
+        )
+        for i in range(Qrandfree.shape[0]):
+            q = Qrandfree[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandfree_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
+        for i in range(Qrandcols.shape[0]):
+            q = Qrandcols[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandcols_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
 
-        if self.Qrandfree is None:
-            self.Qrandfree = Qrandfree_sparse
-            self.Qrandcols = Qrandcols_sparse
-        else:
-            self.Qrandfree = np.vstack([self.Qrandfree, Qrandfree_sparse])
-            self.Qrandcols = np.vstack([self.Qrandcols, Qrandcols_sparse])
+        self.Qrandfree = Qrandfree_ext
+        self.Qrandcols = Qrandcols_ext
 
-        # rebuild kdtree, graph with new samples
         self.kdt = KDTree(self.Qrandfree)
-        self.graph = self.build_graph(k=10, dist_thres=0.5)
+        self.graph = self.build_graph(k=5)
+        self.graph = prune_edges_triangle(self.graph, self.Qrandfree, delta=0.1)
+        self.graph = graph_mid_point_collision_prune(
+            self.graph, self.Qrandfree, self.collision_checker
+        )
 
 
 if __name__ == "__main__":
@@ -417,21 +501,28 @@ if __name__ == "__main__":
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
+
+    # pi space
     # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
     # estor = RTSPLazyPRMEstimator(
     #     scene.collision_checker,
     #     lmts=lmts,
     # )
+
+    # 2pi space
     lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     estor = RTSPLazyPRMEstimatorExtended(
         scene.collision_checker,
         lmts=lmts2,
     )
-    estor.samples(1000)  # add more samples to improve connectivity
-    estor.print_info()
-    estor.samples(1000)  # add more samples to improve connectivity
+
+    # sample and build graph
+    # estor.samples(1000)
+    # estor.print_info()
+    estor.samples_sparse(1000, eps=0.05 * 2 * np.pi)
     estor.print_info()
 
+    # search path
     qs = np.array([0.15, 0.60])
     qgs = np.array(
         [
@@ -448,6 +539,8 @@ if __name__ == "__main__":
         print(f"Estimated path {i+1} cost: {cost}")
 
     fig, ax = plt.subplots()
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
     ax.scatter(
         estor.Qrandfree[:, 0],
         estor.Qrandfree[:, 1],
@@ -462,6 +555,14 @@ if __name__ == "__main__":
         s=10,
         label="Collision Samples",
     )
+    for i, neighbors in estor.graph.items():
+        for j, _ in neighbors:
+            ax.plot(
+                [estor.Qrandfree[i, 0], estor.Qrandfree[j, 0]],
+                [estor.Qrandfree[i, 1], estor.Qrandfree[j, 1]],
+                "r--",
+                alpha=0.1,
+            )
     for i, path in enumerate(paths):
         ax.plot(
             path[:, 0],
