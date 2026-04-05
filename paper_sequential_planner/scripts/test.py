@@ -1,4 +1,5 @@
 # sampling technique to do node sparsification
+# all these sampling techniques is a bit expensive
 # Poisson disk / blue-noise sampling
 # Farthest Point Sampling (FPS) / Max-min sampling / downsample
 # Adaptive / density-aware sparsification
@@ -10,12 +11,59 @@ import matplotlib.pyplot as plt
 import trimesh
 import os
 from paper_sequential_planner.scripts.geometric_ellipse import *
+from paper_sequential_planner.scripts.rtsp_lazyprm import *
+import fpsample
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+
+
+def sparsify_nodes(points, eps):
+    tree = KDTree(points)
+    keep = np.ones(len(points), dtype=bool)
+
+    for i, p in enumerate(points):
+        if not keep[i]:
+            continue
+        idx = tree.query_ball_point(p, eps)
+        for j in idx:
+            if j != i:
+                keep[j] = False
+
+    return points[keep]
+
+
+def point_knn_sparse():
+    points = np.random.rand(10, 2)
+    new_points = np.random.rand(20, 2)
+    eps = 0.05
+    k = 6
+    delta = 0.1
+
+    tree = KDTree(points)
+    pn = tree.query_ball_point(new_points, eps)
+    keepbool = np.array([len(neighbors) == 0 for neighbors in pn])
+    pkeeps = new_points[keepbool]
+
+    fig, ax = plt.subplots()
+    ax.scatter(points[:, 0], points[:, 1], s=50, label="Existing")
+    ax.scatter(new_points[:, 0], new_points[:, 1], s=50, label="New")
+    ax.scatter(
+        pkeeps[:, 0],
+        pkeeps[:, 1],
+        s=100,
+        facecolors="none",
+        edgecolors="r",
+        label="Kept",
+    )
+    ax.set_title("Before filtering")
+    ax.set_aspect("equal")
+    ax.legend()
+    plt.grid()
+    plt.show()
 
 
 def poisson_disk2():
@@ -74,9 +122,6 @@ def poisson_disk2():
     plt.show()
 
 
-poisson_disk2()
-
-
 def poisson_disk3():
     # Poisson disk sampling 3d
     # r = 0.05 -> shape (4713, 3) filled in unit cube
@@ -96,7 +141,13 @@ def poisson_disk3():
     scene.show()
 
 
-def poisson_disk6():
+def poisson_disk_highdim():
+    radius = 0.05
+    engine = qmc.PoissonDisk(d=4, radius=radius)
+    Xrand4d = engine.random(100000)
+    Xrand4d = Xrand4d * 2 * 0.5 - 0.5  # scale to [-0.5, 0.5]
+    print(f"==>> Xrand4d.shape: \n{Xrand4d.shape}")
+
     # Poisson disk sampling 6d
     # Unable to allocate 309. GiB for an array with shape (49, 49, 49, 49, 49, 49, 6) and data type float32
     radius = 0.05
@@ -106,37 +157,184 @@ def poisson_disk6():
     print(f"==>> Xrand6d.shape: \n{Xrand6d.shape}")
 
 
-#
-# kdt = KDTree(points)
-# dists, indices = kdt.query(points_sparse, distance_upper_bound=0.05 * 2 * np.pi)
-# print(f"==>> dists: \n{dists}")
-# print(f"==>> indices: \n{indices}")
+def fpsample_2test():
+    pc = np.random.rand(4096, 3) * 2 - 1  # scale to [-1, 1]
+    kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 1024)
+    pc_fps = pc[kdtree_fps_samples_idx]
+    pc_sparse = sparsify_nodes(pc_fps, eps=0.2)
+
+    print(f"==>> pc.shape: \n{pc.shape}")
+    print(f"==>> pc_fps.shape: \n{pc_fps.shape}")
+    print(f"==>> pc_sparse.shape: \n{pc_sparse.shape}")
+
+    fig, ax = plt.subplots()
+    ax.plot(pc[:, 0], pc[:, 1], "ro", markersize=3, label="Original")
+    ax.plot(pc_fps[:, 0], pc_fps[:, 1], "go", markersize=3, label="FPS")
+    ax.plot(pc_sparse[:, 0], pc_sparse[:, 1], "bo", markersize=3, label="Sparse")
+    ax.set_aspect("equal")
+    ax.set_xlim(-1.1, 1.1)
+    ax.set_ylim(-1.1, 1.1)
+    ax.legend()
+    plt.show()
 
 
-# points = np.random.rand(10, 2)
-# new_points = np.random.rand(20, 2)
-# eps = 0.05
-# k = 6
-# delta = 0.1
+def fpsample_3test():
+    pc = np.random.rand(4096, 3) * 2 - 1  # scale to [-1, 1]
+    kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 1024)
+    pc_fps = pc[kdtree_fps_samples_idx]
+    pc_sparse = sparsify_nodes(pc_fps, eps=0.2)
 
-# tree = KDTree(points)
-# pn = tree.query_ball_point(new_points, eps)
-# keepbool = np.array([len(neighbors) == 0 for neighbors in pn])
-# pkeeps = new_points[keepbool]
+    print(f"==>> pc.shape: \n{pc.shape}")
+    print(f"==>> pc_fps.shape: \n{pc_fps.shape}")
+    print(f"==>> pc_sparse.shape: \n{pc_sparse.shape}")
 
-# fig, ax = plt.subplots()
-# ax.scatter(points[:, 0], points[:, 1], s=50, label="Existing")
-# ax.scatter(new_points[:, 0], new_points[:, 1], s=50, label="New")
-# ax.scatter(
-#     pkeeps[:, 0],
-#     pkeeps[:, 1],
-#     s=100,
-#     facecolors="none",
-#     edgecolors="r",
-#     label="Kept",
-# )
-# ax.set_title("Before filtering")
-# ax.set_aspect("equal")
-# ax.legend()
-# plt.grid()
-# plt.show()
+    kdline_fps_samples_idx = fpsample.bucket_fps_kdline_sampling(pc, 1024, h=3)
+    pc_fps = pc[kdline_fps_samples_idx]
+
+    scene = trimesh.Scene()
+    axis = trimesh.creation.axis(origin_size=0.05, axis_length=0.5)
+    box = trimesh.creation.box(extents=(1, 1, 1))
+    box.visual.face_colors = [100, 150, 255, 40]
+    scene.add_geometry(box)
+    scene.add_geometry(axis)
+
+    pc = trimesh.points.PointCloud(pc, colors=[255, 0, 0, 255])
+    scene.add_geometry(pc)
+    pc_fps = trimesh.points.PointCloud(pc_fps, colors=[0, 255, 0, 255])
+    scene.add_geometry(pc_fps)
+    scene.show()
+
+
+def fpsample_highdim():
+    pc = np.random.rand(2000000, 6) * 2 - 1  # scale to [-1, 1]
+    kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 100000)
+    pc_fps = pc[kdtree_fps_samples_idx]
+    print(f"==>> pc.shape: \n{pc.shape}")
+    print(f"==>> pc_fps.shape: \n{pc_fps.shape}")
+
+
+# point_knn_sparse()
+# poisson_disk2()
+# poisson_disk3()
+# poisson_disk_highdim()
+# fpsample_2test()
+# fpsample_3test()
+# fpsample_highdim()
+
+# raise
+
+
+class RTSPLazyPRMPoissonDisk(RTSPLazyPRMEstimator):
+
+    def __init__(self, collision_checker, lmts=None):
+        super().__init__(collision_checker, lmts)
+
+    def samples_sparse(self, num_samples=500):
+        dof = self.lmts.shape[0]
+        radius = 0.05
+        engine = qmc.PoissonDisk(d=dof, radius=radius)
+        Qrand = engine.random(num_samples)
+        Qrand = Qrand * 2 * np.pi - np.pi  # scale to [-pi, pi]
+        numfilled = Qrand.shape[0]
+        Qrandstat = np.zeros((numfilled, 1))
+        for i in range(numfilled):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+        self.Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        self.Qrandcols = Qrand[Qrandstat.flatten() == 1]
+
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=5)
+        self.graph = prune_edges_triangle(self.graph, self.Qrandfree, delta=0.1)
+        self.graph = graph_mid_point_collision_prune(
+            self.graph, self.Qrandfree, self.collision_checker
+        )
+
+
+if __name__ == "__main__":
+    from paper_sequential_planner.experiments.env_planarrr import (
+        PlanarRR,
+        RobotScene,
+    )
+
+    robot = PlanarRR()
+    scene = RobotScene(robot, None)
+
+    # pi space
+    lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+    estor = RTSPLazyPRMPoissonDisk(
+        scene.collision_checker,
+        lmts=lmts,
+    )
+
+    # sample and build graph
+    estor.samples_sparse(500)
+    estor.print_info()
+
+    # search path
+    qs = np.array([0.15, 0.60])
+    qgs = np.array(
+        [
+            [2.5, 1.5],
+            [1.5, 2.5],
+            [-2.5, -2.5],
+            [-2.5, 2.5],
+            [2.5, -2.5],
+            [-1.5, 0.0],
+        ]
+    )
+    paths, costs = estor.estimate_shortest_path_bulk(qs, qgs)
+    for i, (path, cost) in enumerate(zip(paths, costs)):
+        print(f"Estimated path {i+1} cost: {cost}")
+
+    fig, ax = plt.subplots()
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+    ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
+    ax.scatter(
+        estor.Qrandfree[:, 0],
+        estor.Qrandfree[:, 1],
+        color="blue",
+        s=10,
+        label="Free Samples",
+    )
+    ax.scatter(
+        estor.Qrandcols[:, 0],
+        estor.Qrandcols[:, 1],
+        color="red",
+        s=10,
+        label="Collision Samples",
+    )
+    for i, neighbors in estor.graph.items():
+        for j, _ in neighbors:
+            ax.plot(
+                [estor.Qrandfree[i, 0], estor.Qrandfree[j, 0]],
+                [estor.Qrandfree[i, 1], estor.Qrandfree[j, 1]],
+                "r--",
+                alpha=0.1,
+            )
+    for i, path in enumerate(paths):
+        ax.plot(
+            path[:, 0],
+            path[:, 1],
+            linewidth=2,
+            label=f"Estimated Shortest Path {i+1}",
+        )
+    ax.scatter(qs[0], qs[1], color="cyan", marker="*", s=100, label="Start")
+    for i, qg in enumerate(qgs):
+        ax.scatter(
+            qg[0],
+            qg[1],
+            marker="*",
+            s=100,
+            label=f"Goal {i+1}",
+        )
+    ax.set_xlabel("x1")
+    ax.set_ylabel("x2")
+    ax.set_aspect("equal")
+    ax.set_title("Estimated Shortest Path in 2D Space")
+    ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+    plt.show()

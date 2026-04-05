@@ -120,11 +120,13 @@ class RobotUR5eKin:
     def solve_jacobian(self, q):
         return self.bot_rtb.jacob0(q)
 
+    @staticmethod
     def _convert_urdf_to_dh_frame(H):
         "from our design task in urdf frame to dh frame"
         Hdh_to_urdf = SE3.Rz(np.pi).A
         return np.linalg.inv(Hdh_to_urdf) @ H
 
+    @staticmethod
     def _convert_dh_to_urdf_frame(H):
         "from dh frame to our design task in urdf frame"
         Hdh_to_urdf = SE3.Rz(np.pi).A
@@ -793,7 +795,7 @@ def generate_linear_dual_side_tasks_transformation():
     Hlist = H1 + H2 + H3 + H4
     H1list = []
     for h in Hlist:
-        H1list.append(convert_urdf_to_dh_frame(h))
+        H1list.append(RobotUR5eKin._convert_urdf_to_dh_frame(h))
     return Hlist + H1list
 
 

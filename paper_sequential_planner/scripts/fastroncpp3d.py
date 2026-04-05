@@ -22,36 +22,38 @@ fcpp.active_learning()
 fcpp.update_model()
 alpha, Gram, data_support_points = fcpp.get_params()
 
-# plot
-size = 360
-q1 = np.linspace(-np.pi, np.pi, size)
-q2 = np.linspace(-np.pi, np.pi, size)
-q3 = np.linspace(-np.pi, np.pi, size)
-XX, YY, ZZ = np.meshgrid(q1, q2, q3)
-Q = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
-Y = fcpp.fastron.eval(Q)
-datafastron = np.column_stack([Q, Y])
-gt_collision = dataset[dataset[:, 3] == 1][:, :3]
-ft_collision = datafastron[datafastron[:, 3] == 1][:, :3]
-train_point = dataset_samples[:, :3]
+# # plot
+# size = 360
+# q1 = np.linspace(-np.pi, np.pi, size)
+# q2 = np.linspace(-np.pi, np.pi, size)
+# q3 = np.linspace(-np.pi, np.pi, size)
+# XX, YY, ZZ = np.meshgrid(q1, q2, q3)
+# Q = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
+# Y = fcpp.fastron.eval(Q)
+# datafastron = np.column_stack([Q, Y])
+# gt_collision = dataset[dataset[:, 3] == 1][:, :3]
+# ft_collision = datafastron[datafastron[:, 3] == 1][:, :3]
+# train_point = dataset_samples[:, :3]
 
-xtest = dataset[:, :3]
-ytest = dataset[:, 3]
-fcpp.accuracy(xtest, ytest)
+# xtest = dataset[:, :3]
+# ytest = dataset[:, 3]
+# fcpp.accuracy(xtest, ytest)  #  88.82%
 
-sc = trimesh.Scene()
-Qfree = dataset[dataset[:, -1] == 0][:, :3]
-Qcoll = dataset[dataset[:, -1] == 1][:, :3]
+# Qfree = dataset[dataset[:, -1] == 0][:, :3]
+# Qcoll = dataset[dataset[:, -1] == 1][:, :3]
+
+scene = trimesh.Scene()
 axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
 box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
 box.visual.face_colors = [100, 150, 255, 40]
-scene = trimesh.Scene()
+pp = trimesh.load_path(box.vertices[box.edges_unique])
 scene.add_geometry(box)
 scene.add_geometry(axis)
+scene.add_geometry(pp)
 # Qr = trimesh.points.PointCloud(Qcoll, colors=[255, 0, 0, 255])
 # scene.add_geometry(Qr)
-Qfastron = trimesh.points.PointCloud(ft_collision, colors=[0, 0, 255, 255])
-scene.add_geometry(Qfastron)
+# Qfastron = trimesh.points.PointCloud(ft_collision, colors=[0, 0, 255, 255])
+# scene.add_geometry(Qfastron)
 # Qtrain = trimesh.points.PointCloud(train_point, colors=[0, 255, 0, 255])
 # scene.add_geometry(Qtrain)
 Qsupport = trimesh.points.PointCloud(data_support_points, colors=[0, 0, 0, 255])

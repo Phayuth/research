@@ -1,6 +1,13 @@
 from paper_sequential_planner.experiments.env_planarrr import *
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
+from paper_sequential_planner.scripts.geometric_poses import (
+    Hlist_to_Xlist,
+    Xlist_to_Hlist,
+    xlist_to_Xlist,
+    se3_error,
+    se3_error_pairwise_distance,
+)
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -11,7 +18,7 @@ scene = RobotScene(robot, None)
 if ompl_available:
     planner = OMPLPlanner(scene.collision_checker)
 
-ntasks = 30
+ntasks = 100
 X = sample_reachable_wspace(ntasks)  # (ntasks, 2)
 Qaik = wspace_ik_extended(robot, X)  # (ntasks, n_ik * altcnf, dof)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, n_ik * altcnf, 1)
@@ -22,11 +29,16 @@ X_r = X[~X_isunr]  # (ntasks_rech, 2)
 Qaik_valid_r = Qaik_valid[~X_isunr]  # (ntasks_rech, n_ik * altcnf, 1)
 Qaik_r = Qaik[~X_isunr]  # (ntasks_rech, n_ik * altcnf, dof)
 Qaik_r = np.where(Qaik_valid_r == 1, Qaik_r, np.nan)  # set value to nan if invalid
+print(f"==>> Qaik_r.shape: \n{Qaik_r.shape}")
 
-# distance, on taskspace
-tspace_dist = euclidean_distances(X_r)  # (ntasks_rech, ntasks_rech)
+# taskspace distance
+X_r_full = xlist_to_Xlist(X_r)  # (ntasks_rech, 6)
+H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
+tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
+print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 
-# distance, on cspace, by best IK pairing -> shape (ntasks_rech, ntasks_rech, n_ik * altcnf, n_ik * altcnf)
+# cspace distance by IK pairing
+# shape (ntasks_rech, ntasks_rech, n_ik * altcnf, n_ik * altcnf)
 # accessing same id will give us dist to itself, which we dont need.
 # always access different task id to get task-to-task distance, which we need
 ntasks_rech, n_ik, dof = Qaik_r.shape
@@ -34,11 +46,42 @@ _Qflat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
 _cspace_dist_flat = nan_euclidean_distances(_Qflat, _Qflat)
 cspace_dist = _cspace_dist_flat.reshape(ntasks_rech, n_ik, ntasks_rech, n_ik)
 cspace_dist = cspace_dist.transpose(0, 2, 1, 3)
+print(f"==>> cspace_dist.shape: \n{cspace_dist.shape}")
 
 # task-to-task distance by best IK pairing -> shape (ntasks_rech, ntasks_rech)
 _cspace_dist_inf = np.where(np.isnan(cspace_dist), np.inf, cspace_dist)
 cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
 cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
+
+
+def task_to_task_configuration_interp(Qaik_r, nintp=10):
+    """
+    Interpolate between all pairs of task-reachable configurations,
+    and set to nan if either of the pair is invalid.
+    final shape (ntasks_rech, ntasks_rech, n_ik, n_ik, nintp, dof)
+    Ex:
+    t0t1q0q0 = interp[0, 1, 0, 0]
+    give us interp bet/ first IK of task0 to first IK of task1.
+    task id should not be the same
+    """
+    ntasks_rech, n_ik, dof = Qaik_r.shape
+    Q1 = Qaik_r[:, None, :, None, None, :]  # (ntasks_rech,1,n_ik,1,1,dof)
+    Q2 = Qaik_r[None, :, None, :, None, :]  # (1,ntasks_rech,1,n_ik,1,dof)
+    tau = np.linspace(0.0, 1.0, nintp, dtype=Qaik_r.dtype)
+    tau = tau[None, None, None, None, :, None]  # (1,1,1,1,nintp,1)
+    # (ntasks_rech,ntasks_rech,n_ik,n_ik,nintp,dof)
+    interp = (1.0 - tau) * Q1 + tau * Q2
+    invalid_cfg = np.isnan(Qaik_r).all(axis=-1)  # (ntasks_rech,n_ik)
+    # (ntasks_rech,ntasks_rech,n_ik,n_ik)
+    invalid_pair = invalid_cfg[:, None, :, None] | invalid_cfg[None, :, None, :]
+    interp = np.where(invalid_pair[..., None, None], np.nan, interp)
+    return interp
+
+
+tt_cspace_interp = task_to_task_configuration_interp(Qaik_r, nintp=10)
+print(f"==>> tt_cspace_interp.shape: \n{tt_cspace_interp.shape}")
+t0t1q0q0 = tt_cspace_interp[0, 1, 0, 0]
+
 
 (
     task_reachable,
@@ -60,20 +103,66 @@ cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
 # print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
 
+def radius_neighbors(D, radius):
+    neighbors = []
+    for i in range(D.shape[0]):
+        idx = np.where(D[i] < radius)[0]
+        idx = idx[idx != i]  # remove self
+        neighbors.append(idx)
+    return neighbors
+
+
+def knn_from_distance(D, k=5):
+    # ignore self-distance by setting diagonal large
+    D = D.copy()
+    np.fill_diagonal(D, np.inf)
+
+    idx = np.argpartition(D, k, axis=1)[:, :k]  # (N, k)
+
+    # optional: sort neighbors by distance
+    row_idx = np.arange(D.shape[0])[:, None]
+    sorted_order = np.argsort(D[row_idx, idx], axis=1)
+    idx = idx[row_idx, sorted_order]
+
+    return idx  # indices of k nearest per row
+
+
+nnr = 0.5
+nnk = 5
+nn_r = radius_neighbors(tspace_dist, radius=nnr)
+nn_k = knn_from_distance(tspace_dist, k=nnk)
+
+
+#
 def visualize():
     fig, ax = plt.subplots(1, 2)
 
     # example of getting task-to-task distance by best IK pairing
-    t1 = 16
-    t2 = 19
-    print(f"==>> tspace_dist[{t1}, {t2}]: \n{tspace_dist[t1, t2]}")
-    print(f"==>> cspace_dist[{t1}, {t2}]: \n{cspace_dist[t1, t2]}")
-    print(f"==>> cspace_task_min[{t1}, {t2}]: \n{cspace_task_min[t1, t2]}")
-
+    t1 = 4
+    t2 = 73
     Xt1 = X_r[t1]
     Xt2 = X_r[t2]
     Qt1r = Qaik_r[t1]
     Qt2r = Qaik_r[t2]
+    neart1 = nn_r[t1]
+    neart2 = nn_r[t2]
+    Xneart1 = X_r[neart1]
+    Xneart2 = X_r[neart2]
+    print(f"==>> neart1: \n{neart1}")
+    print(f"==>> neart2: \n{neart2}")
+
+    print(f"==>> tspace_dist[{t1}, {t2}]: \n{tspace_dist[t1, t2]}")
+    print(f"==>> cspace_dist[{t1}, {t2}]: \n{cspace_dist[t1, t2]}")
+    print(f"==>> cspace_task_min[{t1}, {t2}]: \n{cspace_task_min[t1, t2]}")
+
+    cirt1 = plt.Circle(
+        Xt1, nnr, color="r", fill=False, linestyle="--", label="t1 radius"
+    )
+    cirt2 = plt.Circle(
+        Xt2, nnr, color="r", fill=False, linestyle="--", label="t2 radius"
+    )
+    ax[0].add_artist(cirt1)
+    ax[0].add_artist(cirt2)
 
     # ax0: Workspace
     q0 = np.array([1, -1])
@@ -114,7 +203,7 @@ def visualize():
         Q_reachable[:, 0],
         Q_reachable[:, 1],
         "g*",
-        markersize=10,
+        markersize=5,
         label="Q-reachable",
     )
     for q1 in Qt1r:

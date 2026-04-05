@@ -1,6 +1,7 @@
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from itertools import product
+from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
+import matplotlib.pyplot as plt
 
 
 def map_val(x, inMin, inMax, outMin, outMax):
@@ -159,18 +160,55 @@ def minimum_dist_torus(qa, qb):
 
 
 def find_alt_config_redudancy(Q1, Q2):
+    """
+    Find unique pairs of configurations between two sets of torus space
+    >>> q1 = np.array([3.1, 0.1])
+    >>> q2 = np.array([3.5, 1.0])
+    >>> l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+    >>> Q1 = find_alt_config2(q1, l)
+    >>> Q2 = find_alt_config2(q2, l)
+    >>> unique_colors_ = plt.cm.get_cmap("tab10", len(value))
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
+    >>> ax.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
+    >>> for gi, group in enumerate(pairs_per_value):
+    >>>     for i, j in group:
+    >>>         ax.plot(
+    >>>             [Q1[i, 0], Q2[j, 0]],
+    >>>             [Q1[i, 1], Q2[j, 1]],
+    >>>             "--",
+    >>>             color=unique_colors_(gi),
+    >>>         )
+    >>> ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    >>> ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    >>> ax.set_aspect("equal")
+    >>> ax.legend()
+    >>> plt.show()
+    """
     D = nan_euclidean_distances(Q1, Q2)
-    print(f"==>> D: \n{D}")
-    u = np.unique(D)
-    print(f"==>> u: \n{u}")
+    D = np.round(D, decimals=5)  # round to handle floating-point precision issues
+    value, idx, count = np.unique(D, return_index=True, return_counts=True)
+    D_flat = D.ravel()
+    inv = np.searchsorted(value, D_flat)
+    groups = [np.where(inv == k)[0] for k in range(len(value))]
+    pairs_per_value = [
+        np.column_stack(np.unravel_index(g, D.shape)) for g in groups
+    ]
+    return pairs_per_value
 
 
 if __name__ == "__main__":
     q1 = np.array([3.1, 0.1])
-    q2 = np.array([3.1, 1.0])
+    q2 = np.array([3.5, 1.0])
     l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     Q1 = find_alt_config2(q1, l)
     Q2 = find_alt_config2(q2, l)
     print("Q1: \n", Q1)
     print("Q2: \n", Q2)
     redundancy = find_alt_config_redudancy(Q1, Q2)
+    print("Redundancy groups: \n", redundancy)
+    print("Number of redundancy groups: \n", len(redundancy))
+    for i, group in enumerate(redundancy):
+        print(f"Group {i}: \n{group}")
+        for pair in group:
+            print(f"Pair: Q1 index {Q1[pair[0]]}, Q2 index {Q2[pair[1]]}")

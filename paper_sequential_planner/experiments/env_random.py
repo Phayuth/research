@@ -8,15 +8,6 @@ from paper_sequential_planner.scripts.rtsp_lazyprm import (
     estimate_shortest_path,
 )
 
-# def generate_random_task_transformation():
-#     translation = np.random.uniform(-1, 1, size=(3,))
-#     rotation = np.random.uniform(-np.pi, np.pi, size=(4,))
-#     RR = R.from_quat(rotation)
-#     transformation = np.eye(4)
-#     transformation[:3, :3] = RR.as_matrix()
-#     transformation[:3, 3] = translation
-#     return transformation
-
 
 def sample_reachable_wspace(num_points):
     # x,y,z,qx,qy,qz,qw
@@ -53,6 +44,7 @@ def small_size_problem():
     print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
@@ -61,6 +53,7 @@ def small_size_problem():
         cspace_adjm,
     ) = RTSP.preprocess(H, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
@@ -86,6 +79,7 @@ def mid_size_problem():
     print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
@@ -94,6 +88,7 @@ def mid_size_problem():
         cspace_adjm,
     ) = RTSP.preprocess(H, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
@@ -120,6 +115,7 @@ def large_size_problem():
     print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
@@ -128,6 +124,7 @@ def large_size_problem():
         cspace_adjm,
     ) = RTSP.preprocess(H, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
@@ -154,6 +151,7 @@ def xlarge_size_problem():
     print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
     (
         task_reachable,
+        num_treachable,
         num_qreachable,
         Q_reachable,
         cluster_ttc,
@@ -162,6 +160,7 @@ def xlarge_size_problem():
         cspace_adjm,
     ) = RTSP.preprocess(H, Qaik, Qaik_valid)
     print(f"==>> task_reachable: \n{task_reachable}")
+    print(f"==>> num_treachable: \n{num_treachable}")
     print(f"==>> num_qreachable: \n{num_qreachable}")
     print(f"==>> Q_reachable: \n{Q_reachable}")
     print(f"==>> cluster_ttc: \n{cluster_ttc}")
