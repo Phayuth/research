@@ -91,7 +91,7 @@ class RobotScene:
             "box2": ((0.5, 0.5, 1), (-1.5, 0, 0)),
             "box3": ((0.5, 0.5, 1), (0, 1.5, 0)),
             "box4": ((0.5, 0.5, 1), (0, -1.5, 0)),
-            "box5": ((0.5, 0.5, 1), (0, 0, 1.5)),
+            # "box5": ((0.5, 0.5, 1), (0, 0, 1.5)), # top box
         }
         self.obstacles = []
         for name, (size, pos) in self.boxsize.items():

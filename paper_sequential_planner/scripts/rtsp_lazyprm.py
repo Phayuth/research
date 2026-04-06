@@ -3,7 +3,9 @@ import numpy as np
 import heapq
 import matplotlib.pyplot as plt
 from scipy.spatial import KDTree
+from scipy.stats import qmc
 from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
+import tqdm
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -345,7 +347,12 @@ class RTSPLazyPRMEstimator:
 
     def build_graph(self, k, dist_thres=np.inf):
         graph = {i: [] for i in range(len(self.Qrandfree))}
-        for i, p in enumerate(self.Qrandfree):
+        for i, p in tqdm.tqdm(
+            enumerate(self.Qrandfree),
+            total=len(self.Qrandfree),
+            desc="Building graph",
+        ):
+            # for i, p in enumerate(self.Qrandfree):
             dists, idx = self.kdt.query(p, k + 1, distance_upper_bound=dist_thres)
             for j, d in zip(idx[1:], dists[1:]):
                 if j == len(self.Qrandfree) or np.isinf(d):
@@ -466,7 +473,7 @@ class RTSPLazyPRMEstimatorExtended(RTSPLazyPRMEstimator):
         Qrandcols = Qrand[Qrandstat.flatten() == 1]
         Qrandfree = sparsify_nodes(Qrandfree, eps)
 
-        numext_per_q = 4
+        numext_per_q = 4  # to change to different number of space
         Qrandfree_ext = np.zeros(
             (Qrandfree.shape[0] * numext_per_q, Qrandfree.shape[1])
         )
@@ -493,7 +500,94 @@ class RTSPLazyPRMEstimatorExtended(RTSPLazyPRMEstimator):
         )
 
 
-if __name__ == "__main__":
+class RTSPLazyPRMPoissonDisk(RTSPLazyPRMEstimator):
+
+    def __init__(self, collision_checker, lmts=None):
+        super().__init__(collision_checker, lmts)
+
+    def samples_sparse(self, num_samples=500):
+        dof = self.lmts.shape[0]
+        radius = 0.05
+        engine = qmc.PoissonDisk(d=dof, radius=radius)
+        Qrand = engine.random(num_samples)
+        Qrand = Qrand * 2 * np.pi - np.pi  # scale to [-pi, pi]
+        numfilled = Qrand.shape[0]
+        Qrandstat = np.zeros((numfilled, 1))
+        for i in tqdm.tqdm(range(numfilled), desc="Collision checking samples"):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+        self.Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        self.Qrandcols = Qrand[Qrandstat.flatten() == 1]
+
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=5)
+        self.graph = prune_edges_triangle(self.graph, self.Qrandfree, delta=0.1)
+        self.graph = graph_mid_point_collision_prune(
+            self.graph, self.Qrandfree, self.collision_checker
+        )
+
+
+class RTSPLazyPRMPoissonDiskExtended(RTSPLazyPRMEstimator):
+
+    def __init__(self, collision_checker, lmts=None):
+        super().__init__(collision_checker, lmts)
+
+    def find_numext_per_q(self, q):
+        q_ext = find_alt_config2(q, self.lmts)
+        return q_ext.shape[0]
+
+    def samples_sparse(self, num_samples=500):
+        dof = self.lmts.shape[0]
+        radius = 0.05
+        engine = qmc.PoissonDisk(d=dof, radius=radius)
+        Qrand = engine.random(num_samples)
+        Qrand = Qrand * 2 * np.pi - np.pi  # scale to [-pi, pi]
+        numfilled = Qrand.shape[0]
+        Qrandstat = np.zeros((numfilled, 1))
+        for i in tqdm.tqdm(range(numfilled), desc="Collision checking samples"):
+            q = Qrand[i, :]
+            in_collision = self.collision_checker(q)
+            if in_collision:
+                Qrandstat[i, 0] = 1
+            else:
+                Qrandstat[i, 0] = 0
+        Qrandfree = Qrand[Qrandstat.flatten() == 0]
+        Qrandcols = Qrand[Qrandstat.flatten() == 1]
+
+        numext_per_q = self.find_numext_per_q(Qrandfree[0])
+        Qrandfree_ext = np.zeros(
+            (Qrandfree.shape[0] * numext_per_q, Qrandfree.shape[1])
+        )
+        Qrandcols_ext = np.zeros(
+            (Qrandcols.shape[0] * numext_per_q, Qrandcols.shape[1])
+        )
+        for i in range(Qrandfree.shape[0]):
+            q = Qrandfree[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandfree_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
+        for i in range(Qrandcols.shape[0]):
+            q = Qrandcols[i, :]
+            q_ext = find_alt_config2(q, self.lmts, filterOriginalq=False)
+            Qrandcols_ext[i * numext_per_q : (i + 1) * numext_per_q, :] = q_ext
+
+        self.Qrandfree = Qrandfree_ext
+        self.Qrandcols = Qrandcols_ext
+
+        # tecnically we can just build graph on small space and duplicate to ext
+        # we then repair the edges of space. but for now just build the whole thing
+        self.kdt = KDTree(self.Qrandfree)
+        self.graph = self.build_graph(k=5)
+        self.graph = prune_edges_triangle(self.graph, self.Qrandfree, delta=0.1)
+        self.graph = graph_mid_point_collision_prune(
+            self.graph, self.Qrandfree, self.collision_checker
+        )
+
+
+def test_planarrr():
     from paper_sequential_planner.experiments.env_planarrr import (
         PlanarRR,
         RobotScene,
@@ -502,25 +596,48 @@ if __name__ == "__main__":
     robot = PlanarRR()
     scene = RobotScene(robot, None)
 
-    # pi space
-    # lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
-    # estor = RTSPLazyPRMEstimator(
-    #     scene.collision_checker,
-    #     lmts=lmts,
-    # )
+    options = ["pi_space", "2pi_space", "pi_space_pd", "2pi_space_pd"][-1]
+    if options == "pi_space":
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+        lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+        estor = RTSPLazyPRMEstimator(
+            scene.collision_checker,
+            lmts=lmts,
+        )
+        # estor.samples(1000)
+        estor.samples_sparse(1000, eps=0.05 * 2 * np.pi)
+        estor.print_info()
 
-    # 2pi space
-    lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
-    estor = RTSPLazyPRMEstimatorExtended(
-        scene.collision_checker,
-        lmts=lmts2,
-    )
+    if options == "2pi_space":
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+        lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+        estor = RTSPLazyPRMEstimatorExtended(
+            scene.collision_checker,
+            lmts=lmts2,
+        )
+        # estor.samples(1000)
+        estor.samples_sparse(1000, eps=0.05 * 2 * np.pi)
+        estor.print_info()
 
-    # sample and build graph
-    # estor.samples(1000)
-    # estor.print_info()
-    estor.samples_sparse(1000, eps=0.05 * 2 * np.pi)
-    estor.print_info()
+    if options == "pi_space_pd":
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
+        lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
+        estor = RTSPLazyPRMPoissonDisk(
+            scene.collision_checker,
+            lmts=lmts,
+        )
+        estor.samples_sparse(500)
+        estor.print_info()
+
+    if options == "2pi_space_pd":
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+        lmts2 = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+        estor = RTSPLazyPRMPoissonDiskExtended(
+            scene.collision_checker,
+            lmts=lmts2,
+        )
+        estor.samples_sparse(500)
+        estor.print_info()
 
     # search path
     qs = np.array([0.15, 0.60])
@@ -539,7 +656,6 @@ if __name__ == "__main__":
         print(f"Estimated path {i+1} cost: {cost}")
 
     fig, ax = plt.subplots()
-    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
     ax.scatter(
         estor.Qrandfree[:, 0],
@@ -585,3 +701,65 @@ if __name__ == "__main__":
     ax.set_title("Estimated Shortest Path in 2D Space")
     ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
     plt.show()
+
+
+def test_spatial3r():
+    from paper_sequential_planner.experiments.env_spatial3r import (
+        Spatial3R,
+        RobotScene,
+    )
+    import trimesh
+
+    robot = Spatial3R()
+    scene = RobotScene(robot, None)
+
+    lmts2 = np.array([[-np.pi, np.pi]] * 3)
+    estor = RTSPLazyPRMPoissonDisk(
+        scene.collision_checker,
+        lmts=lmts2,
+    )
+    estor.samples_sparse(5000)
+    # estor.print_info()
+
+    # scene setup
+    scene = trimesh.Scene()
+    axis = trimesh.creation.axis(origin_size=0.05, axis_length=np.pi)
+    box = trimesh.creation.box(extents=(2 * np.pi, 2 * np.pi, 2 * np.pi))
+    box.visual.face_colors = [100, 150, 255, 40]
+    scene.add_geometry(box)
+    scene.add_geometry(axis)
+
+    Qfree = estor.Qrandfree
+    Qcoll = estor.Qrandcols
+    qsid = np.random.choice(Qfree.shape[0], size=1, replace=False)
+    qgsid = np.random.choice(Qfree.shape[0], size=5, replace=False)
+    qs = Qfree[qsid].flatten()
+    print(f"==>> qs: \n{qs}")
+    qgs = Qfree[qgsid]
+    print(f"==>> qgs: \n{qgs}")
+
+    paths, costs = estor.estimate_shortest_path_bulk(qs, qgs)
+    for i, (path, cost) in enumerate(zip(paths, costs)):
+        print(f"Estimated path {i+1} cost: {cost}")
+
+    Qff = trimesh.points.PointCloud(Qfree)
+    Qff.visual.vertex_colors = np.tile(
+        np.array([0, 255, 0, 180], dtype=np.uint8), (len(Qfree), 1)
+    )
+    scene.add_geometry(Qff)
+    Qcc = trimesh.points.PointCloud(Qcoll)
+    Qcc.visual.vertex_colors = np.tile(
+        np.array([255, 0, 0, 180], dtype=np.uint8), (len(Qcoll), 1)
+    )
+    scene.add_geometry(Qcc)
+    # for i, p in enumerate(store_path.values()):
+    #     # p = np.linspace(s, g, 10)  # n, 3
+    #     edges = np.column_stack((np.arange(len(p) - 1), np.arange(1, len(p))))
+    #     path = trimesh.load_path(p[edges])
+    #     scene.add_geometry(path)
+    scene.show(point_size=6)
+
+
+if __name__ == "__main__":
+    # test_planarrr()
+    test_spatial3r()

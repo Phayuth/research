@@ -1,7 +1,10 @@
 import numpy as np
 from itertools import product
-from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
+from sklearn.metrics.pairwise import nan_euclidean_distances
 import matplotlib.pyplot as plt
+
+np.random.seed(42)
+np.set_printoptions(precision=2, suppress=True, linewidth=200)
 
 
 def map_val(x, inMin, inMax, outMin, outMax):
@@ -159,7 +162,7 @@ def minimum_dist_torus(qa, qb):
     return np.linalg.norm(deltat)
 
 
-def find_alt_config_redudancy(Q1, Q2):
+def find_altconfig_redudancy(Q1, Q2):
     """
     Find unique pairs of configurations between two sets of torus space
     >>> q1 = np.array([3.1, 0.1])
@@ -171,7 +174,7 @@ def find_alt_config_redudancy(Q1, Q2):
     >>> fig, ax = plt.subplots()
     >>> ax.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
     >>> ax.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
-    >>> for gi, group in enumerate(pairs_per_value):
+    >>> for gi, group in enumerate(redundant_pairs):
     >>>     for i, j in group:
     >>>         ax.plot(
     >>>             [Q1[i, 0], Q2[j, 0]],
@@ -193,10 +196,10 @@ def find_alt_config_redudancy(Q1, Q2):
     groups = [np.where(inv == k)[0] for k in range(len(value))]
     groups_num = [len(g) for g in groups]
     total_pairs = len(groups_num)
-    pairs_per_value = [
+    redundant_pairs = [
         np.column_stack(np.unravel_index(g, D.shape)) for g in groups
     ]
-    return pairs_per_value, groups_num, total_pairs
+    return redundant_pairs, groups_num, total_pairs
 
 
 def transform_path_torus1(path, qs_new):
@@ -210,40 +213,77 @@ def transform_path_torus1(path, qs_new):
     qsog = path[0]
     diff = qs_new - qsog
     pathnew = path + diff
-
-    fig, ax = plt.subplots()
-    ax.plot(qsog[0], qsog[1], "bo", label="qsog")
-    ax.plot(path[:, 0], path[:, 1], "k.-", label="Original Path")
-    ax.plot(pathnew[:, 0], pathnew[:, 1], "g.-", alpha=0.5, label="Path shifted")
-    ax.set_xlim(-2 * np.pi, 2 * np.pi)
-    ax.set_ylim(-2 * np.pi, 2 * np.pi)
-    ax.set_aspect("equal")
-    ax.set_xlabel("q1")
-    ax.set_ylabel("q2")
-    ax.legend()
-    plt.show()
+    return pathnew  # return a path shaped (N, dof) same as old path
 
 
 def transform_path_torus2(path, Q1redundantgroup):
     """
     Same version as transform_path_torus1 but transform to all the redundant pairs in the group.
+    path old shape is (N, dof), Q1redundantgroup shape is (M, dof), output is (M, N, dof)
+
+    >>> q1 = np.array([3.1, 0.1])
+    >>> q2 = np.array([3.5, 1.0])
+    >>> l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+    >>> Q1 = find_alt_config2(q1, l)
+    >>> Q2 = find_alt_config2(q2, l)
+    >>> path = _generate_fake_path(q1, q2, num_points=10)
+    >>> g1_id = redundant_pairs[0]
+    >>> Q1g1 = Q1[g1_id[:, 0]]
+    >>> pathall = transform_path_torus2(path, Q1g1)
+    >>> print(f"==>> pathall.shape: \n{pathall.shape}")
+
+    >>> fig, ax = plt.subplots()
+    >>> ax.plot(path[:, 0], path[:, 1], "k.-", label="Original Path")
+    >>> for p in pathall:
+    >>>     ax.plot(p[:, 0], p[:, 1], "g.-", alpha=0.5, label="Path shifted")
+    >>> ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    >>> ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    >>> ax.set_aspect("equal")
+    >>> ax.set_xlabel("q1")
+    >>> ax.set_ylabel("q2")
+    >>> ax.legend()
+    >>> plt.show()
+
     """
     qsog = path[0]
     diffall = Q1redundantgroup - qsog
-    pathall = np.array([path + d for d in diffall])
+    pathall = path[np.newaxis, :, :] + diffall[:, np.newaxis, :]
+    return pathall  # return a path shaped (M, N, dof) same as old path
 
-    fig, ax = plt.subplots()
-    ax.plot(qsog[0], qsog[1], "bo", label="qsog")
-    ax.plot(path[:, 0], path[:, 1], "k.-", label="Original Path")
-    for p in pathall:
-        ax.plot(p[:, 0], p[:, 1], "g.-", alpha=0.5, label="Path shifted")
-    ax.set_xlim(-2 * np.pi, 2 * np.pi)
-    ax.set_ylim(-2 * np.pi, 2 * np.pi)
-    ax.set_aspect("equal")
-    ax.set_xlabel("q1")
-    ax.set_ylabel("q2")
-    ax.legend()
-    plt.show()
+
+def _generate_fake_path(q1, q2, num_points=10):
+    """Generate a fake path from q1 to q2 with some noise for testing."""
+    path = np.linspace(q1, q2, num=num_points)  # example path from q1 to q2
+    path[1:-1] = path[1:-1] + np.random.rand(*path[1:-1].shape) * 0.1
+
+    diff = np.diff(path, axis=0)
+    cost = np.sum(np.linalg.norm(diff, axis=1))
+    return path, cost
+
+
+def queue_altconfig_cost_estimation(
+    redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+):
+    """
+    Queue for cost estimation of all unique pairs.
+    We get the qs and qg from the first pair of each group
+    need_cost is a list of bool, same length as total_pairs, if we need cost
+    """
+    first_pair_id = [re[0] for re in redundant_pairs]
+    qsqg_pairs = [(Q1[i], Q2[j]) for i, j in first_pair_id]
+
+    paths = [None] * total_pairs  # initialize path list
+    costs = [None] * total_pairs  # initialize cost list
+    for i in range(total_pairs):
+        if need_cost[i]:
+            qs, qg = qsqg_pairs[i]
+            p, c = _generate_fake_path(qs, qg)  # replace later
+            costs[i] = c
+            paths[i] = p
+        else:
+            costs[i] = None
+            paths[i] = None
+    return paths, costs
 
 
 if __name__ == "__main__":
@@ -252,17 +292,14 @@ if __name__ == "__main__":
     l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     Q1 = find_alt_config2(q1, l)
     Q2 = find_alt_config2(q2, l)
-    print("Q1: \n", Q1)
-    print("Q2: \n", Q2)
 
-    redundant_pairs, groups_num, total_pairs = find_alt_config_redudancy(Q1, Q2)
+    redundant_pairs, groups_num, total_pairs = find_altconfig_redudancy(Q1, Q2)
     print("redundant_pairs groups: \n", redundant_pairs)
     print("Number of each group: \n", groups_num)
     print("Total number of pairs: \n", total_pairs)
 
-    path = np.linspace(q1, q2, num=10)  # example path from q1 to q2
-    path[1:-1] = path[1:-1] + np.random.rand(*path[1:-1].shape) * 0.1
-    g1_id = redundant_pairs[0]
-    Q1g1 = Q1[g1_id[:, 0]]
-    transform_path_torus1(path, Q1g1[0])
-    transform_path_torus2(path, Q1g1)
+    need_cost = [True] * total_pairs
+    paths, costs = queue_altconfig_cost_estimation(
+        redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    )
+    print("Costs of unique pairs: \n", costs)
