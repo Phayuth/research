@@ -191,10 +191,59 @@ def find_alt_config_redudancy(Q1, Q2):
     D_flat = D.ravel()
     inv = np.searchsorted(value, D_flat)
     groups = [np.where(inv == k)[0] for k in range(len(value))]
+    groups_num = [len(g) for g in groups]
+    total_pairs = len(groups_num)
     pairs_per_value = [
         np.column_stack(np.unravel_index(g, D.shape)) for g in groups
     ]
-    return pairs_per_value
+    return pairs_per_value, groups_num, total_pairs
+
+
+def transform_path_torus1(path, qs_new):
+    """
+    Path must start with q1, and qs_new must be the alternative configuration of q1.
+    Transform a path found on a torus pair to it redudancy group.
+    Technically I don't need to transform the path to all the redundant pairs
+    It waste time, just propagrate the cost
+    When the path is finalized and ask for the actual path, I transform later.
+    """
+    qsog = path[0]
+    diff = qs_new - qsog
+    pathnew = path + diff
+
+    fig, ax = plt.subplots()
+    ax.plot(qsog[0], qsog[1], "bo", label="qsog")
+    ax.plot(path[:, 0], path[:, 1], "k.-", label="Original Path")
+    ax.plot(pathnew[:, 0], pathnew[:, 1], "g.-", alpha=0.5, label="Path shifted")
+    ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax.set_aspect("equal")
+    ax.set_xlabel("q1")
+    ax.set_ylabel("q2")
+    ax.legend()
+    plt.show()
+
+
+def transform_path_torus2(path, Q1redundantgroup):
+    """
+    Same version as transform_path_torus1 but transform to all the redundant pairs in the group.
+    """
+    qsog = path[0]
+    diffall = Q1redundantgroup - qsog
+    pathall = np.array([path + d for d in diffall])
+
+    fig, ax = plt.subplots()
+    ax.plot(qsog[0], qsog[1], "bo", label="qsog")
+    ax.plot(path[:, 0], path[:, 1], "k.-", label="Original Path")
+    for p in pathall:
+        ax.plot(p[:, 0], p[:, 1], "g.-", alpha=0.5, label="Path shifted")
+    ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax.set_aspect("equal")
+    ax.set_xlabel("q1")
+    ax.set_ylabel("q2")
+    ax.legend()
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -205,10 +254,15 @@ if __name__ == "__main__":
     Q2 = find_alt_config2(q2, l)
     print("Q1: \n", Q1)
     print("Q2: \n", Q2)
-    redundancy = find_alt_config_redudancy(Q1, Q2)
-    print("Redundancy groups: \n", redundancy)
-    print("Number of redundancy groups: \n", len(redundancy))
-    for i, group in enumerate(redundancy):
-        print(f"Group {i}: \n{group}")
-        for pair in group:
-            print(f"Pair: Q1 index {Q1[pair[0]]}, Q2 index {Q2[pair[1]]}")
+
+    redundant_pairs, groups_num, total_pairs = find_alt_config_redudancy(Q1, Q2)
+    print("redundant_pairs groups: \n", redundant_pairs)
+    print("Number of each group: \n", groups_num)
+    print("Total number of pairs: \n", total_pairs)
+
+    path = np.linspace(q1, q2, num=10)  # example path from q1 to q2
+    path[1:-1] = path[1:-1] + np.random.rand(*path[1:-1].shape) * 0.1
+    g1_id = redundant_pairs[0]
+    Q1g1 = Q1[g1_id[:, 0]]
+    transform_path_torus1(path, Q1g1[0])
+    transform_path_torus2(path, Q1g1)

@@ -12,7 +12,6 @@ import trimesh
 import os
 from paper_sequential_planner.scripts.geometric_ellipse import *
 from paper_sequential_planner.scripts.rtsp_lazyprm import *
-import fpsample
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -179,6 +178,8 @@ def fpsample_2test():
 
 
 def fpsample_3test():
+    import fpsample
+
     pc = np.random.rand(4096, 3) * 2 - 1  # scale to [-1, 1]
     kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 1024)
     pc_fps = pc[kdtree_fps_samples_idx]

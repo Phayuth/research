@@ -108,7 +108,7 @@ def radius_neighbors(D, radius):
     for i in range(D.shape[0]):
         idx = np.where(D[i] < radius)[0]
         idx = idx[idx != i]  # remove self
-        neighbors.append(idx)
+        neighbors.append(idx.tolist())
     return neighbors
 
 
@@ -124,21 +124,31 @@ def knn_from_distance(D, k=5):
     sorted_order = np.argsort(D[row_idx, idx], axis=1)
     idx = idx[row_idx, sorted_order]
 
-    return idx  # indices of k nearest per row
+    return idx.tolist()  # indices of k nearest per row
 
 
 nnr = 0.5
 nnk = 5
 nn_r = radius_neighbors(tspace_dist, radius=nnr)
+print(f"==>> nn_r: \n{nn_r}")
 nn_k = knn_from_distance(tspace_dist, k=nnk)
+print(f"==>> nn_k: \n{nn_k}")
 
+nn_union = []
+for i in range(tspace_dist.shape[0]):
+    union_set = set(nn_r[i]) | set(nn_k[i])
+    nn_union.append(sorted(union_set))
+print(f"==>> nn_union: \n{nn_union}")
 
-#
+# todo contruct taskspace graph connection adjmat from nnunion
+
+# raise
 def visualize():
     fig, ax = plt.subplots(1, 2)
 
     # example of getting task-to-task distance by best IK pairing
-    t1 = 4
+    # neighboring tasks in task space
+    t1 = 65
     t2 = 73
     Xt1 = X_r[t1]
     Xt2 = X_r[t2]
@@ -150,11 +160,9 @@ def visualize():
     Xneart2 = X_r[neart2]
     print(f"==>> neart1: \n{neart1}")
     print(f"==>> neart2: \n{neart2}")
-
     print(f"==>> tspace_dist[{t1}, {t2}]: \n{tspace_dist[t1, t2]}")
     print(f"==>> cspace_dist[{t1}, {t2}]: \n{cspace_dist[t1, t2]}")
     print(f"==>> cspace_task_min[{t1}, {t2}]: \n{cspace_task_min[t1, t2]}")
-
     cirt1 = plt.Circle(
         Xt1, nnr, color="r", fill=False, linestyle="--", label="t1 radius"
     )
@@ -164,12 +172,36 @@ def visualize():
     ax[0].add_artist(cirt1)
     ax[0].add_artist(cirt2)
 
+    nnkt1 = nn_k[t1]
+    nnrt1 = nn_r[t1]
+    for nnt1 in nnkt1:
+        ax[0].plot(
+            [Xt1[0], X_r[nnt1][0]],
+            [Xt1[1], X_r[nnt1][1]],
+            "b--",
+            label="t1 knn" if nnt1 == nnkt1[0] else "",
+        )
+    for nnt1 in nnrt1:
+        ax[0].plot(
+            [Xt1[0], X_r[nnt1][0]],
+            [Xt1[1], X_r[nnt1][1]],
+            "r--",
+            label="t1 radius" if nnt1 == nnrt1[0] else "",
+        )
+
+
     # ax0: Workspace
     q0 = np.array([1, -1])
     links = np.array(robot.forward_kinematic(q0))
 
-    ax[0].plot(links[:, 0], links[:, 1], "k-", label="Robot at q0")
-    ax[0].plot(X[:, 0], X[:, 1], "ro", label="User Input Tasks")
+    ax[0].plot(links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at q0")
+    ax[0].plot(
+        X[:, 0],
+        X[:, 1],
+        "o",
+        color="lightgray",
+        label="User Input Tasks",
+    )
     ax[0].plot(
         task_reachable[:, 0],
         task_reachable[:, 1],
@@ -178,7 +210,7 @@ def visualize():
     )
     for i, x in enumerate(X_r):
         ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
-    ax[0].plot([Xt1[0], Xt2[0]], [Xt1[1], Xt2[1]], "c--*", label="Task-to-Task")
+    ax[0].plot([Xt1[0], Xt2[0]], [Xt1[1], Xt2[1]], "c--", label="Task-to-Task")
     ax[0].set_aspect("equal")
     ax[0].set_xlim(-4, 4)
     ax[0].set_ylim(-4, 4)
@@ -197,12 +229,19 @@ def visualize():
         "ro",
         markersize=1,
         label="C-space Obstacles",
+        alpha=0.1,
     )
-    ax[1].plot(Qaik[:, :, 0], Qaik[:, :, 1], "bx")
+    ax[1].scatter(
+        Qaik[:, :, 0].ravel(),
+        Qaik[:, :, 1].ravel(),
+        marker="o",
+        color="lightgray",
+        label="All IK Solutions",
+    )
     ax[1].plot(
         Q_reachable[:, 0],
         Q_reachable[:, 1],
-        "g*",
+        "gx",
         markersize=5,
         label="Q-reachable",
     )
@@ -212,7 +251,14 @@ def visualize():
                 ax[1].plot(
                     [q1[0], q2[0]],
                     [q1[1], q2[1]],
-                    "c--*",
+                    "c--",
+                    # remove duplicate legend by only labeling the first valid pair
+                    label=(
+                        "Task-to-Task by IK"
+                        if "Task-to-Task by IK"
+                        not in ax[1].get_legend_handles_labels()[1]
+                        else ""
+                    ),
                 )
     ax[1].set_aspect("equal")
     ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
