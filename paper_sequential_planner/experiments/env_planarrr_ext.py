@@ -2,6 +2,7 @@ from paper_sequential_planner.experiments.env_planarrr import *
 from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
 from paper_sequential_planner.scripts.rtsp_lazyprm import (
     RTSPLazyPRMEstimatorExtended,
+    RTSPLazyPRMPoissonDiskExtended,
 )
 
 np.random.seed(42)
@@ -11,10 +12,10 @@ rsrc = os.environ["RSRC_DIR"]
 robot = PlanarRR()
 scene = RobotScene(robot, None)
 if ompl_available:
-    planner = OMPLPlanner(scene.collision_checker)
+    planner = OMPLPlanner(scene.collision_checker, limit=2 * np.pi)
 
 # ------- RTSP Preprocessing --------------------------------------
-ntasks = 30
+ntasks = 100
 X = sample_reachable_wspace(ntasks)
 Qaik = wspace_ik_extended(robot, X)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)
@@ -68,11 +69,16 @@ for i in range(num_treachable):
 
 # ------ Estimation of Edges--------------------------------
 lmts = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
-estor = RTSPLazyPRMEstimatorExtended(
+# estor = RTSPLazyPRMEstimatorExtended(
+#     collision_checker=scene.collision_checker,
+#     lmts=lmts,
+# )
+# estor.samples(1000)
+estor = RTSPLazyPRMPoissonDiskExtended(
     collision_checker=scene.collision_checker,
     lmts=lmts,
 )
-estor.samples(1000)
+estor.samples_sparse(500)
 cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
     cspace_adjm,
     Q_reachable,
@@ -102,14 +108,61 @@ if True:
     ax.grid(True)
     plt.show()
 
-# fig, ax = plt.subplots()
-# cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
-# ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-# ax.plot(Q_reachable[:, 0], Q_reachable[:, 1], "g*", markersize=10)
-# ax.plot(Qaik[:, :, 0], Qaik[:, :, 1], "bx", label="Qaik")
-# ax.plot(estor.Qrandfree[:, 0], estor.Qrandfree[:, 1], "k.", markersize=2, label="estor samples")
-# ax.set_xlim(-2 * np.pi, 2 * np.pi)
-# ax.set_ylim(-2 * np.pi, 2 * np.pi)
-# ax.set_aspect("equal", "box")
-# plt.show()
-# raise
+if True:
+    # write GTSP problem file for GLKH
+    GLKHHelper.write_glkh_fullmatrix_file(
+        os.path.join(GLKHHelper.problemdir, "problem_planarrr_ext.gtsp"),
+        cspace_adjm,
+        cluster_ttc,
+    )
+
+    # solve GTSP using GLKH
+    if os.path.exists(
+        os.path.join(GLKHHelper.problemdir, "problem_planarrr_ext.tour")
+    ):
+        tourid = GLKHHelper.read_tour_file(
+            os.path.join(GLKHHelper.problemdir, "problem_planarrr_ext.tour")
+        )
+        print(f"==>> tourid: \n{tourid}")
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+        qtour, store_path, store_cost = RTSP.postprocess(
+            tourid, Q_reachable, planner.query_planning
+        )
+
+        fig, ax = plt.subplots()
+        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+        ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
+        for i in range(len(tourid) - 1):
+            start_idx = tourid[i]
+            end_idx = tourid[i + 1]
+            qp = store_path.get((start_idx, end_idx))
+            qp = np.array(qp)
+            ax.plot(
+                qp[:, 0],
+                qp[:, 1],
+                "b-",
+                alpha=0.5,
+                label="OMPL path" if i == 0 else None,
+            )
+            ax.text(
+                (qp[0, 0] + qp[-1, 0]) / 2,
+                (qp[0, 1] + qp[-1, 1]) / 2 - 0.1,
+                f"{start_idx}->{end_idx}",
+                color="blue",
+                fontsize=8,
+            )
+            ax.text(
+                (qp[0, 0] + qp[-1, 0]) / 2,
+                (qp[0, 1] + qp[-1, 1]) / 2,
+                f"{store_cost.get((start_idx, end_idx), np.inf):.2f}",
+                color="blue",
+                fontsize=8,
+            )
+        ax.set_aspect("equal", "box")
+        ax.set_xlim(-2 * np.pi, 2 * np.pi)
+        ax.set_ylim(-2 * np.pi, 2 * np.pi)
+        ax.grid(True)
+        ax.legend()
+        plt.show()
+    else:
+        print("Tour file not found. Please run GLKH solver file.")

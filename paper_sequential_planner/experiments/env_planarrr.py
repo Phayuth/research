@@ -142,7 +142,7 @@ class RobotScene:
         else:
             return False
 
-    def collsion_checker_edge(self, q1, q2, num_samples=10):
+    def collision_checker_edge(self, q1, q2, num_samples=10):
         q1 = np.asarray(q1).reshape(2, 1)
         q2 = np.asarray(q2).reshape(2, 1)
         qs = np.linspace(q1, q2, num=num_samples)
@@ -358,15 +358,12 @@ class RobotScene:
 
 class OMPLPlanner:
 
-    def __init__(self, collision_checker):
+    def __init__(self, collision_checker, limit=np.pi):
         self.collision_checker = collision_checker
         self.dof = 2
         self.space = ob.RealVectorStateSpace(self.dof)
         self.bounds = ob.RealVectorBounds(self.dof)
-        self.limit2 = [
-            np.pi,
-            np.pi,
-        ]
+        self.limit2 = [limit, limit]
         for i in range(self.dof):
             self.bounds.setLow(i, -self.limit2[i])
             self.bounds.setHigh(i, self.limit2[i])
@@ -544,7 +541,10 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
-    from paper_sequential_planner.scripts.rtsp_lazyprm import RTSPLazyPRMEstimator
+    from paper_sequential_planner.scripts.rtsp_lazyprm import (
+        RTSPLazyPRMEstimator,
+        RTSPLazyPRMPoissonDisk,
+    )
 
     robot = PlanarRR()
     scene = RobotScene(robot, None)
@@ -598,7 +598,7 @@ if __name__ == "__main__":
     cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable, cspace_adjm)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
     cspace_adjm_straight = RTSP.initial_estimate(
-        Q_reachable, scene.collsion_checker_edge
+        Q_reachable, scene.collision_checker_edge
     )
     print(f"==>> cspace_adjm_straight: \n{cspace_adjm_straight}")
     # ------- End Compute Initial Cost ----------------------------------
@@ -618,11 +618,17 @@ if __name__ == "__main__":
 
     # ------ Estimation of Edges--------------------------------
     lmts = np.array([[-np.pi, np.pi], [-np.pi, np.pi]])
-    estor = RTSPLazyPRMEstimator(
+    # estor = RTSPLazyPRMEstimator(
+    #     collision_checker=scene.collision_checker,
+    #     lmts=lmts,
+    # )
+    # estor.samples(1000)
+    estor = RTSPLazyPRMPoissonDisk(
         collision_checker=scene.collision_checker,
         lmts=lmts,
     )
-    estor.samples(1000)
+    estor.samples_sparse(500)
+
     cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
         cspace_adjm,
         Q_reachable,
@@ -646,22 +652,22 @@ if __name__ == "__main__":
                 path[:, 1],
                 linewidth=2,
             )
-        for i in range(Q_reachable.shape[0]):
-            for j in range(i + 1, Q_reachable.shape[0]):
-                if cspace_adjm_straight[i, j]:
-                    ax.plot(
-                        [Q_reachable[i, 0], Q_reachable[j, 0]],
-                        [Q_reachable[i, 1], Q_reachable[j, 1]],
-                        "b--",
-                        alpha=0.5,
-                    )
+        # for i in range(Q_reachable.shape[0]):
+        #     for j in range(i + 1, Q_reachable.shape[0]):
+        #         if cspace_adjm_straight[i, j]:
+        #             ax.plot(
+        #                 [Q_reachable[i, 0], Q_reachable[j, 0]],
+        #                 [Q_reachable[i, 1], Q_reachable[j, 1]],
+        #                 "b--",
+        #                 alpha=0.5,
+        #             )
         ax.set_aspect("equal", "box")
         ax.set_xlim(-np.pi, np.pi)
         ax.set_ylim(-np.pi, np.pi)
         ax.grid(True)
         plt.show()
 
-    if False:
+    if True:
         # write GTSP problem file for GLKH
         GLKHHelper.write_glkh_fullmatrix_file(
             os.path.join(GLKHHelper.problemdir, "problem_planarrr.gtsp"),

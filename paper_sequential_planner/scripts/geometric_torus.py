@@ -288,18 +288,43 @@ def queue_altconfig_cost_estimation(
 
 if __name__ == "__main__":
     q1 = np.array([3.1, 0.1])
+    print(f"==>> q1: \n{q1}")
     q2 = np.array([3.5, 1.0])
+    print(f"==>> q2: \n{q2}")
     l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     Q1 = find_alt_config2(q1, l)
+    print(f"==>> Q1: \n{Q1}")
     Q2 = find_alt_config2(q2, l)
+    print(f"==>> Q2: \n{Q2}")
 
     redundant_pairs, groups_num, total_pairs = find_altconfig_redudancy(Q1, Q2)
-    print("redundant_pairs groups: \n", redundant_pairs)
+    # print("redundant_pairs groups: \n", redundant_pairs)
+    print("Number of each group: \n", groups_num)
+    # print("Total number of pairs: \n", total_pairs)
+
+    # need_cost = [True] * total_pairs
+    # paths, costs = queue_altconfig_cost_estimation(
+    #     redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    # )
+    # print("Costs of unique pairs: \n", costs)
+
+    q1 = np.random.uniform(-np.pi, np.pi, size=(7,))
+    print(f"==>> q1: \n{q1}")
+    q2 = np.random.uniform(-np.pi, np.pi, size=(7,))
+    print(f"==>> q2: \n{q2}")
+    l = np.array([[-2 * np.pi, 2 * np.pi]]*7)
+    Q1 = find_alt_config2(q1, l)
+    print(f"==>> Q1: \n{Q1}")
+    Q2 = find_alt_config2(q2, l)
+    print(f"==>> Q2: \n{Q2}")
+
+    redundant_pairs, groups_num, total_pairs = find_altconfig_redudancy(Q1, Q2)
+    # print("redundant_pairs groups: \n", redundant_pairs)
     print("Number of each group: \n", groups_num)
     print("Total number of pairs: \n", total_pairs)
 
-    need_cost = [True] * total_pairs
-    paths, costs = queue_altconfig_cost_estimation(
-        redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
-    )
-    print("Costs of unique pairs: \n", costs)
+    # need_cost = [True] * total_pairs
+    # paths, costs = queue_altconfig_cost_estimation(
+    #     redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    # )
+    # print("Costs of unique pairs: \n", costs)

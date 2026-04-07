@@ -761,5 +761,5 @@ def test_spatial3r():
 
 
 if __name__ == "__main__":
-    # test_planarrr()
-    test_spatial3r()
+    test_planarrr()
+    # test_spatial3r()

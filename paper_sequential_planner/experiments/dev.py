@@ -149,7 +149,7 @@ def visualize():
     # example of getting task-to-task distance by best IK pairing
     # neighboring tasks in task space
     t1 = 65
-    t2 = 73
+    t2 = 50
     Xt1 = X_r[t1]
     Xt2 = X_r[t2]
     Qt1r = Qaik_r[t1]
@@ -163,6 +163,12 @@ def visualize():
     print(f"==>> tspace_dist[{t1}, {t2}]: \n{tspace_dist[t1, t2]}")
     print(f"==>> cspace_dist[{t1}, {t2}]: \n{cspace_dist[t1, t2]}")
     print(f"==>> cspace_task_min[{t1}, {t2}]: \n{cspace_task_min[t1, t2]}")
+
+    # obstacles
+    for shp in scene.obstacles:
+        x, y = shp.exterior.xy
+        ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
+
     cirt1 = plt.Circle(
         Xt1, nnr, color="r", fill=False, linestyle="--", label="t1 radius"
     )
