@@ -15,7 +15,7 @@ if ompl_available:
     planner = OMPLPlanner(scene.collision_checker, limit=2 * np.pi)
 
 # ------- RTSP Preprocessing --------------------------------------
-ntasks = 100
+ntasks = 30
 X = sample_reachable_wspace(ntasks)
 Qaik = wspace_ik_extended(robot, X)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)
@@ -162,7 +162,7 @@ if True:
         ax.set_xlim(-2 * np.pi, 2 * np.pi)
         ax.set_ylim(-2 * np.pi, 2 * np.pi)
         ax.grid(True)
-        ax.legend()
+        ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
         plt.show()
     else:
         print("Tour file not found. Please run GLKH solver file.")

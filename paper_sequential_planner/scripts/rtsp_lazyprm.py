@@ -660,7 +660,7 @@ def test_planarrr():
     ax.scatter(
         estor.Qrandfree[:, 0],
         estor.Qrandfree[:, 1],
-        color="blue",
+        color="lightgray",
         s=10,
         label="Free Samples",
     )
@@ -676,7 +676,8 @@ def test_planarrr():
             ax.plot(
                 [estor.Qrandfree[i, 0], estor.Qrandfree[j, 0]],
                 [estor.Qrandfree[i, 1], estor.Qrandfree[j, 1]],
-                "r--",
+                "--",
+                color="lightgray",
                 alpha=0.1,
             )
     for i, path in enumerate(paths):
@@ -695,6 +696,8 @@ def test_planarrr():
             s=100,
             label=f"Goal {i+1}",
         )
+    ax.set_xlim(lmts2[0, 0], lmts2[0, 1])
+    ax.set_ylim(lmts2[1, 0], lmts2[1, 1])
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
     ax.set_aspect("equal")

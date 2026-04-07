@@ -18,7 +18,7 @@ scene = RobotScene(robot, None)
 if ompl_available:
     planner = OMPLPlanner(scene.collision_checker)
 
-ntasks = 100
+ntasks = 30
 X = sample_reachable_wspace(ntasks)  # (ntasks, 2)
 Qaik = wspace_ik_extended(robot, X)  # (ntasks, n_ik * altcnf, dof)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, n_ik * altcnf, 1)
@@ -148,8 +148,8 @@ def visualize():
 
     # example of getting task-to-task distance by best IK pairing
     # neighboring tasks in task space
-    t1 = 65
-    t2 = 50
+    t1 = 1
+    t2 = 18
     Xt1 = X_r[t1]
     Xt2 = X_r[t2]
     Qt1r = Qaik_r[t1]
@@ -266,6 +266,8 @@ def visualize():
                         else ""
                     ),
                 )
+    ax[1].plot(Qt1r[:, 0], Qt1r[:, 1], "ro", label="t1 IK Solutions")
+    ax[1].plot(Qt2r[:, 0], Qt2r[:, 1], "bo", label="t2 IK Solutions")
     ax[1].set_aspect("equal")
     ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
     ax[1].set_ylim(-2 * np.pi, 2 * np.pi)

@@ -251,16 +251,6 @@ def transform_path_torus2(path, Q1redundantgroup):
     return pathall  # return a path shaped (M, N, dof) same as old path
 
 
-def _generate_fake_path(q1, q2, num_points=10):
-    """Generate a fake path from q1 to q2 with some noise for testing."""
-    path = np.linspace(q1, q2, num=num_points)  # example path from q1 to q2
-    path[1:-1] = path[1:-1] + np.random.rand(*path[1:-1].shape) * 0.1
-
-    diff = np.diff(path, axis=0)
-    cost = np.sum(np.linalg.norm(diff, axis=1))
-    return path, cost
-
-
 def queue_altconfig_cost_estimation(
     redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
 ):
@@ -286,6 +276,16 @@ def queue_altconfig_cost_estimation(
     return paths, costs
 
 
+def _generate_fake_path(q1, q2, num_points=10):
+    """Generate a fake path from q1 to q2 with some noise for testing."""
+    path = np.linspace(q1, q2, num=num_points)  # example path from q1 to q2
+    path[1:-1] = path[1:-1] + np.random.rand(*path[1:-1].shape) * 0.1
+
+    diff = np.diff(path, axis=0)
+    cost = np.sum(np.linalg.norm(diff, axis=1))
+    return path, cost
+
+
 if __name__ == "__main__":
     q1 = np.array([3.1, 0.1])
     print(f"==>> q1: \n{q1}")
@@ -308,11 +308,11 @@ if __name__ == "__main__":
     # )
     # print("Costs of unique pairs: \n", costs)
 
-    q1 = np.random.uniform(-np.pi, np.pi, size=(7,))
+    q1 = np.random.uniform(-np.pi, np.pi, size=(6,))
     print(f"==>> q1: \n{q1}")
-    q2 = np.random.uniform(-np.pi, np.pi, size=(7,))
+    q2 = np.random.uniform(-np.pi, np.pi, size=(6,))
     print(f"==>> q2: \n{q2}")
-    l = np.array([[-2 * np.pi, 2 * np.pi]]*7)
+    l = np.array([[-2 * np.pi, 2 * np.pi]] * 6)
     Q1 = find_alt_config2(q1, l)
     print(f"==>> Q1: \n{Q1}")
     Q2 = find_alt_config2(q2, l)
