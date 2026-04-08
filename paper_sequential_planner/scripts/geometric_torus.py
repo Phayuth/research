@@ -174,7 +174,7 @@ def find_altconfig_redudancy(Q1, Q2):
     >>> fig, ax = plt.subplots()
     >>> ax.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
     >>> ax.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
-    >>> for gi, group in enumerate(redundant_pairs):
+    >>> for gi, group in enumerate(groups_pair):
     >>>     for i, j in group:
     >>>         ax.plot(
     >>>             [Q1[i, 0], Q2[j, 0]],
@@ -190,16 +190,23 @@ def find_altconfig_redudancy(Q1, Q2):
     """
     D = nan_euclidean_distances(Q1, Q2)
     D = np.round(D, decimals=5)  # round to handle floating-point precision issues
-    value, idx, count = np.unique(D, return_index=True, return_counts=True)
+    print(f"==>> D: \n{D}")
+    value, idx, groups_num = np.unique(D, return_index=True, return_counts=True)
+    print(f"==>> value: \n{value}")
+    print(f"==>> idx: \n{idx}")
+    print(f"==>> groups_num: \n{groups_num}")
     D_flat = D.ravel()
     inv = np.searchsorted(value, D_flat)
     groups = [np.where(inv == k)[0] for k in range(len(value))]
-    groups_num = [len(g) for g in groups]
     total_pairs = len(groups_num)
-    redundant_pairs = [
-        np.column_stack(np.unravel_index(g, D.shape)) for g in groups
-    ]
-    return redundant_pairs, groups_num, total_pairs
+    groups_id = list(range(total_pairs))
+    print(f"==>> groups_id: \n{groups_id}")
+    groups_pair = [np.column_stack(np.unravel_index(g, D.shape)) for g in groups]
+    groups_matrix = np.zeros_like(D, dtype=int)
+    for gi, group in enumerate(groups_pair):
+        for i, j in group:
+            groups_matrix[i, j] = gi
+    return groups_pair, groups_num, total_pairs, groups_matrix
 
 
 def transform_path_torus1(path, qs_new):
@@ -227,7 +234,7 @@ def transform_path_torus2(path, Q1redundantgroup):
     >>> Q1 = find_alt_config2(q1, l)
     >>> Q2 = find_alt_config2(q2, l)
     >>> path = _generate_fake_path(q1, q2, num_points=10)
-    >>> g1_id = redundant_pairs[0]
+    >>> g1_id = groups_pair[0]
     >>> Q1g1 = Q1[g1_id[:, 0]]
     >>> pathall = transform_path_torus2(path, Q1g1)
     >>> print(f"==>> pathall.shape: \n{pathall.shape}")
@@ -252,14 +259,14 @@ def transform_path_torus2(path, Q1redundantgroup):
 
 
 def queue_altconfig_cost_estimation(
-    redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    groups_pair, groups_num, total_pairs, Q1, Q2, need_cost
 ):
     """
     Queue for cost estimation of all unique pairs.
     We get the qs and qg from the first pair of each group
     need_cost is a list of bool, same length as total_pairs, if we need cost
     """
-    first_pair_id = [re[0] for re in redundant_pairs]
+    first_pair_id = [re[0] for re in groups_pair]
     qsqg_pairs = [(Q1[i], Q2[j]) for i, j in first_pair_id]
 
     paths = [None] * total_pairs  # initialize path list
@@ -286,7 +293,7 @@ def _generate_fake_path(q1, q2, num_points=10):
     return path, cost
 
 
-if __name__ == "__main__":
+def _test_2d():
     q1 = np.array([3.1, 0.1])
     print(f"==>> q1: \n{q1}")
     q2 = np.array([3.5, 1.0])
@@ -297,34 +304,40 @@ if __name__ == "__main__":
     Q2 = find_alt_config2(q2, l)
     print(f"==>> Q2: \n{Q2}")
 
-    redundant_pairs, groups_num, total_pairs = find_altconfig_redudancy(Q1, Q2)
-    # print("redundant_pairs groups: \n", redundant_pairs)
-    print("Number of each group: \n", groups_num)
-    # print("Total number of pairs: \n", total_pairs)
+    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
+        Q1, Q2
+    )
 
     # need_cost = [True] * total_pairs
     # paths, costs = queue_altconfig_cost_estimation(
-    #     redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    #     groups_pair, groups_num, total_pairs, Q1, Q2, need_cost
     # )
     # print("Costs of unique pairs: \n", costs)
 
+
+def _test_6d():
     q1 = np.random.uniform(-np.pi, np.pi, size=(6,))
-    print(f"==>> q1: \n{q1}")
     q2 = np.random.uniform(-np.pi, np.pi, size=(6,))
-    print(f"==>> q2: \n{q2}")
     l = np.array([[-2 * np.pi, 2 * np.pi]] * 6)
     Q1 = find_alt_config2(q1, l)
-    print(f"==>> Q1: \n{Q1}")
     Q2 = find_alt_config2(q2, l)
-    print(f"==>> Q2: \n{Q2}")
+    print(f"There are {Q1.shape[0]} alternative configs for q ")
 
-    redundant_pairs, groups_num, total_pairs = find_altconfig_redudancy(Q1, Q2)
-    # print("redundant_pairs groups: \n", redundant_pairs)
-    print("Number of each group: \n", groups_num)
-    print("Total number of pairs: \n", total_pairs)
+    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
+        Q1, Q2
+    )
+    # print("groups_pair groups: \n", groups_pair)
+    # print("Number of each group: \n", groups_num)
+    # print("Total number of pairs: \n", total_pairs)
+    # print("Groups matrix: \n", groups_matrix)
 
     # need_cost = [True] * total_pairs
     # paths, costs = queue_altconfig_cost_estimation(
-    #     redundant_pairs, groups_num, total_pairs, Q1, Q2, need_cost
+    #     groups_pair, groups_num, total_pairs, Q1, Q2, need_cost
     # )
     # print("Costs of unique pairs: \n", costs)
+
+
+if __name__ == "__main__":
+    _test_2d()
+    # _test_6d()
