@@ -162,9 +162,15 @@ def minimum_dist_torus(qa, qb):
     return np.linalg.norm(deltat)
 
 
-def find_altconfig_redudancy(Q1, Q2):
+def find_altconfig_redudancy(Q1, Q2, Dist=None):
     """
     Find unique pairs of configurations between two sets of torus space
+    unique pairs = 3^dof
+    2d have 9 unique pairs
+    3d have 27 unique pairs
+    4d have 81 unique pairs
+    5d have 243 unique pairs
+    6d have 729 unique pairs
     >>> q1 = np.array([3.1, 0.1])
     >>> q2 = np.array([3.5, 1.0])
     >>> l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
@@ -188,25 +194,17 @@ def find_altconfig_redudancy(Q1, Q2):
     >>> ax.legend()
     >>> plt.show()
     """
-    D = nan_euclidean_distances(Q1, Q2)
-    D = np.round(D, decimals=5)  # round to handle floating-point precision issues
-    print(f"==>> D: \n{D}")
-    value, idx, groups_num = np.unique(D, return_index=True, return_counts=True)
-    print(f"==>> value: \n{value}")
-    print(f"==>> idx: \n{idx}")
-    print(f"==>> groups_num: \n{groups_num}")
-    D_flat = D.ravel()
-    inv = np.searchsorted(value, D_flat)
-    groups = [np.where(inv == k)[0] for k in range(len(value))]
+    if Dist is None:
+        Dist = nan_euclidean_distances(Q1, Q2)
+    Dist = np.round(Dist, decimals=5)  # round to handle floating-point issues
+    unq_val, idx, groups_matrix, groups_num = np.unique(
+        Dist, return_index=True, return_inverse=True, return_counts=True
+    )
     total_pairs = len(groups_num)
     groups_id = list(range(total_pairs))
-    print(f"==>> groups_id: \n{groups_id}")
-    groups_pair = [np.column_stack(np.unravel_index(g, D.shape)) for g in groups]
-    groups_matrix = np.zeros_like(D, dtype=int)
-    for gi, group in enumerate(groups_pair):
-        for i, j in group:
-            groups_matrix[i, j] = gi
-    return groups_pair, groups_num, total_pairs, groups_matrix
+    group_pairs = [np.where(groups_matrix == k) for k in range(total_pairs)]
+    group_pairs = [np.column_stack(gp) for gp in group_pairs]
+    return group_pairs, groups_num, total_pairs, groups_matrix
 
 
 def transform_path_torus1(path, qs_new):
@@ -295,18 +293,16 @@ def _generate_fake_path(q1, q2, num_points=10):
 
 def _test_2d():
     q1 = np.array([3.1, 0.1])
-    print(f"==>> q1: \n{q1}")
     q2 = np.array([3.5, 1.0])
-    print(f"==>> q2: \n{q2}")
     l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     Q1 = find_alt_config2(q1, l)
-    print(f"==>> Q1: \n{Q1}")
     Q2 = find_alt_config2(q2, l)
-    print(f"==>> Q2: \n{Q2}")
 
     groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
         Q1, Q2
     )
+    print("".center(50, "-"))
+    print(f"==>> groups_matrix: \n{groups_matrix}")
 
     # need_cost = [True] * total_pairs
     # paths, costs = queue_altconfig_cost_estimation(
@@ -321,7 +317,6 @@ def _test_6d():
     l = np.array([[-2 * np.pi, 2 * np.pi]] * 6)
     Q1 = find_alt_config2(q1, l)
     Q2 = find_alt_config2(q2, l)
-    print(f"There are {Q1.shape[0]} alternative configs for q ")
 
     groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
         Q1, Q2

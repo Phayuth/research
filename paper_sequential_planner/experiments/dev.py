@@ -1,5 +1,8 @@
 from paper_sequential_planner.experiments.env_planarrr import *
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
+from paper_sequential_planner.scripts.geometric_torus import (
+    find_altconfig_redudancy,
+)
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
     Hlist_to_Xlist,
@@ -52,6 +55,53 @@ print(f"==>> cspace_dist.shape: \n{cspace_dist.shape}")
 _cspace_dist_inf = np.where(np.isnan(cspace_dist), np.inf, cspace_dist)
 cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
 cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
+print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
+
+# task-to-task distance by best IK pairing -> shape (ntasks_rech, ntasks_rech, 2,)
+min_flat_idx = np.argmin(
+    _cspace_dist_inf.reshape(
+        _cspace_dist_inf.shape[0], _cspace_dist_inf.shape[1], -1
+    ),
+    axis=2,
+)
+min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
+cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
+print(f"==>> cspace_task_min_idx.shape: \n{cspace_task_min_idx.shape}")
+
+# getting data
+t1 = 1
+t2 = 18
+Qaik_r_t1 = Qaik_r[t1]  # (n_ik, dof)
+Qaik_r_t2 = Qaik_r[t2]  # (n_ik, dof)
+print(f"==>> Qaik_r_t1: \n{Qaik_r_t1}")
+print(f"==>> Qaik_r_t2: \n{Qaik_r_t2}")
+# format of cspace_dist
+# [[t1q1-t2q1, t1q1-t2q2]]
+# [[t2q1-t1q1, t2q1-t1q2]]
+t1t2_cspace_dist = cspace_dist[t1, t2]  # (n_ik, n_ik)
+print(f"==>> t1t2_cspace_dist: \n{t1t2_cspace_dist}")
+
+# unique pairs of task-to-task = ik_num*altc_num*3^dof
+group_matrix = np.zeros_like(t1t2_cspace_dist, dtype=int)
+ik_num = 2  # elbow up and down
+altc_num = 4  # 4 alt config per ik solution
+for i in range(ik_num):
+    for j in range(ik_num):
+        # DIST = t1t2_cspace_dist[
+        #     i * altc_num : i * altc_num + altc_num,
+        #     j * altc_num : j * altc_num + altc_num,
+        # ]
+        group_pairs, groups_num, total_pairs, groups_matrix = (
+            find_altconfig_redudancy(
+                Qaik_r_t1[i * altc_num : i * altc_num + altc_num],
+                Qaik_r_t2[j * altc_num : j * altc_num + altc_num],
+            )
+        )
+        group_matrix[
+            i * altc_num : i * altc_num + altc_num,
+            j * altc_num : j * altc_num + altc_num,
+        ] = groups_matrix
+print(f"==>> group_matrix: \n{group_matrix}")
 
 
 def task_to_task_configuration_interp(Qaik_r, nintp=10):
@@ -140,7 +190,15 @@ for i in range(tspace_dist.shape[0]):
     nn_union.append(sorted(union_set))
 print(f"==>> nn_union: \n{nn_union}")
 
-# todo contruct taskspace graph connection adjmat from nnunion
+# contruct taskspace graph connection adjmat from nnunion
+task_to_task_adj = np.zeros_like(tspace_dist, dtype=bool)
+for i in range(tspace_dist.shape[0]):
+    for j in nn_union[i]:
+        task_to_task_adj[i, j] = True
+        task_to_task_adj[j, i] = True  # undirected
+print(f"==>> task_to_task_adj: \n{task_to_task_adj}")
+
+# from this adjmat, we eliminate the task-to-task q pairs
 
 # raise
 def visualize():
@@ -194,7 +252,6 @@ def visualize():
             "r--",
             label="t1 radius" if nnt1 == nnrt1[0] else "",
         )
-
 
     # ax0: Workspace
     q0 = np.array([1, -1])
