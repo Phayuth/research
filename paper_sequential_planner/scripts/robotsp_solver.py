@@ -494,6 +494,8 @@ if __name__ == "__main__":
     # Hinit[:2, 3] = eepose
     Hinit = H_r_full[0]  # start from the first task reachable pose
     qinit = Q_reachable[0]
+    Q_reachable[1] = qinit  # make sure the second config is the same as qinit for testing
+
 
     print(num_qreachable)
     print(Q_reachable.shape)
@@ -536,10 +538,12 @@ if __name__ == "__main__":
         else:
             store_path[i] = None
             store_cost[i] = np.inf
+    total_cost = sum(store_cost.get(i, np.inf) for i in range(optimal_config.shape[0] - 1))
+    print(f"==>> total_cost: \n{total_cost}")
 
     def visualize():
         fig, ax = plt.subplots(1, 2)
-
+        fig.suptitle(f"cost {total_cost:.3f}")
         # obstacles
         for shp in scene.obstacles:
             x, y = shp.exterior.xy

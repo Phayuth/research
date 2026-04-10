@@ -112,7 +112,7 @@ if __name__ == "__main__":
     scene = RobotScene(robot, None)
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
     estor = RTSPLazyEllipsoid(scene.collision_checker)
-    Q = np.array(
+    Q_test = np.array(
         [
             [-1.0, 2.5],
             [1.0, 2.5],
@@ -130,8 +130,8 @@ if __name__ == "__main__":
         ]
     )
 
-    # qs = Q[0].reshape(-1, 1)
-    # qg = Q[6].reshape(-1, 1)
+    # qs = Q_test[0].reshape(-1, 1)
+    # qg = Q_test[6].reshape(-1, 1)
     # cmin = np.linalg.norm(qg - qs)
     # cMaxguess = 1.5 * cmin
     # la0 = cmin / 2
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=3)
     i = 0
     j = 1
-    imax = Q.shape[0]
+    imax = Q_test.shape[0]
     (path,) = ax.plot(
         [],
         [],
@@ -188,8 +188,8 @@ if __name__ == "__main__":
             i = (i + 1) % imax
         elif event.key == "down":
             i = (i - 1) % imax
-        qs = Q[i % imax].reshape(-1, 1)
-        qg = Q[(i + 6) % imax].reshape(-1, 1)
+        qs = Q_test[i % imax].reshape(-1, 1)
+        qg = Q_test[(i + 6) % imax].reshape(-1, 1)
         qpath, cost, xfree = estor.estimate_shortest_path(qs, qg)
         print(f"==>> qpath: \n{qpath}")
         print(f"==>> cost: \n{cost}")

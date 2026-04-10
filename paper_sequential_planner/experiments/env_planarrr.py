@@ -563,11 +563,17 @@ if __name__ == "__main__":
     # ------- RTSP Preprocessing --------------------------------------
     ntasks = 30
     X = sample_reachable_wspace(ntasks)
+    qinit = np.array([1, -1])
+    Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
     Qaik = wspace_ik(robot, X)
     Qaik_valid = wspace_ik_validity(Qaik, scene)
-    print(f"==>> X: \n{X}")
-    print(f"==>> Qaik: \n{Qaik}")
-    print(f"==>> Qaik_valid: \n{Qaik_valid}")
+
+    # concate Xinit, qinit
+    X = np.vstack((Xinit, X))
+    Qaikinit = np.full((1, Qaik.shape[1], Qaik.shape[2]), qinit)
+    Qaikinit_valid = np.full((1, Qaik_valid.shape[1], Qaik_valid.shape[2]), 1)
+    Qaik = np.vstack((Qaikinit, Qaik))
+    Qaik_valid = np.vstack((Qaikinit_valid, Qaik_valid))
 
     (
         task_reachable,
@@ -723,7 +729,7 @@ if __name__ == "__main__":
                 tourid, Q_reachable, planner.query_planning
             )
 
-            fig, ax = plt.subplots(1,2)
+            fig, ax = plt.subplots(1, 2)
             for shp in scene.obstacles:
                 x, y = shp.exterior.xy
                 ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")

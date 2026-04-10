@@ -17,24 +17,19 @@ if ompl_available:
 # ------- RTSP Preprocessing --------------------------------------
 ntasks = 30
 X = sample_reachable_wspace(ntasks)
-print(f"==>> X.shape: \n{X.shape}")
-
 qinit = np.array([1, -1])
 Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
-
 Qaik = wspace_ik_extended(robot, X)
-print(f"==>> Qaik.shape: \n{Qaik.shape}")
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)
-print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
 
 # concate Xinit, qinit
-X = np.vstack((Xinit, X))
-print(f"==>> X.shape: \n{X.shape}")
-Qinit = np.full((1, Qaik.shape[1], Qaik.shape[2]), qinit)
-print(f"==>> Qinit: \n{Qinit}")
+# X = np.vstack((Xinit, X))
+# Qaikinit = np.full((1, Qaik.shape[1], Qaik.shape[2]), qinit)
+# Qaikinit_valid = np.full((1, Qaik_valid.shape[1], Qaik_valid.shape[2]), 1)
+# Qaik = np.vstack((Qaikinit, Qaik))
+# Qaik_valid = np.vstack((Qaikinit_valid, Qaik_valid))
 
 
-raise
 (
     task_reachable,
     num_treachable,
@@ -53,7 +48,6 @@ print(f"==>> cluster_ttc: \n{cluster_ttc}")
 print(f"==>> cluster_ctt: \n{cluster_ctt}")
 print(f"==>> tspace_adjm: \n{tspace_adjm}")
 print(f"==>> cspace_adjm: \n{cspace_adjm}")
-raise
 
 num_unique_edges = RTSP.num_edges_unique(num_qreachable)
 print(f"==>> num_unique_edges: \n{num_unique_edges}")
@@ -79,30 +73,30 @@ for i in range(num_treachable):
         print(f"Sorted t{i}->{j}: costs: {cpsort}, id pairs: {idpsort}")
 # ------- End Queuing System --------------------------------
 
-# ------ Estimation of Edges--------------------------------
-lmts = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
-# estor = RTSPLazyPRMEstimatorExtended(
+# # ------ Estimation of Edges--------------------------------
+# lmts = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
+# # estor = RTSPLazyPRMEstimatorExtended(
+# #     collision_checker=scene.collision_checker,
+# #     lmts=lmts,
+# # )
+# # estor.samples(1000)
+# estor = RTSPLazyPRMPoissonDiskExtended(
 #     collision_checker=scene.collision_checker,
 #     lmts=lmts,
 # )
-# estor.samples(1000)
-estor = RTSPLazyPRMPoissonDiskExtended(
-    collision_checker=scene.collision_checker,
-    lmts=lmts,
-)
-estor.samples_sparse(500)
-cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
-    cspace_adjm,
-    Q_reachable,
-    estor.estimate_shortest_path,
-)
-print(f"==>> cspace_adjm: \n{cspace_adjm}")
+# estor.samples_sparse(500)
+# cspace_adjm, store_path, store_cost = RTSP.edgecost_colfree_distance(
+#     cspace_adjm,
+#     Q_reachable,
+#     estor.estimate_shortest_path,
+# )
+# print(f"==>> cspace_adjm: \n{cspace_adjm}")
 
-tspace_adjm = RTSP.update_taskspace_adjm(tspace_adjm, cspace_adjm, cluster_ctt)
-print(f"==>> tspace_adjm (updated with edge counts): \n{tspace_adjm}")
-# ------ End Estimation of Edges-----------------------------
+# tspace_adjm = RTSP.update_taskspace_adjm(tspace_adjm, cspace_adjm, cluster_ctt)
+# print(f"==>> tspace_adjm (updated with edge counts): \n{tspace_adjm}")
+# # ------ End Estimation of Edges-----------------------------
 
-if True:
+if False:
     # plot debug cspace
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
     fig, ax = plt.subplots()
@@ -140,41 +134,82 @@ if True:
         qtour, store_path, store_cost = RTSP.postprocess(
             tourid, Q_reachable, planner.query_planning
         )
+        total_cost = sum(store_cost.get((tourid[i], tourid[i + 1]), np.inf) for i in range(len(tourid) - 1))
+        print(f"==>> qtour: \n{qtour}")
+        print(f"==>> total_cost: \n{total_cost}")
 
-        fig, ax = plt.subplots()
-        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-        ax.plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
+        fig, ax = plt.subplots(1, 2)
+        fig.suptitle(f"cost {total_cost:.3f}")
+
+        # obstacles
+        for shp in scene.obstacles:
+            x, y = shp.exterior.xy
+            ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
+
+        # ax0: Workspace
+        links = np.array(robot.forward_kinematic(qinit))
+
+        ax[0].plot(
+            links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at qinit"
+        )
+        ax[0].plot(
+            X[:, 0],
+            X[:, 1],
+            "o",
+            color="lightgray",
+            label="User Input Tasks",
+        )
+        ax[0].plot(
+            task_reachable[:, 0],
+            task_reachable[:, 1],
+            "gx",
+            label="Task-Reachable",
+        )
+        for i, x in enumerate(task_reachable):
+            ax[0].text(x[0], x[1], f"({i})", fontsize=10, ha="right")
+        ax[0].set_aspect("equal")
+        ax[0].set_xlim(-4, 4)
+        ax[0].set_ylim(-4, 4)
+        ax[0].set_xlabel("X")
+        ax[0].set_ylabel("Y")
+        ax[0].legend(
+            bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+            loc="lower left",
+        )
+
+        ax[1].plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+        ax[1].plot(qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour")
         for i in range(len(tourid) - 1):
             start_idx = tourid[i]
             end_idx = tourid[i + 1]
             qp = store_path.get((start_idx, end_idx))
             qp = np.array(qp)
-            ax.plot(
+            ax[1].plot(
                 qp[:, 0],
                 qp[:, 1],
                 "b-",
                 alpha=0.5,
                 label="OMPL path" if i == 0 else None,
             )
-            ax.text(
+            ax[1].text(
                 (qp[0, 0] + qp[-1, 0]) / 2,
                 (qp[0, 1] + qp[-1, 1]) / 2 - 0.1,
                 f"{start_idx}->{end_idx}",
                 color="blue",
                 fontsize=8,
             )
-            ax.text(
+            ax[1].text(
                 (qp[0, 0] + qp[-1, 0]) / 2,
                 (qp[0, 1] + qp[-1, 1]) / 2,
                 f"{store_cost.get((start_idx, end_idx), np.inf):.2f}",
                 color="blue",
                 fontsize=8,
             )
-        ax.set_aspect("equal", "box")
-        ax.set_xlim(-2 * np.pi, 2 * np.pi)
-        ax.set_ylim(-2 * np.pi, 2 * np.pi)
-        ax.grid(True)
-        ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+        ax[1].set_aspect("equal", "box")
+        ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
+        ax[1].set_ylim(-2 * np.pi, 2 * np.pi)
+        ax[1].grid(True)
+        ax[1].legend(loc="upper left", bbox_to_anchor=(1, 1))
         plt.show()
     else:
         print("Tour file not found. Please run GLKH solver file.")
