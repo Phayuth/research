@@ -1,3 +1,4 @@
+from ctypes import util
 import os
 import numpy as np
 from scipy.spatial.transform import Rotation as R
@@ -365,6 +366,33 @@ def poses_c():
     return Hlist
 
 
+def poses_d():
+    def _gen_linear_H(s, e, quat, num_tasks=10):
+        t = np.linspace(s, e, num_tasks)
+        Hlist = [np.eye(4) for _ in range(num_tasks)]
+        for i in range(num_tasks):
+            Hlist[i][:3, 3] = t[i]
+            Hlist[i][:3, :3] = R.from_quat(quat).as_matrix()
+        return Hlist
+
+    size = 4
+    params = {
+        0: ([-0.4, 0.6, 0.5], [0.4, 0.6, 0.5], [-0.707106, 0.0, 0.0, 0.707106]),
+        1: ([-0.4, 0.6, 0.2], [0.4, 0.6, 0.2], [-0.707106, 0.0, 0.0, 0.707106]),
+        2: ([-0.6, -0.4, 0.5], [-0.6, 0.4, 0.5], [-0.5, -0.5, 0.5, 0.5]),
+        3: ([-0.6, -0.4, 0.2], [-0.6, 0.4, 0.2], [-0.5, -0.5, 0.5, 0.5]),
+        4: ([0.4, -0.6, 0.5], [-0.4, -0.6, 0.5], [0.0, -0.707106, 0.707106, 0.0]),
+        5: ([0.4, -0.6, 0.2], [-0.4, -0.6, 0.2], [0.0, -0.707106, 0.707106, 0.0]),
+    }
+    HH = []
+    for k in params:
+        s, e, quat = params[k]
+        quat_noise = quat + np.random.normal(0, 0.05, size=4)
+        HH += _gen_linear_H(s, e, quat_noise, num_tasks=size)
+    Hlist = np.array(HH)
+    return Hlist
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from pytransform3d.transformations import plot_transform
@@ -379,13 +407,14 @@ if __name__ == "__main__":
     print("Log error:", se3_error_log(H1, H2))
 
     # Hlist = poses_a()
-    Hlist = poses_b()
+    # Hlist = poses_b()
     # Hlist = poses_c()
+    Hlist = poses_d()
 
     DIST = se3_error_pairwise_distance(Hlist, w_rot=1.0)
     print(f"==>> DIST: \n{DIST}")
 
-    raise
+    # raise
     Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
     # Normalize so translation/rotation are comparable:
     Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8

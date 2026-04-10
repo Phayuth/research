@@ -17,12 +17,24 @@ if ompl_available:
 # ------- RTSP Preprocessing --------------------------------------
 ntasks = 30
 X = sample_reachable_wspace(ntasks)
-Qaik = wspace_ik_extended(robot, X)
-Qaik_valid = wspace_ik_validity_extended(Qaik, scene)
-print(f"==>> X: \n{X}")
-print(f"==>> Qaik: \n{Qaik}")
-print(f"==>> Qaik_valid: \n{Qaik_valid}")
+print(f"==>> X.shape: \n{X.shape}")
 
+qinit = np.array([1, -1])
+Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
+
+Qaik = wspace_ik_extended(robot, X)
+print(f"==>> Qaik.shape: \n{Qaik.shape}")
+Qaik_valid = wspace_ik_validity_extended(Qaik, scene)
+print(f"==>> Qaik_valid.shape: \n{Qaik_valid.shape}")
+
+# concate Xinit, qinit
+X = np.vstack((Xinit, X))
+print(f"==>> X.shape: \n{X.shape}")
+Qinit = np.full((1, Qaik.shape[1], Qaik.shape[2]), qinit)
+print(f"==>> Qinit: \n{Qinit}")
+
+
+raise
 (
     task_reachable,
     num_treachable,
@@ -41,7 +53,7 @@ print(f"==>> cluster_ttc: \n{cluster_ttc}")
 print(f"==>> cluster_ctt: \n{cluster_ctt}")
 print(f"==>> tspace_adjm: \n{tspace_adjm}")
 print(f"==>> cspace_adjm: \n{cspace_adjm}")
-
+raise
 
 num_unique_edges = RTSP.num_edges_unique(num_qreachable)
 print(f"==>> num_unique_edges: \n{num_unique_edges}")

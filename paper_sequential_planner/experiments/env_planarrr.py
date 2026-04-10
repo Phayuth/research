@@ -643,11 +643,46 @@ if __name__ == "__main__":
     if True:
         # plot debug cspace
         cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
-        fig, ax = plt.subplots()
-        ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-        ax.plot(Q_reachable[:, 0], Q_reachable[:, 1], "g*", markersize=10)
+        fig, ax = plt.subplots(1, 2)
+        for shp in scene.obstacles:
+            x, y = shp.exterior.xy
+            ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
+        # ax0: Workspace
+        q0 = np.array([1, -1])
+        links = np.array(robot.forward_kinematic(q0))
+
+        ax[0].plot(
+            links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at q0"
+        )
+        ax[0].plot(
+            X[:, 0],
+            X[:, 1],
+            "o",
+            color="lightgray",
+            label="User Input Tasks",
+        )
+        ax[0].plot(
+            task_reachable[:, 0],
+            task_reachable[:, 1],
+            "gx",
+            label="Task-Reachable",
+        )
+        for i, x in enumerate(task_reachable):
+            ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
+        ax[0].set_aspect("equal")
+        ax[0].set_xlim(-4, 4)
+        ax[0].set_ylim(-4, 4)
+        ax[0].set_xlabel("X")
+        ax[0].set_ylabel("Y")
+        ax[0].legend(
+            bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+            loc="lower left",
+        )
+
+        ax[1].plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+        ax[1].plot(Q_reachable[:, 0], Q_reachable[:, 1], "g*", markersize=10)
         for i, path in enumerate(store_path.values()):
-            ax.plot(
+            ax[1].plot(
                 path[:, 0],
                 path[:, 1],
                 linewidth=2,
@@ -655,16 +690,16 @@ if __name__ == "__main__":
         # for i in range(Q_reachable.shape[0]):
         #     for j in range(i + 1, Q_reachable.shape[0]):
         #         if cspace_adjm_straight[i, j]:
-        #             ax.plot(
+        #             ax[1].plot(
         #                 [Q_reachable[i, 0], Q_reachable[j, 0]],
         #                 [Q_reachable[i, 1], Q_reachable[j, 1]],
         #                 "b--",
         #                 alpha=0.5,
         #             )
-        ax.set_aspect("equal", "box")
-        ax.set_xlim(-np.pi, np.pi)
-        ax.set_ylim(-np.pi, np.pi)
-        ax.grid(True)
+        ax[1].set_aspect("equal", "box")
+        ax[1].set_xlim(-np.pi, np.pi)
+        ax[1].set_ylim(-np.pi, np.pi)
+        ax[1].grid(True)
         plt.show()
 
     if True:
@@ -688,9 +723,44 @@ if __name__ == "__main__":
                 tourid, Q_reachable, planner.query_planning
             )
 
-            fig, ax = plt.subplots()
-            ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-            ax.plot(
+            fig, ax = plt.subplots(1,2)
+            for shp in scene.obstacles:
+                x, y = shp.exterior.xy
+                ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
+            # ax0: Workspace
+            q0 = np.array([1, -1])
+            links = np.array(robot.forward_kinematic(q0))
+
+            ax[0].plot(
+                links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at q0"
+            )
+            ax[0].plot(
+                X[:, 0],
+                X[:, 1],
+                "o",
+                color="lightgray",
+                label="User Input Tasks",
+            )
+            ax[0].plot(
+                task_reachable[:, 0],
+                task_reachable[:, 1],
+                "gx",
+                label="Task-Reachable",
+            )
+            for i, x in enumerate(task_reachable):
+                ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
+            ax[0].set_aspect("equal")
+            ax[0].set_xlim(-4, 4)
+            ax[0].set_ylim(-4, 4)
+            ax[0].set_xlabel("X")
+            ax[0].set_ylabel("Y")
+            ax[0].legend(
+                bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+                loc="lower left",
+            )
+
+            ax[1].plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+            ax[1].plot(
                 qtour[:, 0], qtour[:, 1], "go--", markersize=4, label="GTSP tour"
             )
             for i in range(len(tourid) - 1):
@@ -698,32 +768,32 @@ if __name__ == "__main__":
                 end_idx = tourid[i + 1]
                 qp = store_path.get((start_idx, end_idx))
                 qp = np.array(qp)
-                ax.plot(
+                ax[1].plot(
                     qp[:, 0],
                     qp[:, 1],
                     "b-",
                     alpha=0.5,
                     label="OMPL path" if i == 0 else None,
                 )
-                ax.text(
+                ax[1].text(
                     (qp[0, 0] + qp[-1, 0]) / 2,
                     (qp[0, 1] + qp[-1, 1]) / 2 - 0.1,
                     f"{start_idx}->{end_idx}",
                     color="blue",
                     fontsize=8,
                 )
-                ax.text(
+                ax[1].text(
                     (qp[0, 0] + qp[-1, 0]) / 2,
                     (qp[0, 1] + qp[-1, 1]) / 2,
                     f"{store_cost.get((start_idx, end_idx), np.inf):.2f}",
                     color="blue",
                     fontsize=8,
                 )
-            ax.set_aspect("equal", "box")
-            ax.set_xlim(-np.pi, np.pi)
-            ax.set_ylim(-np.pi, np.pi)
-            ax.grid(True)
-            ax.legend()
+            ax[1].set_aspect("equal", "box")
+            ax[1].set_xlim(-np.pi, np.pi)
+            ax[1].set_ylim(-np.pi, np.pi)
+            ax[1].grid(True)
+            ax[1].legend()
             plt.show()
         else:
             print("Tour file not found. Please run GLKH solver file.")

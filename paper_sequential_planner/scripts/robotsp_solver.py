@@ -6,8 +6,11 @@ import time
 import pprint
 import json
 from datetime import datetime
-import util
+import util as planner_util
 from spatial_geometry.utils import Utils
+
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
+np.random.seed(42)
 
 
 def tspace_distance_position_euclidean(H1, H2):
@@ -57,65 +60,6 @@ def tspace_distance_matrix_position_euclidean_orient_geodesic(
                 )
                 dists[i, j] = d
     return dists
-
-
-def tspace_distance_in_cspace_euclidean(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    if n1 == n2:
-        diffQ = Q2 - Q1
-        dists = np.linalg.norm(diffQ, axis=1)
-        return dists
-    else:
-        print("different number of ik solutions")
-        return None
-
-
-def tspace_distance_in_cspace_torus(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    if n1 == n2:
-        dists = np.zeros(n1)
-        for i in range(n1):
-            q1 = Q1[i]
-            q2 = Q2[i]
-            dd = cspace_torus_distance(q1, q2)
-            dists[i] = dd
-        return dists
-    else:
-        print("different number of ik solutions")
-        return None
-
-
-def tspace_distance_in_cspace_euclidean_dense(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    l = np.zeros((n1, n2))
-    for i in range(n1):
-        for j in range(n2):
-            q1 = Q1[i]
-            q2 = Q2[j]
-            diffq = q2 - q1
-            length = np.linalg.norm(diffq)
-            l[i, j] = length
-    return l
-
-
-def tspace_distance_in_cspace_torus_dense(H1, H2):
-    bot = util.ur5e_dh()
-    n1, Q1 = util.solve_ik(bot, H1)
-    n2, Q2 = util.solve_ik(bot, H2)
-    l = np.zeros((n1, n2))
-    for i in range(n1):
-        for j in range(n2):
-            q1 = Q1[i]
-            q2 = Q2[j]
-            dd = cspace_torus_distance(q1, q2)
-            l[i, j] = dd
-    return l
 
 
 def tspace_tsp_solver(dists, method):
@@ -182,8 +126,9 @@ def cspace_candidate_selection_dijkstra(qinit, Qorder, cspace_dist_func):
     node_id = 0
     layers = []
     for lay in Layer:
+        lay = np.asarray(lay)
         lid = []
-        if lay.shape == (6,):
+        if lay.ndim == 1:
             positions[node_id] = lay
             G.add_node(node_id)
             lid.append(node_id)
@@ -209,86 +154,90 @@ def cspace_candidate_selection_dijkstra(qinit, Qorder, cspace_dist_func):
     optimal_config = []
     for id in config_path_id:
         optimal_config.append(positions[id])
+    optimal_config = np.vstack(optimal_config)
+    print(f"==>> optimal_config: \n{optimal_config}")
 
     cost = 0.0
     for i in range(len(optimal_config) - 1):
         cost += cspace_dist_func(optimal_config[i], optimal_config[i + 1])
-    return optimal_config, cost
+    return optimal_config, config_path_id, cost
 
 
-def cspace_candidate_selection_dijkstra_multi_sink(
-    qinit, Qorder, cspace_dist_func
-):
-    limt6 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-np.pi, np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    Qaltinit = Utils.find_alt_config(qinit.reshape(-1, 1), limt6).T
-    print("Alt init:", Qaltinit)
-    Layer = [qinit] + Qorder + [Qaltinit]
-    G = nx.DiGraph()
-    positions = {}
-    node_id = 0
-    layers = []
-    for lay in Layer:
-        lid = []
-        if lay.shape == (6,):
-            positions[node_id] = lay
-            G.add_node(node_id)
-            lid.append(node_id)
-            node_id += 1
-        else:
-            for l in lay:
-                positions[node_id] = l
-                G.add_node(node_id)
-                lid.append(node_id)
-                node_id += 1
-        layers.append(lid)
+# def cspace_candidate_selection_dijkstra_multi_sink(
+#     qinit, Qorder, cspace_dist_func
+# ):
+#     limt6 = np.array(
+#         [
+#             [-2 * np.pi, 2 * np.pi],
+#             [-2 * np.pi, 2 * np.pi],
+#             [-np.pi, np.pi],
+#             [-2 * np.pi, 2 * np.pi],
+#             [-2 * np.pi, 2 * np.pi],
+#             [-2 * np.pi, 2 * np.pi],
+#         ]
+#     )
+#     Qaltinit = Utils.find_alt_config(qinit.reshape(-1, 1), limt6).T
+#     print("Alt init:", Qaltinit)
+#     Layer = [qinit] + Qorder + [Qaltinit]
+#     G = nx.DiGraph()
+#     positions = {}
+#     node_id = 0
+#     layers = []
+#     for lay in Layer:
+#         lay = np.asarray(lay)
+#         lid = []
+#         if lay.ndim == 1:
+#             positions[node_id] = lay
+#             G.add_node(node_id)
+#             lid.append(node_id)
+#             node_id += 1
+#         else:
+#             for l in lay:
+#                 positions[node_id] = l
+#                 G.add_node(node_id)
+#                 lid.append(node_id)
+#                 node_id += 1
+#         layers.append(lid)
 
-    for i in range(len(layers) - 1):
-        for src in layers[i]:
-            for dst in layers[i + 1]:
-                q1 = positions[src]
-                q2 = positions[dst]
-                w = cspace_dist_func(q1, q2)
-                G.add_edge(src, dst, weight=w)
+#     for i in range(len(layers) - 1):
+#         for src in layers[i]:
+#             for dst in layers[i + 1]:
+#                 q1 = positions[src]
+#                 q2 = positions[dst]
+#                 w = cspace_dist_func(q1, q2)
+#                 G.add_edge(src, dst, weight=w)
 
-    last_node_id = node_id
-    target_nodes_id = list(range(last_node_id - len(Qaltinit), last_node_id))
-    print("Target nodes:", target_nodes_id)
+#     last_node_id = node_id
+#     target_nodes_id = list(range(last_node_id - len(Qaltinit), last_node_id))
+#     print("Target nodes:", target_nodes_id)
 
-    for tnid in target_nodes_id:
-        print("Target node config:", positions[tnid])
+#     for tnid in target_nodes_id:
+#         print("Target node config:", positions[tnid])
 
-    config_path_id = None
-    min_cost = float("inf")
-    for tnid in target_nodes_id:
-        try:
-            path_id = nx.dijkstra_path(G, 0, tnid)
-            cost = 0.0
-            for i in range(len(path_id) - 1):
-                edge_data = G.get_edge_data(path_id[i], path_id[i + 1])
-                cost += edge_data["weight"]
-            if cost < min_cost:
-                min_cost = cost
-                config_path_id = path_id
-        except nx.NetworkXNoPath:
-            continue
+#     config_path_id = None
+#     min_cost = float("inf")
+#     for tnid in target_nodes_id:
+#         try:
+#             path_id = nx.dijkstra_path(G, 0, tnid)
+#             cost = 0.0
+#             for i in range(len(path_id) - 1):
+#                 edge_data = G.get_edge_data(path_id[i], path_id[i + 1])
+#                 cost += edge_data["weight"]
+#             if cost < min_cost:
+#                 min_cost = cost
+#                 config_path_id = path_id
+#         except nx.NetworkXNoPath:
+#             continue
 
-    optimal_config = []
-    for id in config_path_id:
-        optimal_config.append(positions[id])
+#     optimal_config = []
+#     for id in config_path_id:
+#         optimal_config.append(positions[id])
+#     optimal_config = np.vstack(optimal_config)
 
-    cost = 0.0
-    for i in range(len(optimal_config) - 1):
-        cost += cspace_dist_func(optimal_config[i], optimal_config[i + 1])
-    return optimal_config, cost
+#     cost = 0.0
+#     for i in range(len(optimal_config) - 1):
+#         cost += cspace_dist_func(optimal_config[i], optimal_config[i + 1])
+#     return optimal_config, config_path_id, cost
 
 
 def _reroder_taskH(taskH, order):
@@ -372,7 +321,7 @@ class RoboTSPSolver:
         tspace_dist_matrix_func=tspace_distance_matrix_position_euclidean,
         cspace_dist_func=cspace_euclidean_distance,
         tspace_tsp_solver_func=tspace_tsp_solver,
-        tspace_tsp_solver_method="heuristic_local_search",
+        tspace_tsp_solver_method="heuristic_lin_kernighan",
         cspace_collisionfree_tour_func=cspace_collisionfree_tour,
         cspace_candidate_selection_func=cspace_candidate_selection_dijkstra,
     ):
@@ -458,7 +407,7 @@ class RoboTSPSolver:
         self.log["cspace_candidate_per_task"] = numsolslist
 
         # Find nearest task to initial pose to start the tour from there
-        Hnearestid, Hnearest = util.nearest_neighbour_transformation(Htasks, Hinit)
+        Hnearestid, Hnearest = planner_util.nearest_neighbour_H(Htasks, Hinit)
 
         # 1. Solve tsp tour order in task space
         st = time.time()
@@ -468,7 +417,7 @@ class RoboTSPSolver:
             method=self.tspace_tsp_solver_method,
         )
         print("OG tour:", tour)
-        tour = util.rotate_tour_simplifiy_format(tour, Hnearestid)
+        tour = planner_util.rotate_tour_simplified_format(tour, Hnearestid)
         print("Rotated tour:", tour)
         et = time.time()
         self.log["tspace_num"] = len(Htasks)
@@ -479,15 +428,18 @@ class RoboTSPSolver:
         # 2. Solve optimal config in c-space given the order
         Qlist_order = _reorder_Q(Qlist, tour)
         st = time.time()
-        optimal_config, cost = self.cspace_candidate_selection_func(
-            qinit,
-            Qlist_order,
-            self.cspace_dist_func,
+        optimal_config, config_path_id, cost = (
+            self.cspace_candidate_selection_func(
+                qinit,
+                Qlist_order,
+                self.cspace_dist_func,
+            )
         )
         et = time.time()
         self.log["cspace_optimal_config_selection_solvetime"] = et - st
         self.log["cspace_optimal_config_candidate"] = optimal_config
         self.log["cspace_optimal_config_cost"] = cost
+        self.log["cspace_optimal_config_path_id"] = config_path_id
 
         # 3. Solve collision-free tour
         st = time.time()
@@ -503,28 +455,186 @@ class RoboTSPSolver:
             + self.log["cspace_collisionfree_tour_solvetime"]
         )
 
-        self.save_log()
+        # self.save_log()
         return cf_tour, cf_costs
 
 
 if __name__ == "__main__":
+    from paper_sequential_planner.experiments.env_planarrr import *
+    from paper_sequential_planner.scripts.rtsp_solver import RTSP
+    from paper_sequential_planner.scripts.geometric_poses import *
+
+    robot = PlanarRR()
+    scene = RobotScene(robot, None)
     rtspsolver = RoboTSPSolver()
+    planner = OMPLPlanner(scene.collision_checker)
 
-    bot = util.ur5e_dh()
-    Htasks = util.generate_random_dh_tasks(bot, 10)
-    qinit = np.zeros((6,))
-    Hinit = util.solve_fk(bot, qinit)
-    numsolslist, Qlist = util.solve_ik_bulk(bot, Htasks)
+    # ------- RTSP Preprocessing --------------------------------------
+    ntasks = 30
+    X = sample_reachable_wspace(ntasks)
+    Qaik = wspace_ik(robot, X)
+    Qaik_valid = wspace_ik_validity(Qaik, scene)
+    (
+        task_reachable,
+        num_treachable,
+        num_qreachable,
+        Q_reachable,
+        cluster_ttc,
+        cluster_ctt,
+        tspace_adjm,
+        cspace_adjm,
+    ) = RTSP.preprocess(X, Qaik, Qaik_valid)
+    X_r_full = xlist_to_Xlist(task_reachable)  # (ntasks_rech, 6)
+    H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
 
-    # rtspsolver.solve(Htasks, Hinit, qinit, numsolslist, Qlist)
-    # rtspsolver.print_log()
+    Htasks = H_r_full
+    # qinit = np.array([1, -1])
+    # eepose = np.array(robot.forward_kinematic(qinit))[-1]
+    # Hinit = np.eye(4)
+    # Hinit[:2, 3] = eepose
+    Hinit = H_r_full[0]  # start from the first task reachable pose
+    qinit = Q_reachable[0]
 
-    QlistCollision = collision_check_Qlist(Qlist)
-    print(QlistCollision)
+    print(num_qreachable)
+    print(Q_reachable.shape)
+    Qlist = []
+    i = 0
+    j = 0
+    for k in num_qreachable:
+        Qlist.append(Q_reachable[i : j + k])
+        i = j + k
+        j = j + k
 
-    QlistFree = remove_collision_Qlist(Qlist, QlistCollision)
-    print(QlistFree)
+    cf_tour, cf_costs = rtspsolver.solve(
+        Htasks, Hinit, qinit, num_qreachable, Qlist
+    )
+    rtspsolver.print_log()
 
-    num, QlistFreeAlt = util.find_altconfig_bulk(QlistFree)
-    print(num)
-    print(QlistFreeAlt)
+    optimal_task = rtspsolver.log["tspace_tour"]
+    optimal_taskH = task_reachable[optimal_task]
+    print(f"==>> optimal_taskH: \n{optimal_taskH}")
+
+    optimal_config = rtspsolver.log["cspace_optimal_config_candidate"]
+    print(f"==>> optimal_config: \n{optimal_config}")
+
+    tstourid = rtspsolver.log["tspace_tour"]
+    print(f"==>> tstourid: \n{tstourid}")
+    cstourid = rtspsolver.log["cspace_optimal_config_path_id"]
+    print(f"==>> cstourid: \n{cstourid}")
+
+    store_path = {}
+    store_cost = {}
+    for i in range(optimal_config.shape[0] - 1):
+        qa = optimal_config[i]
+        qb = optimal_config[i + 1]
+        res_ = planner.query_planning(qa, qb)
+        if res_ is not None:
+            qp, cp = res_
+            qp = np.array(qp)
+            store_path[i] = qp
+            store_cost[i] = cp
+        else:
+            store_path[i] = None
+            store_cost[i] = np.inf
+
+    def visualize():
+        fig, ax = plt.subplots(1, 2)
+
+        # obstacles
+        for shp in scene.obstacles:
+            x, y = shp.exterior.xy
+            ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
+
+        # ax0: Workspace
+        links = np.array(robot.forward_kinematic(qinit))
+
+        ax[0].plot(
+            links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at qinit"
+        )
+        ax[0].plot(
+            X[:, 0],
+            X[:, 1],
+            "o",
+            color="lightgray",
+            label="User Input Tasks",
+        )
+        ax[0].plot(
+            task_reachable[:, 0],
+            task_reachable[:, 1],
+            "gx",
+            label="Task-Reachable",
+        )
+        ax[0].plot(
+            optimal_taskH[:, 0],
+            optimal_taskH[:, 1],
+            "bo--",
+            label="Optimal Taskspace Tour",
+        )
+        for i, x in enumerate(task_reachable):
+            ax[0].text(x[0], x[1], f"({i})", fontsize=10, ha="right")
+        ax[0].set_aspect("equal")
+        ax[0].set_xlim(-4, 4)
+        ax[0].set_ylim(-4, 4)
+        ax[0].set_xlabel("X")
+        ax[0].set_ylabel("Y")
+        ax[0].legend(
+            bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+            loc="lower left",
+        )
+
+        # ax1: C-space
+        cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+        ax[1].plot(
+            cspace_obs[:, 0],
+            cspace_obs[:, 1],
+            "ro",
+            markersize=1,
+            label="C-space Obstacles",
+            alpha=0.1,
+        )
+        ax[1].scatter(
+            Qaik[:, :, 0].ravel(),
+            Qaik[:, :, 1].ravel(),
+            marker="o",
+            color="lightgray",
+            label="All IK Solutions",
+        )
+        ax[1].plot(
+            Q_reachable[:, 0],
+            Q_reachable[:, 1],
+            "gx",
+            markersize=5,
+            label="Q-reachable",
+        )
+        ax[1].plot(
+            optimal_config[:, 0],
+            optimal_config[:, 1],
+            linestyle="--",
+            color="gray",
+            alpha=0.5,
+            label="GTSP Tour",
+        )
+        for i in range(len(store_path)):
+            qp = store_path[i]
+            if qp is None:
+                continue
+            ax[1].plot(
+                qp[:, 0],
+                qp[:, 1],
+                "b-",
+                alpha=1,
+                label="OMPL path" if i == 0 else None,
+            )
+            ax[1].text((qp[0, 0]), (qp[0, 1]), f"({i})", fontsize=10, ha="right")
+        ax[1].set_aspect("equal")
+        ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
+        ax[1].set_ylim(-2 * np.pi, 2 * np.pi)
+        ax[1].set_xlabel("q1")
+        ax[1].set_ylabel("q2")
+        ax[1].legend(
+            bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+            loc="lower left",
+        )
+        plt.show()
+
+    visualize()
