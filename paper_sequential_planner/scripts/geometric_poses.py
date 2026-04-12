@@ -232,11 +232,18 @@ def se3_mean(Hs, max_iter=20):
 # H = [R|t] in SE(3) # shape (4,4)
 # Hlist = [H1, H2, ...] # shape (N,4,4)
 
+
 # testing
 # Hlist = poses_a()
 # Xlist = Hlist_to_Xlist(Hlist)
 # Hlistrecover = Xlist_to_Hlist(Xlist)
 # t = np.allclose(Hlist, Hlistrecover, atol=1e-6)
+def H_to_X(H):
+    t = H[:3, 3]
+    R_mat = H[:3, :3]
+    quat = R.from_matrix(R_mat).as_quat()
+    X = np.hstack([t, quat])
+    return X
 
 
 def Xlist_to_Hlist(Xlist):

@@ -9,8 +9,8 @@ from scipy.spatial.transform import Rotation as R
 
 try:
     from eaik.IK_DH import DhRobot
-    from spatialmath import SE3
-    from roboticstoolbox import DHRobot, RevoluteDH
+    # from spatialmath import SE3
+    # from roboticstoolbox import DHRobot, RevoluteDH
 except:
     print("missing packages; usage limited")
 
@@ -50,7 +50,7 @@ class RobotUR5eKin:
             "table_under": np.array(
                 [
                     [-2 * np.pi, 2 * np.pi],
-                    [-np.pi, np.pi],
+                    [-np.pi, 0],
                     [-np.pi, np.pi],
                     [-2 * np.pi, 2 * np.pi],
                     [-2 * np.pi, 2 * np.pi],
@@ -59,19 +59,19 @@ class RobotUR5eKin:
             ),
         }
 
-        Ls = [
-            RevoluteDH(
-                d=self.d[i],
-                a=self.a[i],
-                alpha=self.alpha[i],
-                qlim=self.qlim_dict["hardware_default"][i],
-            )
-            for i in range(6)
-        ]
+        # Ls = [
+        #     RevoluteDH(
+        #         d=self.d[i],
+        #         a=self.a[i],
+        #         alpha=self.alpha[i],
+        #         qlim=self.qlim_dict["hardware_default"][i],
+        #     )
+        #     for i in range(6)
+        # ]
 
         # bot kinematics
         self.bot = DhRobot(self.alpha, self.a, self.d)
-        self.bot_rtb = DHRobot(Ls, name="UR5e")
+        # self.bot_rtb = DHRobot(Ls, name="UR5e")
 
     def solve_fk(self, q):
         return self.bot.fwdKin(q)

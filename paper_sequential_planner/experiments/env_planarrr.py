@@ -498,7 +498,9 @@ def wspace_ik_extended(robot, Xtspace):
         ]
     )
     ntasks = Xtspace.shape[0]
-    num_sols = 2 * 4  # rr has up to 2 IK, each has up to 4 alternative configs.
+    unique_sols = 2
+    alt_num = 4
+    num_sols = unique_sols * alt_num  # rr has  2 IK, each 4 alternative configs.
     dof = 2
     Qaik = np.full((ntasks, num_sols, dof), np.nan)  # (ntasks, num_sols, dof)
     for taski in range(ntasks):
@@ -506,7 +508,7 @@ def wspace_ik_extended(robot, Xtspace):
         if q_sols is not None:
             for qi, q in enumerate(q_sols):
                 alt_qs = find_alt_config2(q, limit2, filterOriginalq=False)
-                Qaik[taski, qi * 4 : (qi + 1) * 4] = alt_qs
+                Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
     return Qaik
 
 
@@ -514,13 +516,18 @@ def wspace_ik_validity_extended(Qaik, robscene):
     """
     Same as wspace_ik_validity but with extended space limits.
     """
+    limit = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
     ntasks = Qaik.shape[0]
     num_sols = Qaik.shape[1]
-    limit = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     eps = 1e-9
     Qaik_valid = np.full((ntasks, num_sols, 1), np.nan)  # (ntasks, num_sols, 1)
-    for taski in range(Qaik.shape[0]):
-        for solj in range(Qaik.shape[1]):
+    for taski in range(ntasks):
+        for solj in range(num_sols):
             q = Qaik[taski, solj]
             if np.isnan(q).any():
                 Qaik_valid[taski, solj] = -1  # No solution
@@ -533,7 +540,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
                         (q >= (limit[:, 0] - eps)) & (q <= (limit[:, 1] + eps))
                     )
                     if not is_in_limit:
-                        Qaik_valid[taski, solj] = -3  # Awkward configuration
+                        Qaik_valid[taski, solj] = -3  # Out of limits
                     else:
                         Qaik_valid[taski, solj] = 1  # Valid
     return Qaik_valid.astype(int)

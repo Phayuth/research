@@ -1,48 +1,127 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from paper_sequential_planner.experiments.env_planarrr import (
-    PlanarRR,
-    RobotScene,
-    OMPLPlanner,
-    sample_reachable_wspace,
-    wspace_ik_extended,
-    wspace_ik_validity_extended,
-)
+from pytransform3d.plot_utils import make_3d_axis
+from pytransform3d.transformations import plot_transform
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
+    find_alt_config2,
     find_altconfig_redudancy,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
+    poses_a,
+    poses_b,
+    poses_c,
+    poses_d,
+    H_to_X,
+    xlist_to_Xlist,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
-    xlist_to_Xlist,
-    se3_error,
     se3_error_pairwise_distance,
 )
+from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
-robot = PlanarRR()
-scene = RobotScene(robot, None)
-planner = OMPLPlanner(scene.collision_checker)
+robkin = RobotUR5eKin()
+
+
+def sample_reachable_wspace(ntasks):
+    Hlist = []
+    for _ in range(ntasks):
+        q = np.random.uniform(-np.pi, np.pi, size=(6,))
+        H = robkin.solve_fk(q)
+        Hlist.append(H)
+    X = Hlist_to_Xlist(Hlist)
+    return X
+
+
+def wspace_ik_extended(robot, Xtspace):
+    # this is general from hardware, this has 32 redundant solutions
+    limit6 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    # if the table is under, q2 is limited to [-pi, 0]
+    # limit6[1, 0] = -np.pi
+    # limit6[1, 1] = 0
+
+    ntasks = Xtspace.shape[0]
+    alt_num = 32
+    unique_sols = 8
+    num_sols = unique_sols * alt_num
+    dof = 6
+    Qaik = np.full((ntasks, num_sols, dof), np.nan)
+
+    Htasks = Xlist_to_Hlist(Xtspace)
+    for taski in range(ntasks):
+        nik, q_sols = robot.solve_aik(Htasks[taski])
+        if nik == 0:
+            Qaik[taski] = np.nan
+        for qi, q in enumerate(q_sols):
+            q = q + 1e-2  # to avoid numerical issues in find_alt_config2
+            alt_qs = find_alt_config2(q, limit6, filterOriginalq=False)
+            Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
+    return Qaik
+
+
+def wspace_ik_validity_extended(Qaik, robscene):
+    limit6 = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    ntasks = Qaik.shape[0]
+    num_sols = Qaik.shape[1]
+    eps = 1e-9
+    Qaik_valid = np.full((ntasks, num_sols, 1), np.nan)
+    for taski in range(ntasks):
+        for solj in range(num_sols):
+            q = Qaik[taski, solj]
+            if np.isnan(q).any():
+                Qaik_valid[taski, solj] = -1  # No solution
+            else:
+                isCollsion = False  # robscene.check_collision(q)
+                if isCollsion:
+                    Qaik_valid[taski, solj] = -2  # In collision
+                else:
+                    is_in_limit = np.all(
+                        (q >= limit6[:, 0] - eps) & (q <= limit6[:, 1] + eps)
+                    )
+                    if not is_in_limit:
+                        Qaik_valid[taski, solj] = -3  # Out of limits
+                    else:
+                        Qaik_valid[taski, solj] = 1  # Valid solution
+    return Qaik_valid.astype(int)
 
 
 # initial config and task  -----------------------------------------
-qinit = np.array([1, -1])
-Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
+qinit = np.array([0, -np.pi / 2, 0, -np.pi / 2, 0, 0])
+Xinit = H_to_X(robkin.solve_fk(qinit))
 # -----------------------------------------------------------------
 
 # to visit task ---------------------------------------------------
-ntasks = 300
-X = sample_reachable_wspace(ntasks)  # (ntasks, 2)
-Qaik = wspace_ik_extended(robot, X)  # (ntasks, n_ik * altcnf, dof)
-Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, n_ik * altcnf, 1)
+# ntasts = 50
+# X = sample_reachable_wspace(ntasts)
+H = poses_d()
+X = Hlist_to_Xlist(H)
+Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
+Qaik_valid = wspace_ik_validity_extended(Qaik, None)  # (ntasks, 7, 1)
 # -----------------------------------------------------------------
-
 
 # filterout reachable/unreachable tasks ---------------------------
 X_isunr = np.all(Qaik_valid != 1, axis=1).flatten()  # (ntasks, ) True/False
@@ -51,7 +130,6 @@ Qaik_valid_r = Qaik_valid[~X_isunr]  # (ntasks_rech, n_ik * altcnf, 1)
 Qaik_r = Qaik[~X_isunr]  # (ntasks_rech, n_ik * altcnf, dof)
 Qaik_r = np.where(Qaik_valid_r == 1, Qaik_r, np.nan)  # set value to nan if invalid
 # -----------------------------------------------------------------
-
 
 # concate Xinit, qinit ------------------------------------------------
 X_rall = np.vstack((Xinit, X_r))  # (ntasks+1, 2) & init
@@ -62,15 +140,13 @@ print(f"==>> X_rall.shape: \n{X_rall.shape}")
 print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 # -----------------------------------------------------------------
 
-
 # taskspace distance -----------------------------------------------
-X_r_full = xlist_to_Xlist(X_rall)  # (ntasks_rech, 6)
-H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
+H_r_full = Xlist_to_Hlist(X_rall)  # (ntasks_rech, 4, 4)
 tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 # -----------------------------------------------------------------
 
-
+# 300 tasks OVER MEMORY LIMIT, SO ANNOYING
 # cspace distance by IK pairing------------------------------------
 # shape (ntasks_rech, ntasks_rech, n_ik * altcnf, n_ik * altcnf)
 # accessing same id will give us dist to itself, which we dont need.
@@ -104,31 +180,6 @@ min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
 cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
 print(f"==>> cspace_task_min_idx.shape: \n{cspace_task_min_idx.shape}")
 # -----------------------------------------------------------------
-
-
-def task_to_task_configuration_interp(Qaik_rall, nintp=10):
-    """
-    Interpolate between all pairs of task-reachable configurations,
-    and set to nan if either of the pair is invalid.
-    final shape (ntasks_rech, ntasks_rech, n_ik, n_ik, nintp, dof)
-    Ex:
-    tt_cspace_interp = task_to_task_configuration_interp(Qaik_rall, nintp=10)
-    t0t1q0q0 = tt_cspace_interp[0, 1, 0, 0]
-    give us interp bet/ first IK of task0 to first IK of task1.
-    task id should not be the same
-    """
-    ntasks_rech, n_ik, dof = Qaik_rall.shape
-    Q1 = Qaik_rall[:, None, :, None, None, :]  # (ntasks_rech,1,n_ik,1,1,dof)
-    Q2 = Qaik_rall[None, :, None, :, None, :]  # (1,ntasks_rech,1,n_ik,1,dof)
-    tau = np.linspace(0.0, 1.0, nintp, dtype=Qaik_rall.dtype)
-    tau = tau[None, None, None, None, :, None]  # (1,1,1,1,nintp,1)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik,nintp,dof)
-    interp = (1.0 - tau) * Q1 + tau * Q2
-    invalid_cfg = np.isnan(Qaik_rall).all(axis=-1)  # (ntasks_rech,n_ik)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik)
-    invalid_pair = invalid_cfg[:, None, :, None] | invalid_cfg[None, :, None, :]
-    interp = np.where(invalid_pair[..., None, None], np.nan, interp)
-    return interp
 
 
 def radius_neighbors(D, radius):
@@ -203,8 +254,8 @@ def task_to_task_cspace_adj():
 
 # unique groups of IK ----------------------------------------------
 def make_group_matrix():
-    ik_num = 2  # elbow up and down
-    altc_num = 4  # 4 alt config per ik solution
+    ik_num = 8
+    altc_num = 32
     group_mat = np.zeros_like(cspace_eudist, dtype=int)
     for ti in range(task_to_task_adj.shape[0]):
         for tj in range(ti + 1, task_to_task_adj.shape[0]):
@@ -235,23 +286,6 @@ print(f"==>> group_mat.shape: \n{group_mat.shape}")
 # -----------------------------------------------------------------
 
 
-t1 = 4
-t1nn = nn_union[t1]
-t2 = t1nn[0]
-print(f"==>> t1: \n{t1}")
-print(f"==>> t1nn: \n{t1nn}")
-print(f"==>> t2: \n{t2}")
-
-# thinking of doing isometry distance
-epslGH = 1.0
-# t1_nnnn = nn_dist[t1]
-# print(f"==>> t1_nnnn: \n{t1_nnnn}")
-# t1nntn = t1_nnnn[0]
-# print(f"==>> t1nntn: \n{t1nntn}")
-# ts_cs_diff = t1cpc - t1nntn
-# print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
-
-
 # bulk processing for all task pairs --------------------------------------
 max_allow_cspace_dist = 2 * np.pi
 cspace_eudist_filtermax = cspace_eudist <= max_allow_cspace_dist
@@ -259,8 +293,8 @@ t_to_t_adj_proc = np.zeros_like(task_to_task_adj, dtype=bool)  # track processed
 
 # estimate the cost of real cspace
 cspace_eudist_estimated = np.full_like(cspace_eudist, -1)
-ik_num = 2  # elbow up and down
-altc_num = 4  # 4 alt config per ik solution
+ik_num = 8  # 8 ik solutions
+altc_num = 32  # 32 alt config per ik solution
 ntasks_rech = task_to_task_adj.shape[0]
 for ti in range(ntasks_rech):
     for tj in range(ti + 1, ntasks_rech):
@@ -305,7 +339,7 @@ for ti in range(ntasks_rech):
                             for idx, (q_s, q_g) in enumerate(zip(Qs, Qg)):
                                 cost = (
                                     np.linalg.norm(q_s - q_g)
-                                    + 0.0 * np.random.uniform()
+                                    + 0.2 * np.random.uniform()
                                 )
                                 cost_group_est[idx] = cost
 
@@ -319,220 +353,61 @@ for ti in range(ntasks_rech):
                             cspace_eudist_estimated[tj, ti, j0:j1, i0:i1] = (
                                 g_cost_est.T
                             )  # undirected
-print(f"==>> cspace_eudist_estimated: \n{cspace_eudist_estimated}")
+print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
+
+
+# def write_to_GTSP_format(cspace_eudist_estimated):
+#     ntasks_rech = cspace_eudist_estimated.shape[0]
+#     ik_num = cspace_eudist_estimated.shape[2]
+
+#     # with open("filename", "w") as f:
+#     #     f.write(f"NAME: random_gtsp_fullmatrix\n")
+#     #     f.write(f"TYPE: GTSP\n")
+#     #     f.write(f"COMMENT: generated GTSP/AGTSP instance with full matrix\n")
+#     #     f.write(f"DIMENSION: {num_points}\n")
+#     #     f.write(f"GTSP_SETS: {num_clusters}\n")
+#     #     f.write(f"EDGE_WEIGHT_TYPE: EXPLICIT\n")
+#     #     f.write(f"EDGE_WEIGHT_FORMAT: FULL_MATRIX\n")
+#     #     f.write(f"EDGE_WEIGHT_SECTION\n")
+
+#     #     # --- write all points ---
+#     #     for i in range(num_points):
+#     #         row = " ".join(f"{matrix[i, j]}" for j in range(num_points))
+#     #         f.write(f"{row}\n")
+
+#     #     # --- write GTSP sets ---
+#     #     f.write("GTSP_SET_SECTION\n")
+#     #     for key in clusters.keys():
+#     #         c = clusters[key]
+#     #         k = key
+#     #         nodes_str = " ".join(str(n + 1) for n in c)
+#     #         f.write(f"{k + 1} {nodes_str} -1\n")
+
+#     #     f.write("EOF\n")
 
 
 def visualize():
-    fig, ax = plt.subplots(1, 2)
+    Hhome = H_r_full[0]
 
-    Xt1 = X_rall[t1]
+    t1 = 0
+    Hnnt1 = nn_union[t1]
+    Hnn = [H_r_full[i] for i in Hnnt1]
 
-    # obstacles
-    for shp in scene.obstacles:
-        x, y = shp.exterior.xy
-        ax[0].fill(x, y, alpha=0.5, fc="red", ec="black")
-
-    cirt1 = plt.Circle(
-        Xt1, 0.5, color="r", fill=False, linestyle="--", label="t1 radius"
-    )
-    ax[0].add_artist(cirt1)
-
-    nnkt1 = nn_k[t1]
-    nnrt1 = nn_r[t1]
-    for nnt1 in nnkt1:
-        ax[0].plot(
-            [Xt1[0], X_rall[nnt1][0]],
-            [Xt1[1], X_rall[nnt1][1]],
-            "b--",
-            label="t1 knn" if nnt1 == nnkt1[0] else "",
+    ax = make_3d_axis(1)
+    plot_transform(ax, np.eye(4), s=1, name="world")
+    plot_transform(ax, Hhome, s=0.1, c="r", name="home")
+    for i in range(H_r_full.shape[0]):
+        plot_transform(ax, H_r_full[i], s=0.05, name=f"{i}")
+    for h in Hnn:
+        ax.plot(
+            [Hhome[0, 3], h[0, 3]],
+            [Hhome[1, 3], h[1, 3]],
+            [Hhome[2, 3], h[2, 3]],
+            "k--",
+            linewidth=0.5,
         )
-    for nnt1 in nnrt1:
-        ax[0].plot(
-            [Xt1[0], X_rall[nnt1][0]],
-            [Xt1[1], X_rall[nnt1][1]],
-            "r--",
-            label="t1 radius" if nnt1 == nnrt1[0] else "",
-        )
-
-    # ax0: Workspace
-    links = np.array(robot.forward_kinematic(qinit))
-    ax[0].text(Xinit[0, 0], Xinit[0, 1], "home task", fontsize=8, ha="right")
-    ax[0].plot(links[:, 0], links[:, 1], "k-o", linewidth=2, label="Robot at q0")
-    ax[0].plot(
-        X[:, 0],
-        X[:, 1],
-        "o",
-        color="lightgray",
-        label="User Input Tasks",
-    )
-    ax[0].plot(
-        X_rall[:, 0],
-        X_rall[:, 1],
-        "gx",
-        label="Task-Reachable",
-    )
-    for i, x in enumerate(X_rall):
-        ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
-    ax[0].set_aspect("equal")
-    ax[0].set_xlim(-4, 4)
-    ax[0].set_ylim(-4, 4)
-    ax[0].set_xlabel("X")
-    ax[0].set_ylabel("Y")
-    ax[0].legend(
-        bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
-        loc="lower left",
-    )
-
-    # ax1: C-space
-    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
-    ax[1].plot(
-        [qinit[0]],
-        [qinit[1]],
-        "k-o",
-        linewidth=2,
-    )
-    ax[1].text(qinit[0], qinit[1], "home config", fontsize=8, ha="right")
-    ax[1].plot(
-        cspace_obs[:, 0],
-        cspace_obs[:, 1],
-        "ro",
-        markersize=1,
-        label="C-space Obstacles",
-        alpha=0.1,
-    )
-    ax[1].scatter(
-        Qaik[:, :, 0].ravel(),
-        Qaik[:, :, 1].ravel(),
-        marker="o",
-        color="lightgray",
-        label="All IK Solutions",
-    )
-    ax[1].plot(
-        Qaik_rall[:, :, 0].ravel(),
-        Qaik_rall[:, :, 1].ravel(),
-        "gx",
-        markersize=5,
-        label="Reachable IK Solutions",
-    )
-    # for q1 in Qt1r:
-    #     for q2 in Qt2r:
-    #         if not np.any(np.isnan(q1)) and not np.any(np.isnan(q2)):
-    #             ax[1].plot(
-    #                 [q1[0], q2[0]],
-    #                 [q1[1], q2[1]],
-    #                 "c--",
-    #                 # remove duplicate legend by only labeling the first valid pair
-    #                 label=(
-    #                     "Task-to-Task by IK"
-    #                     if "Task-to-Task by IK"
-    #                     not in ax[1].get_legend_handles_labels()[1]
-    #                     else ""
-    #                 ),
-    #             )
-    # ax[1].plot(Qt1r[:, 0], Qt1r[:, 1], "ro", label="t1 IK Solutions")
-    # ax[1].plot(Qt2r[:, 0], Qt2r[:, 1], "bo", label="t2 IK Solutions")
-    ax[1].set_aspect("equal")
-    ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
-    ax[1].set_ylim(-2 * np.pi, 2 * np.pi)
-    ax[1].set_xlabel("q1")
-    ax[1].set_ylabel("q2")
-    ax[1].legend(
-        bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
-        loc="lower left",
-    )
+        plot_transform(ax, h, s=0.1, c="g", name=f"n")
     plt.show()
 
 
 visualize()
-
-
-def __test_unused():
-    t1 = 4
-    t1nn = nn_union[t1]
-    t2 = t1nn[0]
-    print(f"==>> t1: \n{t1}")
-    print(f"==>> t1nn: \n{t1nn}")
-    print(f"==>> t2: \n{t2}")
-
-    t1nn_cspace_eudist = cspace_eudist[t1, t2]
-    print(f"==>> t1nn_cspace_eudist: \n{t1nn_cspace_eudist}")
-    print(f"==>> t1nn_cspace_eudist.shape: \n{t1nn_cspace_eudist.shape}")
-
-    epslGH = 1.0
-    max_allow_cspace_dist = 2 * np.pi
-
-    # t1_nnnn = nn_dist[t1]
-    # print(f"==>> t1_nnnn: \n{t1_nnnn}")
-    # t1nntn = t1_nnnn[0]
-    # print(f"==>> t1nntn: \n{t1nntn}")
-    # ts_cs_diff = t1cpc - t1nntn
-    # print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
-
-    t1cpc_filtermax = t1nn_cspace_eudist <= max_allow_cspace_dist
-    print(f"==>> t1cpc_filtermax: \n{t1cpc_filtermax}")
-
-    t1cpc_group = group_mat[t1, t2]
-    print(f"==>> t1cpc_group: \n{t1cpc_group}")
-
-    t1cpc_estimated = np.full_like(
-        t1nn_cspace_eudist, -1
-    )  # init -1 to be replaced
-    print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-    print("".center(50, "-"))
-
-    ik_num = 2  # elbow up and down
-    altc_num = 4  # 4 alt config per ik solution
-    for ik_i in range(ik_num):
-        for ik_j in range(ik_num):
-            i0 = ik_i * altc_num
-            j0 = ik_j * altc_num
-            i1 = ik_i * altc_num + altc_num
-            j1 = ik_j * altc_num + altc_num
-            t1cpc_lowboud = t1nn_cspace_eudist[i0:i1, j0:j1]
-            print(f"==>> t1cpc_lowboud: \n{t1cpc_lowboud}")
-
-            if np.isnan(t1cpc_lowboud).all():  # invalid pair, set to nan
-                t1cpc_estimated[i0:i1, j0:j1] = np.nan
-            else:
-                g = t1cpc_group[i0:i1, j0:j1]
-                print(f"==>> g: \n{g}")
-                p = t1cpc_filtermax[i0:i1, j0:j1]
-                print(f"==>> p: \n{p}")
-                g_valid = g[p]
-                print(f"==>> g_valid: \n{g_valid}")
-                g_unique, first_valid_idx, count = np.unique(
-                    g_valid, return_counts=True, return_index=True
-                )
-                print(f"==>> g_unique: \n{g_unique}")
-                valid_coords = np.column_stack(np.where(p))
-                g_unique_ij = valid_coords[first_valid_idx].astype(int)
-                print(f"==>> g_unique_ij: \n{g_unique_ij}")
-
-                # recovery of full-matrix indices from block-local indices.
-                uv = g_unique_ij + np.array([i0, j0], dtype=int)
-                print(f"==>> global uv: \n{uv}")
-
-                # recover config value from group id
-                Qs = Qaik_rall[t1, uv[:, 0]]  # start config
-                Qg = Qaik_rall[t2, uv[:, 1]]  # goal config
-
-                cost_group_est = np.full_like(g_unique, np.inf, dtype=float)
-                # for each pair of qs and qg, we estimate cost
-                for idx, (q_s, q_g) in enumerate(zip(Qs, Qg)):
-                    cost = np.linalg.norm(q_s - q_g) + 0.0 * np.random.uniform()
-                    cost_group_est[idx] = cost
-                print(f"==>> cost_group_est: \n{cost_group_est}")
-
-                # assign the estimated cost to all pairs in the same group
-                g_cost_est = np.full_like(g, np.nan, dtype=float)
-                for idx, g_id in enumerate(g_unique):
-                    g_cost_est[g == g_id] = cost_group_est[idx]
-                print(f"==>> g_cost_est: \n{g_cost_est}")
-
-                t1cpc_estimated[i0:i1, j0:j1] = g_cost_est
-
-            print("".center(50, "-"))
-
-    print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-    print("".center(50, "-"))
-    print("".center(50, "-"))

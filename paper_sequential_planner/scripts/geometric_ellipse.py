@@ -374,10 +374,11 @@ def ellipsoid_size_ratio():
     ax.plot(xGoal[0], xGoal[1], marker="o", color="green", label="Goal")
     for cMax in cMaxs:
         el = get_2d_ellipse_informed_mplpatch(xStart, xGoal, cMax)
+        el.set_label(f"cMax={cMax:.2f}")
         ax.add_patch(el)
     ax.set_aspect("equal", "box")
-    ax.set_xlim(-np.pi, np.pi)
-    ax.set_ylim(-np.pi, np.pi)
+    ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax.set_ylim(-2 * np.pi, 2 * np.pi)
     ax.grid(True)
     ax.legend()
     ax.set_title("Informed Sampling in 2D Ellipse")
@@ -448,3 +449,7 @@ def sorting_points_on_vector(q1, q2, X):
     order = np.argsort(s)
     X_sorted = X[order]
     return X_sorted
+
+
+if __name__ == "__main__":
+    ellipsoid_size_ratio()
