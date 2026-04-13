@@ -21,6 +21,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     se3_error,
     se3_error_pairwise_distance,
 )
+from paper_sequential_planner.scripts.geometric_ellipse import *
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -37,10 +38,23 @@ Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
 # -----------------------------------------------------------------
 
 # to visit task ---------------------------------------------------
-ntasks = 300
+ntasks = 30
 X = sample_reachable_wspace(ntasks)  # (ntasks, 2)
 Qaik = wspace_ik_extended(robot, X)  # (ntasks, n_ik * altcnf, dof)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, n_ik * altcnf, 1)
+# -----------------------------------------------------------------
+
+# Seed workspace task and their IK for cost estimation ------------
+NSEED = 300
+XSEED = sample_reachable_wspace(NSEED)  # (NSEED, 2)
+QSEEDAIK = wspace_ik_extended(robot, XSEED)  # (NSEED, n_ik * altcnf, dof)
+QSEEDAIK_Valid = wspace_ik_validity_extended(QSEEDAIK, scene)
+# -----------------------------------
+XSEED_unr = np.all(QSEEDAIK_Valid != 1, axis=1).flatten()  # (NSEED, ) True/False
+XSEED_r = XSEED[~XSEED_unr]  # (NSEED_rech, 2)
+QSEEDAIK_valid_r = QSEEDAIK_Valid[~XSEED_unr]  # (NSEED_rech, n_ik * altcnf, dof)
+QSEEDAIK_r = QSEEDAIK[~XSEED_unr]
+QSEEDAIK_r = np.where(QSEEDAIK_valid_r == 1, QSEEDAIK_r, np.nan)
 # -----------------------------------------------------------------
 
 
@@ -235,7 +249,7 @@ print(f"==>> group_mat.shape: \n{group_mat.shape}")
 # -----------------------------------------------------------------
 
 
-t1 = 4
+t1 = 1
 t1nn = nn_union[t1]
 t2 = t1nn[0]
 print(f"==>> t1: \n{t1}")
@@ -244,6 +258,7 @@ print(f"==>> t2: \n{t2}")
 
 # thinking of doing isometry distance
 epslGH = 1.0
+eta_collision = 0.1 # resolution of collision checking
 # t1_nnnn = nn_dist[t1]
 # print(f"==>> t1_nnnn: \n{t1_nnnn}")
 # t1nntn = t1_nnnn[0]
@@ -255,6 +270,7 @@ epslGH = 1.0
 # bulk processing for all task pairs --------------------------------------
 max_allow_cspace_dist = 2 * np.pi
 cspace_eudist_filtermax = cspace_eudist <= max_allow_cspace_dist
+cspace_eudist_filtered = np.where(cspace_eudist_filtermax, cspace_eudist, np.nan)
 t_to_t_adj_proc = np.zeros_like(task_to_task_adj, dtype=bool)  # track processed
 
 # estimate the cost of real cspace
@@ -319,14 +335,13 @@ for ti in range(ntasks_rech):
                             cspace_eudist_estimated[tj, ti, j0:j1, i0:i1] = (
                                 g_cost_est.T
                             )  # undirected
-print(f"==>> cspace_eudist_estimated: \n{cspace_eudist_estimated}")
 
 
 def visualize():
     fig, ax = plt.subplots(1, 2)
 
     Xt1 = X_rall[t1]
-
+    Xt2 = X_rall[t2]
     # obstacles
     for shp in scene.obstacles:
         x, y = shp.exterior.xy
@@ -336,6 +351,10 @@ def visualize():
         Xt1, 0.5, color="r", fill=False, linestyle="--", label="t1 radius"
     )
     ax[0].add_artist(cirt1)
+    cirt2 = plt.Circle(
+        Xt2, 0.5, color="b", fill=False, linestyle="--", label="t2 radius"
+    )
+    ax[0].add_artist(cirt2)
 
     nnkt1 = nn_k[t1]
     nnrt1 = nn_r[t1]
@@ -371,6 +390,14 @@ def visualize():
         "gx",
         label="Task-Reachable",
     )
+    ax[0].plot(
+        XSEED[:, 0],
+        XSEED[:, 1],
+        "k+",
+        alpha=0.5,
+        markersize=3,
+        label="Seed Tasks",
+    )
     for i, x in enumerate(X_rall):
         ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
     ax[0].set_aspect("equal")
@@ -382,6 +409,40 @@ def visualize():
         bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
         loc="lower left",
     )
+
+    # process cspace
+    # t2 is a global task id, but cspace_eudist[t1, t1nn] is indexed by local !!!
+    # neighbor position. Map global id -> local neighbor index first.
+    t2_local = t1nn.index(t2)
+    print(f"==>> t2_local: \n{t2_local}")
+
+    # all available edge
+    cost_t1_to_t1nn = cspace_eudist[t1, t1nn]
+    print(f"==>> cost_t1_to_t1nn: \n{cost_t1_to_t1nn[t2_local]}")
+    notnan_index = np.where(~np.isnan(cost_t1_to_t1nn[t2_local]))
+    idex = np.column_stack(notnan_index)
+    Qs = Qaik_rall[t1, idex[:, 0]]  # start config
+    Qg = Qaik_rall[t2, idex[:, 1]]  # goal config
+    cost_all = cost_t1_to_t1nn[t2_local][idex[:, 0], idex[:, 1]]
+
+    # edge to be considered
+    cost_t1_to_t1nn_consd = cspace_eudist_filtered[t1, t1nn]
+    print(f"==>> cost_t1_to_t1nn_consd: \n{cost_t1_to_t1nn_consd[t2_local]}")
+    notnan_index_consd = np.where(~np.isnan(cost_t1_to_t1nn_consd[t2_local]))
+    idex_consd = np.column_stack(notnan_index_consd)
+    Qscond = Qaik_rall[t1, idex_consd[:, 0]]  # start config
+    Qgconsd = Qaik_rall[t2, idex_consd[:, 1]]  # goal config
+    cost_considered = cost_t1_to_t1nn_consd[t2_local][
+        idex_consd[:, 0], idex_consd[:, 1]
+    ]
+
+    qscond = Qscond[2].reshape(-1, 1)
+    qgcond = Qgconsd[2].reshape(-1, 1)
+    cmin = np.linalg.norm(qscond - qgcond)
+    cdiff = max_allow_cspace_dist - cmin
+    print(f"==>> cdiff: \n{cdiff}")
+    el = get_2d_ellipse_informed_mplpatch(qscond, qgcond, cmin*1.1)
+    ax[1].add_patch(el)
 
     # ax1: C-space
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
@@ -414,23 +475,101 @@ def visualize():
         markersize=5,
         label="Reachable IK Solutions",
     )
-    # for q1 in Qt1r:
-    #     for q2 in Qt2r:
-    #         if not np.any(np.isnan(q1)) and not np.any(np.isnan(q2)):
-    #             ax[1].plot(
-    #                 [q1[0], q2[0]],
-    #                 [q1[1], q2[1]],
-    #                 "c--",
-    #                 # remove duplicate legend by only labeling the first valid pair
-    #                 label=(
-    #                     "Task-to-Task by IK"
-    #                     if "Task-to-Task by IK"
-    #                     not in ax[1].get_legend_handles_labels()[1]
-    #                     else ""
-    #                 ),
-    #             )
-    # ax[1].plot(Qt1r[:, 0], Qt1r[:, 1], "ro", label="t1 IK Solutions")
-    # ax[1].plot(Qt2r[:, 0], Qt2r[:, 1], "bo", label="t2 IK Solutions")
+    ax[1].plot(
+        QSEEDAIK_r[:, :, 0].ravel(),
+        QSEEDAIK_r[:, :, 1].ravel(),
+        "k+",
+        alpha=0.5,
+        markersize=3,
+        label="Seed IK Solutions",
+    )
+
+    # -------------hover interactivity for edge info display----------------
+    def _fmt_vec(q):
+        return np.array2string(q, precision=3, separator=", ")
+
+    hover_lines = []
+    hover_meta = {}
+    for idx, (qs, qg) in enumerate(zip(Qs, Qg)):
+        (line,) = ax[1].plot(
+            [qs[0], qg[0]],
+            [qs[1], qg[1]],
+            "g--",
+            alpha=0.5,
+        )
+        line.set_pickradius(2)
+        hover_lines.append(line)
+        hover_meta[line] = (
+            "type: all available edge\n"
+            f"cost distance: {cost_all[idx]:.4f}\n"
+            f"start config: {_fmt_vec(qs)}\n"
+            f"goal config: {_fmt_vec(qg)}"
+        )
+
+    for idx, (qs, qg) in enumerate(zip(Qscond, Qgconsd)):
+        (line,) = ax[1].plot(
+            [qs[0], qg[0]],
+            [qs[1], qg[1]],
+            "b--",
+            alpha=0.5,
+        )
+        line.set_pickradius(10)
+        hover_lines.append(line)
+        hover_meta[line] = (
+            "type: considered edge\n"
+            f"cost distance: {cost_considered[idx]:.4f}\n"
+            f"start config: {_fmt_vec(qs)}\n"
+            f"goal config: {_fmt_vec(qg)}"
+        )
+
+    hover_annot = ax[1].annotate(
+        "",
+        xy=(0, 0),
+        xytext=(12, 12),
+        textcoords="offset points",
+        bbox=dict(boxstyle="round", fc="white", ec="black", alpha=0.9),
+        arrowprops=dict(arrowstyle="->", color="black"),
+    )
+    hover_annot.set_visible(False)
+    active_line = {"line": None}
+
+    def _set_hover_line(line):
+        if active_line["line"] is line:
+            return
+        if active_line["line"] is not None:
+            active_line["line"].set_linewidth(1.5)
+            active_line["line"].set_alpha(0.5)
+        if line is not None:
+            line.set_linewidth(3.0)
+            line.set_alpha(1.0)
+        active_line["line"] = line
+
+    def _on_move(event):
+        if event.inaxes != ax[1]:
+            if hover_annot.get_visible() or active_line["line"] is not None:
+                _set_hover_line(None)
+                hover_annot.set_visible(False)
+                fig.canvas.draw_idle()
+            return
+
+        for line in hover_lines:
+            contains, _ = line.contains(event)
+            if contains:
+                _set_hover_line(line)
+                hover_annot.xy = (event.xdata, event.ydata)
+                hover_annot.set_text(hover_meta[line])
+                hover_annot.set_visible(True)
+                fig.canvas.draw_idle()
+                return
+
+        if hover_annot.get_visible() or active_line["line"] is not None:
+            _set_hover_line(None)
+            hover_annot.set_visible(False)
+            fig.canvas.draw_idle()
+
+    fig.canvas.mpl_connect("motion_notify_event", _on_move)
+    # -------------hover interactivity for edge info display----------------
+
     ax[1].set_aspect("equal")
     ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
     ax[1].set_ylim(-2 * np.pi, 2 * np.pi)
@@ -446,93 +585,93 @@ def visualize():
 visualize()
 
 
-def __test_unused():
-    t1 = 4
-    t1nn = nn_union[t1]
-    t2 = t1nn[0]
-    print(f"==>> t1: \n{t1}")
-    print(f"==>> t1nn: \n{t1nn}")
-    print(f"==>> t2: \n{t2}")
+# def __test_unused():
+#     t1 = 4
+#     t1nn = nn_union[t1]
+#     t2 = t1nn[0]
+#     print(f"==>> t1: \n{t1}")
+#     print(f"==>> t1nn: \n{t1nn}")
+#     print(f"==>> t2: \n{t2}")
 
-    t1nn_cspace_eudist = cspace_eudist[t1, t2]
-    print(f"==>> t1nn_cspace_eudist: \n{t1nn_cspace_eudist}")
-    print(f"==>> t1nn_cspace_eudist.shape: \n{t1nn_cspace_eudist.shape}")
+#     t1nn_cspace_eudist = cspace_eudist[t1, t2]
+#     print(f"==>> t1nn_cspace_eudist: \n{t1nn_cspace_eudist}")
+#     print(f"==>> t1nn_cspace_eudist.shape: \n{t1nn_cspace_eudist.shape}")
 
-    epslGH = 1.0
-    max_allow_cspace_dist = 2 * np.pi
+#     epslGH = 1.0
+#     max_allow_cspace_dist = 2 * np.pi
 
-    # t1_nnnn = nn_dist[t1]
-    # print(f"==>> t1_nnnn: \n{t1_nnnn}")
-    # t1nntn = t1_nnnn[0]
-    # print(f"==>> t1nntn: \n{t1nntn}")
-    # ts_cs_diff = t1cpc - t1nntn
-    # print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
+#     # t1_nnnn = nn_dist[t1]
+#     # print(f"==>> t1_nnnn: \n{t1_nnnn}")
+#     # t1nntn = t1_nnnn[0]
+#     # print(f"==>> t1nntn: \n{t1nntn}")
+#     # ts_cs_diff = t1cpc - t1nntn
+#     # print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
 
-    t1cpc_filtermax = t1nn_cspace_eudist <= max_allow_cspace_dist
-    print(f"==>> t1cpc_filtermax: \n{t1cpc_filtermax}")
+#     t1cpc_filtermax = t1nn_cspace_eudist <= max_allow_cspace_dist
+#     print(f"==>> t1cpc_filtermax: \n{t1cpc_filtermax}")
 
-    t1cpc_group = group_mat[t1, t2]
-    print(f"==>> t1cpc_group: \n{t1cpc_group}")
+#     t1cpc_group = group_mat[t1, t2]
+#     print(f"==>> t1cpc_group: \n{t1cpc_group}")
 
-    t1cpc_estimated = np.full_like(
-        t1nn_cspace_eudist, -1
-    )  # init -1 to be replaced
-    print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-    print("".center(50, "-"))
+#     t1cpc_estimated = np.full_like(
+#         t1nn_cspace_eudist, -1
+#     )  # init -1 to be replaced
+#     print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
+#     print("".center(50, "-"))
 
-    ik_num = 2  # elbow up and down
-    altc_num = 4  # 4 alt config per ik solution
-    for ik_i in range(ik_num):
-        for ik_j in range(ik_num):
-            i0 = ik_i * altc_num
-            j0 = ik_j * altc_num
-            i1 = ik_i * altc_num + altc_num
-            j1 = ik_j * altc_num + altc_num
-            t1cpc_lowboud = t1nn_cspace_eudist[i0:i1, j0:j1]
-            print(f"==>> t1cpc_lowboud: \n{t1cpc_lowboud}")
+#     ik_num = 2  # elbow up and down
+#     altc_num = 4  # 4 alt config per ik solution
+#     for ik_i in range(ik_num):
+#         for ik_j in range(ik_num):
+#             i0 = ik_i * altc_num
+#             j0 = ik_j * altc_num
+#             i1 = ik_i * altc_num + altc_num
+#             j1 = ik_j * altc_num + altc_num
+#             t1cpc_lowboud = t1nn_cspace_eudist[i0:i1, j0:j1]
+#             print(f"==>> t1cpc_lowboud: \n{t1cpc_lowboud}")
 
-            if np.isnan(t1cpc_lowboud).all():  # invalid pair, set to nan
-                t1cpc_estimated[i0:i1, j0:j1] = np.nan
-            else:
-                g = t1cpc_group[i0:i1, j0:j1]
-                print(f"==>> g: \n{g}")
-                p = t1cpc_filtermax[i0:i1, j0:j1]
-                print(f"==>> p: \n{p}")
-                g_valid = g[p]
-                print(f"==>> g_valid: \n{g_valid}")
-                g_unique, first_valid_idx, count = np.unique(
-                    g_valid, return_counts=True, return_index=True
-                )
-                print(f"==>> g_unique: \n{g_unique}")
-                valid_coords = np.column_stack(np.where(p))
-                g_unique_ij = valid_coords[first_valid_idx].astype(int)
-                print(f"==>> g_unique_ij: \n{g_unique_ij}")
+#             if np.isnan(t1cpc_lowboud).all():  # invalid pair, set to nan
+#                 t1cpc_estimated[i0:i1, j0:j1] = np.nan
+#             else:
+#                 g = t1cpc_group[i0:i1, j0:j1]
+#                 print(f"==>> g: \n{g}")
+#                 p = t1cpc_filtermax[i0:i1, j0:j1]
+#                 print(f"==>> p: \n{p}")
+#                 g_valid = g[p]
+#                 print(f"==>> g_valid: \n{g_valid}")
+#                 g_unique, first_valid_idx, count = np.unique(
+#                     g_valid, return_counts=True, return_index=True
+#                 )
+#                 print(f"==>> g_unique: \n{g_unique}")
+#                 valid_coords = np.column_stack(np.where(p))
+#                 g_unique_ij = valid_coords[first_valid_idx].astype(int)
+#                 print(f"==>> g_unique_ij: \n{g_unique_ij}")
 
-                # recovery of full-matrix indices from block-local indices.
-                uv = g_unique_ij + np.array([i0, j0], dtype=int)
-                print(f"==>> global uv: \n{uv}")
+#                 # recovery of full-matrix indices from block-local indices.
+#                 uv = g_unique_ij + np.array([i0, j0], dtype=int)
+#                 print(f"==>> global uv: \n{uv}")
 
-                # recover config value from group id
-                Qs = Qaik_rall[t1, uv[:, 0]]  # start config
-                Qg = Qaik_rall[t2, uv[:, 1]]  # goal config
+#                 # recover config value from group id
+#                 Qs = Qaik_rall[t1, uv[:, 0]]  # start config
+#                 Qg = Qaik_rall[t2, uv[:, 1]]  # goal config
 
-                cost_group_est = np.full_like(g_unique, np.inf, dtype=float)
-                # for each pair of qs and qg, we estimate cost
-                for idx, (q_s, q_g) in enumerate(zip(Qs, Qg)):
-                    cost = np.linalg.norm(q_s - q_g) + 0.0 * np.random.uniform()
-                    cost_group_est[idx] = cost
-                print(f"==>> cost_group_est: \n{cost_group_est}")
+#                 cost_group_est = np.full_like(g_unique, np.inf, dtype=float)
+#                 # for each pair of qs and qg, we estimate cost
+#                 for idx, (q_s, q_g) in enumerate(zip(Qs, Qg)):
+#                     cost = np.linalg.norm(q_s - q_g) + 0.0 * np.random.uniform()
+#                     cost_group_est[idx] = cost
+#                 print(f"==>> cost_group_est: \n{cost_group_est}")
 
-                # assign the estimated cost to all pairs in the same group
-                g_cost_est = np.full_like(g, np.nan, dtype=float)
-                for idx, g_id in enumerate(g_unique):
-                    g_cost_est[g == g_id] = cost_group_est[idx]
-                print(f"==>> g_cost_est: \n{g_cost_est}")
+#                 # assign the estimated cost to all pairs in the same group
+#                 g_cost_est = np.full_like(g, np.nan, dtype=float)
+#                 for idx, g_id in enumerate(g_unique):
+#                     g_cost_est[g == g_id] = cost_group_est[idx]
+#                 print(f"==>> g_cost_est: \n{g_cost_est}")
 
-                t1cpc_estimated[i0:i1, j0:j1] = g_cost_est
+#                 t1cpc_estimated[i0:i1, j0:j1] = g_cost_est
 
-            print("".center(50, "-"))
+#             print("".center(50, "-"))
 
-    print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-    print("".center(50, "-"))
-    print("".center(50, "-"))
+#     print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
+#     print("".center(50, "-"))
+#     print("".center(50, "-"))

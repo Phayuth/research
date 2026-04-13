@@ -400,7 +400,82 @@ def poses_d():
     return Hlist
 
 
+def transform_lookat(at, eye, up):
+    """Copied from OpenRAVE's transformLookat function in "geometry.h".
+
+    Returns an end effector transform matrix that looks along a ray with a desired up vector (corresponding to y axis of the end effector).
+    If up vector is parallel to ray, tries to use +y or +x direction instead.
+    If ray length is zero, chooses ray to be +z direction by default.
+
+    @param at the point space to look at, the camera will rotation and zoom around this point
+    @param eye the position of the camera in space
+    @param up desired end effector y axis direction
+    @return end effector transform matrix
+    """
+    vdir = np.array(at) - eye
+    if np.linalg.norm(vdir) > 1e-6:
+        vdir *= 1 / np.linalg.norm(vdir)
+    else:
+        vdir = [0.0, 0.0, 1.0]
+
+    vup = np.array(up) - vdir * np.dot(up, vdir)
+    if np.linalg.norm(vup) < 1e-8:
+        vup = [0.0, 1.0, 0.0]
+        vup -= vdir * np.dot(vdir, vup)
+        if np.linalg.norm(vup) < 1e-8:
+            vup = [1.0, 0.0, 0.0]
+            vup -= vdir * np.dot(vdir, vup)
+
+    vup *= 1 / np.linalg.norm(vup)
+    right = np.cross(vup, vdir)
+
+    rot_mat = np.transpose([right, vup, vdir])
+    T = [
+        list(rot_mat[0]) + [eye[0]],
+        list(rot_mat[1]) + [eye[1]],
+        list(rot_mat[2]) + [eye[2]],
+        [0, 0, 0, 1],
+    ]
+    return np.array(T)
+
+
+def gen_task_space():
+    """Generates discrete set of poses to form the task space.
+
+    Generates discrete set of poses, manually defined here as uniform grid facing into the world -z direction with 45 deg offsets.
+
+    """
+    poses = []
+    ats = [
+        [0.0, 0.0, -1.0],
+        [0.0, -1.0, -1.0],
+        [-1.0, 0.0, -1.0],
+        [0.0, 1.0, -1.0],
+        [1.0, 0.0, -1.0],
+    ]
+    up_vector = [-1.0, 0.0, 0.0]
+
+    step = 0.1
+    pos_x_list = np.arange(0.25, 0.85 + step, step)
+    pos_y_list = np.arange(-0.45, 0.45 + step, step)
+    pos_z_list = np.arange(0.15, 0.45 + step, step)
+
+    for pos_x in pos_x_list:
+        for pos_y in pos_y_list:
+            for pos_z in pos_z_list:
+                for at_offset in ats:
+                    eye = [pos_x, pos_y, pos_z]
+                    # 0.001 is because IKFast solution is singular for poses pointing directly in z axis
+                    at = [pos_x + 0.001, pos_y - 0.001, pos_z]
+                    at = [x + y for x, y in zip(at, at_offset)]
+                    T = transform_lookat(at, eye, up_vector)
+                    poses.append(T)
+    poses = np.array(poses)
+    return poses
+
+
 if __name__ == "__main__":
+    import trimesh
     import matplotlib.pyplot as plt
     from pytransform3d.transformations import plot_transform
     from pytransform3d.plot_utils import make_3d_axis
@@ -416,59 +491,78 @@ if __name__ == "__main__":
     # Hlist = poses_a()
     # Hlist = poses_b()
     # Hlist = poses_c()
-    Hlist = poses_d()
+    # Hlist = poses_d()
+    Hlist = gen_task_space()
+    print(f"==>> Hlist.shape: \n{Hlist.shape}")
 
-    DIST = se3_error_pairwise_distance(Hlist, w_rot=1.0)
-    print(f"==>> DIST: \n{DIST}")
+    scene = trimesh.Scene()
+    plane = trimesh.creation.box(extents=(4, 4, 0.01))
+    plane.visual.face_colors = [200, 200, 200, 80]
+    axis = trimesh.creation.axis(origin_size=0.05, axis_length=2)
+    box = trimesh.creation.box(extents=(4, 4, 4))
+    box.visual.face_colors = [100, 150, 255, 40]
+    scene.add_geometry(plane)
+    scene.add_geometry(box)
+    scene.add_geometry(axis)
+    # points = Hlist[:, :3, 3]
+    # point_cloud = trimesh.points.PointCloud(points, colors=[255, 0, 0, 255])
+    # scene.add_geometry(point_cloud)
+    for H in Hlist:
+        axis = trimesh.creation.axis(origin_size=0.02, transform=H, axis_length=0.05, axis_radius=0.005)
+        scene.add_geometry(axis)
+    scene.show()
 
-    # raise
-    Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
-    # Normalize so translation/rotation are comparable:
-    Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
-    Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
-    print(f"==>> Hse3logerr: \n{Hse3logerr}")
+    # DIST = se3_error_pairwise_distance(Hlist, w_rot=1.0)
+    # print(f"==>> DIST: \n{DIST}")
 
-    mode = ["DBSCAN", "GMM_BIC"][0]
-    if mode == "DBSCAN":
-        labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
-    if mode == "GMM_BIC":
-        labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
+    # # raise
+    # Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
+    # # Normalize so translation/rotation are comparable:
+    # Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
+    # Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
+    # print(f"==>> Hse3logerr: \n{Hse3logerr}")
 
-    print(f"==>> labels: \n{labels}")
-    print(f"==>> cluster_id: \n{cluster_id}")
-    print(f"==>> num_clusters: \n{num_clusters}")
+    # mode = ["DBSCAN", "GMM_BIC"][0]
+    # if mode == "DBSCAN":
+    #     labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
+    # if mode == "GMM_BIC":
+    #     labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
 
-    Hmeans = {i: None for i in cluster_id if i != -1}
-    for i in Hmeans:
-        Hmeans[i] = se3_mean(Hlist[labels == i])
+    # print(f"==>> labels: \n{labels}")
+    # print(f"==>> cluster_id: \n{cluster_id}")
+    # print(f"==>> num_clusters: \n{num_clusters}")
 
-    nbrs = NearestNeighbors(n_neighbors=10).fit(Hse3logerr)
-    dists, indices = nbrs.kneighbors(Hse3logerr)
-    print(f"==>> dists: \n{dists}")
-    print(f"==>> indices: \n{indices}")
-    idx = 5
-    H0 = Hlist[idx]
-    H0neigh = Hlist[indices[idx]]
+    # Hmeans = {i: None for i in cluster_id if i != -1}
+    # for i in Hmeans:
+    #     Hmeans[i] = se3_mean(Hlist[labels == i])
+
+    # nbrs = NearestNeighbors(n_neighbors=10).fit(Hse3logerr)
+    # dists, indices = nbrs.kneighbors(Hse3logerr)
+    # print(f"==>> dists: \n{dists}")
+    # print(f"==>> indices: \n{indices}")
+    # idx = 5
+    # H0 = Hlist[idx]
+    # H0neigh = Hlist[indices[idx]]
 
     # ----------------------------- Visualization -----------------------------
-    ax = make_3d_axis(1)
-    plot_transform(ax, name="world")
-    for i, H in Hmeans.items():
-        plot_transform(ax, H, s=0.1, name=f"Hmean_{i}")
-    for i, H in enumerate(Hlist):
-        plot_transform(ax, H, s=0.05, name=f"Cls {labels[i]}")
-    for hn in H0neigh:
-        ax.plot(
-            [H0[0, 3], hn[0, 3]],
-            [H0[1, 3], hn[1, 3]],
-            [H0[2, 3], hn[2, 3]],
-            "k--",
-            alpha=0.5,
-        )
-    ax.set_title("SE(3) Error Metrics")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title(f"{mode} found {num_clusters} clusters")
-    ax.set_box_aspect([1, 1, 1])
-    plt.show()
+    # ax = make_3d_axis(1)
+    # plot_transform(ax, name="world")
+    # for i, H in Hmeans.items():
+    #     plot_transform(ax, H, s=0.1, name=f"Hmean_{i}")
+    # for i, H in enumerate(Hlist):
+    #     plot_transform(ax, H, s=0.05, name=f"Cls {labels[i]}")
+    # for hn in H0neigh:
+    #     ax.plot(
+    #         [H0[0, 3], hn[0, 3]],
+    #         [H0[1, 3], hn[1, 3]],
+    #         [H0[2, 3], hn[2, 3]],
+    #         "k--",
+    #         alpha=0.5,
+    #     )
+    # ax.set_title("SE(3) Error Metrics")
+    # ax.set_xlabel("X")
+    # ax.set_ylabel("Y")
+    # ax.set_zlabel("Z")
+    # ax.set_title(f"{mode} found {num_clusters} clusters")
+    # ax.set_box_aspect([1, 1, 1])
+    # plt.show()
