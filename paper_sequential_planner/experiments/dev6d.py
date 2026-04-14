@@ -118,8 +118,8 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 # to visit task ---------------------------------------------------
 # ntasts = 50
 # X = sample_reachable_wspace(ntasts)
-# H = poses_d()
-H = poses_epGH()
+H = poses_d()  # dimension: 6400, sets: 25
+# H = poses_epGH()
 X = Hlist_to_Xlist(H)
 Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
 Qaik_valid = wspace_ik_validity_extended(Qaik, None)  # (ntasks, 7, 1)
@@ -358,34 +358,174 @@ for ti in range(ntasks_rech):
 print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
 
 
-# def write_to_GTSP_format(cspace_eudist_estimated):
-#     ntasks_rech = cspace_eudist_estimated.shape[0]
-#     ik_num = cspace_eudist_estimated.shape[2]
+def GTSP_WRITE(
+    cspace_eudist_estimated,
+    filename="problem_dev_6d.gtsp",
+    cost_scale=1000,
+    no_edge_weight=None,
+):
+    """
+    Write GTSP instance for GLKH from 4D cost tensor.
 
-#     # with open("filename", "w") as f:
-#     #     f.write(f"NAME: random_gtsp_fullmatrix\n")
-#     #     f.write(f"TYPE: GTSP\n")
-#     #     f.write(f"COMMENT: generated GTSP/AGTSP instance with full matrix\n")
-#     #     f.write(f"DIMENSION: {num_points}\n")
-#     #     f.write(f"GTSP_SETS: {num_clusters}\n")
-#     #     f.write(f"EDGE_WEIGHT_TYPE: EXPLICIT\n")
-#     #     f.write(f"EDGE_WEIGHT_FORMAT: FULL_MATRIX\n")
-#     #     f.write(f"EDGE_WEIGHT_SECTION\n")
+    Input shape must be (ntask, ntask, node, node).
+    np.nan values are treated as disconnected edges and replaced by a large integer.
+    """
+    if cspace_eudist_estimated.ndim != 4:
+        raise ValueError("Expected shape (ntask, ntask, node, node)")
 
-#     #     # --- write all points ---
-#     #     for i in range(num_points):
-#     #         row = " ".join(f"{matrix[i, j]}" for j in range(num_points))
-#     #         f.write(f"{row}\n")
+    ntask, ntask_2, node_i, node_j = cspace_eudist_estimated.shape
+    if ntask != ntask_2 or node_i != node_j:
+        raise ValueError(
+            "Expected shape (ntask, ntask, node, node) with square blocks"
+        )
 
-#     #     # --- write GTSP sets ---
-#     #     f.write("GTSP_SET_SECTION\n")
-#     #     for key in clusters.keys():
-#     #         c = clusters[key]
-#     #         k = key
-#     #         nodes_str = " ".join(str(n + 1) for n in c)
-#     #         f.write(f"{k + 1} {nodes_str} -1\n")
+    nodes_per_task = node_i
+    dimension = ntask * nodes_per_task
 
-#     #     f.write("EOF\n")
+    # Convert 4D tensor to a full matrix ordered by task-major node index.
+    # global_id = task_id * nodes_per_task + node_id
+    matrix = cspace_eudist_estimated.transpose(0, 2, 1, 3).reshape(
+        dimension, dimension
+    )
+
+    # Treat negative placeholders (e.g., -1) as disconnected edges.
+    finite_mask = np.isfinite(matrix) & (matrix >= 0.0)
+    scaled = np.full((dimension, dimension), np.nan, dtype=float)
+    scaled[finite_mask] = np.rint(matrix[finite_mask] * cost_scale)
+
+    if no_edge_weight is None:
+        if np.any(finite_mask):
+            max_finite = int(np.nanmax(scaled[finite_mask]))
+            no_edge_weight = max(10**7, max_finite * 100 + 1)
+        else:
+            no_edge_weight = 10**7
+
+    weight_mat = np.where(np.isfinite(scaled), scaled, no_edge_weight).astype(
+        np.int64
+    )
+    np.fill_diagonal(weight_mat, 0)
+
+    with open(filename, "w") as f:
+        f.write("NAME: rtsp_problem\n")
+        f.write("TYPE: GTSP\n")
+        f.write("COMMENT: rtsp problem with torus space for 6d\n")
+        f.write(f"DIMENSION: {dimension}\n")
+        f.write(f"GTSP_SETS: {ntask}\n")
+        f.write("EDGE_WEIGHT_TYPE: EXPLICIT\n")
+        f.write("EDGE_WEIGHT_FORMAT: FULL_MATRIX\n")
+        f.write("EDGE_WEIGHT_SECTION\n")
+
+        for i in range(dimension):
+            row = " ".join(str(weight_mat[i, j]) for j in range(dimension))
+            f.write(f"{row}\n")
+
+        f.write("GTSP_SET_SECTION\n")
+        for task_id in range(ntask):
+            start = task_id * nodes_per_task + 1  # GLKH is 1-based
+            end = start + nodes_per_task
+            nodes = " ".join(str(n) for n in range(start, end))
+            f.write(f"{task_id + 1} {nodes} -1\n")
+
+        f.write("EOF\n")
+
+    print(f"==>> wrote GTSP file: {filename}")
+    print(
+        f"==>> dimension: {dimension}, sets: {ntask}, no_edge_weight: {no_edge_weight}"
+    )
+    return filename
+
+
+def GTSP_WRITE_INDEX_MAPPING():
+    pass
+
+
+def GTSP_LOAD():
+    """
+    Load GLKH tour file and map flattened node IDs back to (task_id, node_id).
+
+    Returns a dict with:
+      - tour_global_0based: list[int]
+      - tour_task_node: list[(task_local, node_local)]
+      - tour_task_original: list[int]  # -1 means init task
+      - tour_q: np.ndarray, shape (len(tour), dof)
+    """
+    filename = os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.tour")
+
+    node_ids_1based = []
+    reading_tour = False
+    with open(filename, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if line == "TOUR_SECTION":
+                reading_tour = True
+                continue
+            if not reading_tour:
+                continue
+            if line in {"-1", "EOF"}:
+                break
+            try:
+                node_ids_1based.append(int(line))
+            except ValueError:
+                # Ignore non-integer lines if any extra metadata appears.
+                continue
+
+    if len(node_ids_1based) == 0:
+        raise ValueError(f"No tour node IDs found in {filename}")
+
+    tour_global_0based = [n - 1 for n in node_ids_1based]
+    # Close the loop if solver output did not include the return-to-start node.
+    if tour_global_0based[0] != tour_global_0based[-1]:
+        tour_global_0based.append(tour_global_0based[0])
+
+    ntask_local, nodes_per_task, _ = Qaik_rall.shape
+    dimension = ntask_local * nodes_per_task
+
+    for g in tour_global_0based:
+        if g < 0 or g >= dimension:
+            raise ValueError(
+                f"Tour node id {g} out of range [0, {dimension - 1}] for current Qaik_rall"
+            )
+
+    tour_task_node = []
+    tour_q = []
+    for g in tour_global_0based:
+        task_local = g // nodes_per_task
+        node_local = g % nodes_per_task
+        tour_task_node.append((task_local, node_local))
+        tour_q.append(Qaik_rall[task_local, node_local])
+    tour_q = np.asarray(tour_q)
+
+    # Map local task index (with init at 0) back to original task index in X.
+    # Convention: -1 corresponds to init task.
+    task_local_to_original = np.full(ntask_local, -1, dtype=int)
+    if ntask_local > 1:
+        task_local_to_original[1:] = np.where(~X_isunr)[0]
+    tour_task_original = [task_local_to_original[t] for t, _ in tour_task_node]
+
+    print(f"==>> loaded tour file: {filename}")
+    print(f"==>> number of nodes in closed tour: {len(tour_global_0based)}")
+
+    return {
+        "tour_global_0based": tour_global_0based,
+        "tour_task_node": tour_task_node,
+        "tour_task_original": tour_task_original,
+        "tour_q": tour_q,
+    }
+
+
+GTSP_WRITE(
+    cspace_eudist_estimated,
+    filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.gtsp"),
+)
+
+# GTSP_WRITE_INDEX_MAPPING()
+
+# tour_data = None
+# tour_data = GTSP_LOAD()
+# qtour = tour_data["tour_q"]
+# print(f"==>> qtour: \n{qtour}")
 
 
 def visualize():

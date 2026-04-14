@@ -336,6 +336,185 @@ for ti in range(ntasks_rech):
                             cspace_eudist_estimated[tj, ti, j0:j1, i0:i1] = (
                                 g_cost_est.T
                             )  # undirected
+print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
+
+
+def GTSP_WRITE(
+    cspace_eudist_estimated,
+    filename="problem_dev.gtsp",
+    cost_scale=1000,
+    no_edge_weight=None,
+):
+    """
+    Write GTSP instance for GLKH from 4D cost tensor.
+
+    Input shape must be (ntask, ntask, node, node).
+    np.nan values are treated as disconnected edges and replaced by a large integer.
+    """
+    if cspace_eudist_estimated.ndim != 4:
+        raise ValueError("Expected shape (ntask, ntask, node, node)")
+
+    ntask, ntask_2, node_i, node_j = cspace_eudist_estimated.shape
+    if ntask != ntask_2 or node_i != node_j:
+        raise ValueError(
+            "Expected shape (ntask, ntask, node, node) with square blocks"
+        )
+
+    nodes_per_task = node_i
+    dimension = ntask * nodes_per_task
+
+    # Convert 4D tensor to a full matrix ordered by task-major node index.
+    # global_id = task_id * nodes_per_task + node_id
+    matrix = cspace_eudist_estimated.transpose(0, 2, 1, 3).reshape(
+        dimension, dimension
+    )
+
+    # Treat negative placeholders (e.g., -1) as disconnected edges.
+    finite_mask = np.isfinite(matrix) & (matrix >= 0.0)
+    scaled = np.full((dimension, dimension), np.nan, dtype=float)
+    scaled[finite_mask] = np.rint(matrix[finite_mask] * cost_scale)
+
+    if no_edge_weight is None:
+        if np.any(finite_mask):
+            max_finite = int(np.nanmax(scaled[finite_mask]))
+            no_edge_weight = max(10**7, max_finite * 100 + 1)
+        else:
+            no_edge_weight = 10**7
+
+    weight_mat = np.where(np.isfinite(scaled), scaled, no_edge_weight).astype(
+        np.int64
+    )
+    np.fill_diagonal(weight_mat, 0)
+
+    with open(filename, "w") as f:
+        f.write("NAME: rtsp_problem\n")
+        f.write("TYPE: GTSP\n")
+        f.write("COMMENT: rtsp problem with torus space\n")
+        f.write(f"DIMENSION: {dimension}\n")
+        f.write(f"GTSP_SETS: {ntask}\n")
+        f.write("EDGE_WEIGHT_TYPE: EXPLICIT\n")
+        f.write("EDGE_WEIGHT_FORMAT: FULL_MATRIX\n")
+        f.write("EDGE_WEIGHT_SECTION\n")
+
+        for i in range(dimension):
+            row = " ".join(str(weight_mat[i, j]) for j in range(dimension))
+            f.write(f"{row}\n")
+
+        f.write("GTSP_SET_SECTION\n")
+        for task_id in range(ntask):
+            start = task_id * nodes_per_task + 1  # GLKH is 1-based
+            end = start + nodes_per_task
+            nodes = " ".join(str(n) for n in range(start, end))
+            f.write(f"{task_id + 1} {nodes} -1\n")
+
+        f.write("EOF\n")
+
+    print(f"==>> wrote GTSP file: {filename}")
+    print(
+        f"==>> dimension: {dimension}, sets: {ntask}, no_edge_weight: {no_edge_weight}"
+    )
+    return filename
+
+
+def GTSP_WRITE_INDEX_MAPPING():
+    pass
+
+
+def GTSP_LOAD():
+    """
+    Load GLKH tour file and map flattened node IDs back to (task_id, node_id).
+
+    Returns a dict with:
+      - tour_global_0based: list[int]
+      - tour_task_node: list[(task_local, node_local)]
+      - tour_task_original: list[int]  # -1 means init task
+      - tour_q: np.ndarray, shape (len(tour), dof)
+    """
+    filename = os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev.tour")
+
+    node_ids_1based = []
+    reading_tour = False
+    with open(filename, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if line == "TOUR_SECTION":
+                reading_tour = True
+                continue
+            if not reading_tour:
+                continue
+            if line in {"-1", "EOF"}:
+                break
+            try:
+                node_ids_1based.append(int(line))
+            except ValueError:
+                # Ignore non-integer lines if any extra metadata appears.
+                continue
+
+    if len(node_ids_1based) == 0:
+        raise ValueError(f"No tour node IDs found in {filename}")
+
+    tour_global_0based = [n - 1 for n in node_ids_1based]
+    # Close the loop if solver output did not include the return-to-start node.
+    if tour_global_0based[0] != tour_global_0based[-1]:
+        tour_global_0based.append(tour_global_0based[0])
+
+    ntask_local, nodes_per_task, _ = Qaik_rall.shape
+    dimension = ntask_local * nodes_per_task
+
+    for g in tour_global_0based:
+        if g < 0 or g >= dimension:
+            raise ValueError(
+                f"Tour node id {g} out of range [0, {dimension - 1}] for current Qaik_rall"
+            )
+
+    tour_task_node = []
+    tour_q = []
+    for g in tour_global_0based:
+        task_local = g // nodes_per_task
+        node_local = g % nodes_per_task
+        tour_task_node.append((task_local, node_local))
+        tour_q.append(Qaik_rall[task_local, node_local])
+    tour_q = np.asarray(tour_q)
+
+    # Map local task index (with init at 0) back to original task index in X.
+    # Convention: -1 corresponds to init task.
+    task_local_to_original = np.full(ntask_local, -1, dtype=int)
+    if ntask_local > 1:
+        task_local_to_original[1:] = np.where(~X_isunr)[0]
+    tour_task_original = [task_local_to_original[t] for t, _ in tour_task_node]
+
+    print(f"==>> loaded tour file: {filename}")
+    print(f"==>> number of nodes in closed tour: {len(tour_global_0based)}")
+
+    return {
+        "tour_global_0based": tour_global_0based,
+        "tour_task_node": tour_task_node,
+        "tour_task_original": tour_task_original,
+        "tour_q": tour_q,
+    }
+
+
+# GTSP_WRITE(
+#     cspace_eudist_estimated,
+#     filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev.gtsp"),
+# )
+
+GTSP_WRITE_INDEX_MAPPING()
+
+tour_data = None
+tour_data = GTSP_LOAD()
+qtour = tour_data["tour_q"]
+print(f"==>> qtour: \n{qtour}")
+
+Xtour = []
+for q in qtour:
+    x = robot.forward_kinematic(q)[-1]
+    Xtour.append(x)
+Xtour = np.array(Xtour)
+
+# raise
 
 
 def visualize():
@@ -401,6 +580,14 @@ def visualize():
     )
     for i, x in enumerate(X_rall):
         ax[0].text(x[0], x[1], f"({i})", fontsize=8, ha="right")
+    if qtour is not None:
+        ax[0].plot(
+            Xtour[:, 0],
+            Xtour[:, 1],
+            "m-",
+            linewidth=2,
+            label="GTSP Tour in Workspace",
+        )
     ax[0].set_aspect("equal")
     ax[0].set_xlim(-4, 4)
     ax[0].set_ylim(-4, 4)
@@ -449,7 +636,9 @@ def visualize():
     xCenter, rotationAxisC, L, cMin = informed_sampling_ellipse(
         qscond, qgcond, cMAx
     )
-    state = isPointinEllipseBulk2(xCenter, rotationAxisC, L, QSEEDAIK_r.reshape(-1, 2))
+    state = isPointinEllipseBulk2(
+        xCenter, rotationAxisC, L, QSEEDAIK_r.reshape(-1, 2)
+    )
     print(f"==>> state.shape: \n{state.shape}")
 
     QSEEDAIK_r_2d = QSEEDAIK_r.reshape(-1, 2)
@@ -501,6 +690,14 @@ def visualize():
         markersize=5,
         label="Seed IK in Ellipse",
     )
+    if qtour is not None:
+        ax[1].plot(
+            qtour[:, 0],
+            qtour[:, 1],
+            "m-",
+            linewidth=2,
+            label="GTSP Tour in C-space",
+        )
 
     # -------------hover interactivity for edge info display----------------
     def _fmt_vec(q):
