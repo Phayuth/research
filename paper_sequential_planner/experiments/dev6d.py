@@ -14,6 +14,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     poses_b,
     poses_c,
     poses_d,
+    poses_epGH,
     H_to_X,
     xlist_to_Xlist,
     Hlist_to_Xlist,
@@ -117,7 +118,8 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 # to visit task ---------------------------------------------------
 # ntasts = 50
 # X = sample_reachable_wspace(ntasts)
-H = poses_d()
+# H = poses_d()
+H = poses_epGH()
 X = Hlist_to_Xlist(H)
 Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
 Qaik_valid = wspace_ik_validity_extended(Qaik, None)  # (ntasks, 7, 1)

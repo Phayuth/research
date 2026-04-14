@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import trimesh
 import os
+import fpsample
 from paper_sequential_planner.scripts.geometric_ellipse import *
 from paper_sequential_planner.scripts.rtsp_lazyprm import *
 
@@ -141,17 +142,22 @@ def poisson_disk3():
 
 
 def poisson_disk_highdim():
+    # r = 0.05 -> shape (93942, 4) filled in unit hypercube
     radius = 0.05
     engine = qmc.PoissonDisk(d=4, radius=radius)
     Xrand4d = engine.random(100000)
     Xrand4d = Xrand4d * 2 * 0.5 - 0.5  # scale to [-0.5, 0.5]
     print(f"==>> Xrand4d.shape: \n{Xrand4d.shape}")
 
+    engine = qmc.PoissonDisk(d=5, radius=radius)
+    Xrand5d = engine.random(3000000)
+    Xrand5d = Xrand5d * 2 * 0.5 - 0.5  # scale to [-0.5, 0.5]
+    print(f"==>> Xrand5d.shape: \n{Xrand5d.shape}")
+
     # Poisson disk sampling 6d
     # Unable to allocate 309. GiB for an array with shape (49, 49, 49, 49, 49, 49, 6) and data type float32
-    radius = 0.05
     engine = qmc.PoissonDisk(d=6, radius=radius)
-    Xrand6d = engine.random(5000)
+    Xrand6d = engine.random(700000000)
     Xrand6d = Xrand6d * 2 * 0.5 - 0.5  # scale to [-0.5, 0.5]
     print(f"==>> Xrand6d.shape: \n{Xrand6d.shape}")
 
@@ -178,8 +184,6 @@ def fpsample_2test():
 
 
 def fpsample_3test():
-    import fpsample
-
     pc = np.random.rand(4096, 3) * 2 - 1  # scale to [-1, 1]
     kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 1024)
     pc_fps = pc[kdtree_fps_samples_idx]
@@ -207,17 +211,18 @@ def fpsample_3test():
 
 
 def fpsample_highdim():
-    pc = np.random.rand(2000000, 6) * 2 - 1  # scale to [-1, 1]
-    kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 100000)
+    pc = np.random.rand(600000000, 6) * 2 - 1  # scale to [-1, 1]
+    kdtree_fps_samples_idx = fpsample.bucket_fps_kdtree_sampling(pc, 600000000)
     pc_fps = pc[kdtree_fps_samples_idx]
     print(f"==>> pc.shape: \n{pc.shape}")
     print(f"==>> pc_fps.shape: \n{pc_fps.shape}")
 
 
-# point_knn_sparse()
-# poisson_disk2()
-poisson_disk3()
-# poisson_disk_highdim()
-# fpsample_2test()
-# fpsample_3test()
-# fpsample_highdim()
+if __name__ == "__main__":
+    # point_knn_sparse()
+    # poisson_disk2()
+    # poisson_disk3()
+    # poisson_disk_highdim()
+    # fpsample_2test()
+    # fpsample_3test()
+    fpsample_highdim()

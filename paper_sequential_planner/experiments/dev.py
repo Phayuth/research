@@ -55,6 +55,7 @@ XSEED_r = XSEED[~XSEED_unr]  # (NSEED_rech, 2)
 QSEEDAIK_valid_r = QSEEDAIK_Valid[~XSEED_unr]  # (NSEED_rech, n_ik * altcnf, dof)
 QSEEDAIK_r = QSEEDAIK[~XSEED_unr]
 QSEEDAIK_r = np.where(QSEEDAIK_valid_r == 1, QSEEDAIK_r, np.nan)
+print(f"==>> QSEEDAIK_r.shape: \n{QSEEDAIK_r.shape}")
 # -----------------------------------------------------------------
 
 
@@ -258,7 +259,7 @@ print(f"==>> t2: \n{t2}")
 
 # thinking of doing isometry distance
 epslGH = 1.0
-eta_collision = 0.1 # resolution of collision checking
+eta_collision = 0.1  # resolution of collision checking
 # t1_nnnn = nn_dist[t1]
 # print(f"==>> t1_nnnn: \n{t1_nnnn}")
 # t1nntn = t1_nnnn[0]
@@ -441,8 +442,18 @@ def visualize():
     cmin = np.linalg.norm(qscond - qgcond)
     cdiff = max_allow_cspace_dist - cmin
     print(f"==>> cdiff: \n{cdiff}")
-    el = get_2d_ellipse_informed_mplpatch(qscond, qgcond, cmin*1.1)
+    mulp = 1.3
+    cMAx = cmin * mulp
+    el = get_2d_ellipse_informed_mplpatch(qscond, qgcond, cMAx)
     ax[1].add_patch(el)
+    xCenter, rotationAxisC, L, cMin = informed_sampling_ellipse(
+        qscond, qgcond, cMAx
+    )
+    state = isPointinEllipseBulk2(xCenter, rotationAxisC, L, QSEEDAIK_r.reshape(-1, 2))
+    print(f"==>> state.shape: \n{state.shape}")
+
+    QSEEDAIK_r_2d = QSEEDAIK_r.reshape(-1, 2)
+    QINELLIPSE = QSEEDAIK_r_2d[state]
 
     # ax1: C-space
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
@@ -482,6 +493,13 @@ def visualize():
         alpha=0.5,
         markersize=3,
         label="Seed IK Solutions",
+    )
+    ax[1].plot(
+        QINELLIPSE[:, 0],
+        QINELLIPSE[:, 1],
+        "bx",
+        markersize=5,
+        label="Seed IK in Ellipse",
     )
 
     # -------------hover interactivity for edge info display----------------

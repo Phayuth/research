@@ -439,7 +439,7 @@ def transform_lookat(at, eye, up):
     return np.array(T)
 
 
-def gen_task_space():
+def poses_epGH():
     """Generates discrete set of poses to form the task space.
 
     Generates discrete set of poses, manually defined here as uniform grid facing into the world -z direction with 45 deg offsets.
@@ -492,7 +492,7 @@ if __name__ == "__main__":
     # Hlist = poses_b()
     # Hlist = poses_c()
     # Hlist = poses_d()
-    Hlist = gen_task_space()
+    Hlist = poses_epGH()
     print(f"==>> Hlist.shape: \n{Hlist.shape}")
 
     scene = trimesh.Scene()
@@ -508,7 +508,7 @@ if __name__ == "__main__":
     # point_cloud = trimesh.points.PointCloud(points, colors=[255, 0, 0, 255])
     # scene.add_geometry(point_cloud)
     for H in Hlist:
-        axis = trimesh.creation.axis(origin_size=0.02, transform=H, axis_length=0.05, axis_radius=0.005)
+        axis = trimesh.creation.axis(origin_size=0.002, transform=H, axis_length=0.05, axis_radius=0.0008)
         scene.add_geometry(axis)
     scene.show()
 
