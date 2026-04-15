@@ -11,6 +11,7 @@ from paper_sequential_planner.experiments.env_planarrr import (
 )
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
+    find_alt_config2,
     find_altconfig_redudancy,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
@@ -33,6 +34,12 @@ planner = OMPLPlanner(scene.collision_checker)
 
 
 # initial config and task  -----------------------------------------
+limit2 = np.array(
+    [
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+    ]
+)
 qinit = np.array([1, -1])
 Xinit = np.array([robot.forward_kinematic(qinit)[-1]])
 # -----------------------------------------------------------------
@@ -501,7 +508,7 @@ def GTSP_LOAD():
 #     filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev.gtsp"),
 # )
 
-GTSP_WRITE_INDEX_MAPPING()
+# GTSP_WRITE_INDEX_MAPPING()
 
 tour_data = None
 tour_data = GTSP_LOAD()
@@ -644,6 +651,8 @@ def visualize():
     QSEEDAIK_r_2d = QSEEDAIK_r.reshape(-1, 2)
     QINELLIPSE = QSEEDAIK_r_2d[state]
 
+    Qaltconfighome = find_alt_config2(qinit, limit2, filterOriginalq=True)
+
     # ax1: C-space
     cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
     ax[1].plot(
@@ -653,6 +662,14 @@ def visualize():
         linewidth=2,
     )
     ax[1].text(qinit[0], qinit[1], "home config", fontsize=8, ha="right")
+    ax[1].plot(
+        Qaltconfighome[:, 0],
+        Qaltconfighome[:, 1],
+        "r^",
+        markersize=10,
+        label="Alt Home Config But not chosen (no teleport)",
+    )
+
     ax[1].plot(
         cspace_obs[:, 0],
         cspace_obs[:, 1],
@@ -676,8 +693,8 @@ def visualize():
         label="Reachable IK Solutions",
     )
     ax[1].plot(
-        QSEEDAIK_r[:, :, 0].ravel(),
-        QSEEDAIK_r[:, :, 1].ravel(),
+        QSEEDAIK[:, :, 0].ravel(),
+        QSEEDAIK[:, :, 1].ravel(),
         "k+",
         alpha=0.5,
         markersize=3,
