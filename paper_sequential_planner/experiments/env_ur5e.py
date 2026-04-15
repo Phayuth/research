@@ -6,13 +6,7 @@ import pybullet_data
 import matplotlib.pyplot as plt
 from spatial_geometry.utils import Utils
 from scipy.spatial.transform import Rotation as R
-
-try:
-    from eaik.IK_DH import DhRobot
-    # from spatialmath import SE3
-    # from roboticstoolbox import DHRobot, RevoluteDH
-except:
-    print("missing packages; usage limited")
+from eaik.IK_DH import DhRobot
 
 try:
     from ompl import base as ob
@@ -134,12 +128,12 @@ class RobotUR5eKin:
 
 
 class Constants:
-    rsrcpath = os.environ["RSRC_DIR"] + "/rnd_torus/"
-    ur5e_urdf = rsrcpath + "ur5e/ur5e_extract_calibrated.urdf"
+    rsrcpath = os.environ["RSRC_DIR"]
+    ur5e_urdf = rsrcpath + "/ur5e/ur5e_extract_calibrated.urdf"
     plane_urdf = "plane.urdf"
-    pole_urdf = rsrcpath + "ur5e/simple_box.urdf"
+    pole_urdf = rsrcpath + "/ur5e/simple_box.urdf"
     table_urdf = "table/table.urdf"
-    shelf_urdf = rsrcpath + "ur5e/shelf_texture.urdf"
+    shelf_urdf = rsrcpath + "/ur5e/shelf.urdf"
 
     camera_exp3 = (
         1.0,
@@ -856,5 +850,6 @@ def kinematic_test():
 
 
 if __name__ == "__main__":
-    simple_visualize()
+    # simple_visualize()
+    collision_check()
     # kinematic_test()

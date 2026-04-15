@@ -164,6 +164,9 @@ def minimum_dist_torus(qa, qb):
 
 def find_altconfig_redudancy(Q1, Q2, Dist=None):
     """
+    When q1 and q2 delta distance of each joint have the same value
+    I get the wrong result.
+    Right result for the wrong reason. must make new function
     Find unique pairs of configurations between two sets of torus space
     unique pairs = 3^dof
     2d have 9 unique pairs
@@ -205,6 +208,27 @@ def find_altconfig_redudancy(Q1, Q2, Dist=None):
     group_pairs = [np.where(groups_matrix == k) for k in range(total_pairs)]
     group_pairs = [np.column_stack(gp) for gp in group_pairs]
     return group_pairs, groups_num, total_pairs, groups_matrix
+
+
+def find_altconfig_redudancy2(Q1, Q2, q1, q2):
+    diff1 = Q1 - q1
+    diff2 = Q2 - q2
+    unique_diffs = set()
+    group_id = np.zeros((Q1.shape[0], Q2.shape[0]), dtype=int)
+    for d1 in diff1:
+        for d2 in diff2:
+            unique_diffs.add(tuple((d2 - d1).round(5).tolist()))
+    for i in range(Q1.shape[0]):
+        for j in range(Q2.shape[0]):
+            d1 = diff1[i]
+            d2 = diff2[j]
+            delta = tuple((d2 - d1).round(5).tolist())
+            group_id[i, j] = list(unique_diffs).index(delta)
+
+    dist = nan_euclidean_distances(Q1, Q2)
+    print(f"==>> dist: \n{dist}")
+    print(f"Unique deltas: {unique_diffs}")
+    print(f"Group ID matrix: \n{group_id}")
 
 
 def transform_path_torus1(path, qs_new):
@@ -294,43 +318,156 @@ def _generate_fake_path(q1, q2, num_points=10):
 def _test_2d():
     q1 = np.array([3.1, 0.1])
     q2 = np.array([3.5, 1.0])
+    q11 = np.array([3.1, 0.1])  # all delta is 0.4 the same so I get wrong result
+    q22 = np.array([3.5, 0.5])
     l = np.array([[-2 * np.pi, 2 * np.pi], [-2 * np.pi, 2 * np.pi]])
     Q1 = find_alt_config2(q1, l)
     Q2 = find_alt_config2(q2, l)
+    Q11 = find_alt_config2(q11, l)
+    Q22 = find_alt_config2(q22, l)
 
-    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
-        Q1, Q2
-    )
+    find_altconfig_redudancy2(Q1, Q2, q1, q2)
+    find_altconfig_redudancy2(Q11, Q22, q11, q22)
+
+    g_pair, g_num, total_pairs, g_matrix = find_altconfig_redudancy(Q1, Q2)
+    g_pair1, g_num1, total_pairs1, g_matrix1 = find_altconfig_redudancy(Q11, Q22)
     print("".center(50, "-"))
-    print(f"==>> groups_matrix: \n{groups_matrix}")
+    # print(f"==>> g_pair: \n{g_pair}")
+    # print(f"==>> g_num: \n{g_num}")
+    # print(f"==>> total_pairs: \n{total_pairs}")
+    # print(f"==>> g_matrix: \n{g_matrix}")
 
-    # need_cost = [True] * total_pairs
-    # paths, costs = queue_altconfig_cost_estimation(
-    #     groups_pair, groups_num, total_pairs, Q1, Q2, need_cost
-    # )
-    # print("Costs of unique pairs: \n", costs)
+    unique_colors_1 = plt.cm.get_cmap("tab10", total_pairs)
+    unique_colors_2 = plt.cm.get_cmap("tab10", total_pairs1)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    ax1.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
+    ax1.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
+    for gi, group in enumerate(g_pair):
+        for i, j in group:
+            ax1.plot(
+                [Q1[i, 0], Q2[j, 0]],
+                [Q1[i, 1], Q2[j, 1]],
+                "--",
+                color=unique_colors_1(gi),
+                label=(
+                    f"Group {gi}"
+                    if i == group[0][0] and j == group[0][1]
+                    else None
+                ),
+            )
+    ax1.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax1.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax1.set_aspect("equal")
+    ax1.set_title("Converse Redundancy when delta is different")
+    ax1.legend()
+
+    ax2.plot(Q11[:, 0], Q11[:, 1], "bo", label="Q11")
+    ax2.plot(Q22[:, 0], Q22[:, 1], "ro", label="Q22")
+    for gi, group in enumerate(g_pair1):
+        for i, j in group:
+            ax2.plot(
+                [Q11[i, 0], Q22[j, 0]],
+                [Q11[i, 1], Q22[j, 1]],
+                "--",
+                color=unique_colors_2(gi),
+                label=(
+                    f"Group {gi}"
+                    if i == group[0][0] and j == group[0][1]
+                    else None
+                ),
+            )
+    ax2.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax2.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax2.set_aspect("equal")
+    ax2.set_title("Wrong Lost of redundancy when delta is the same")
+    ax2.legend()
+    plt.show()
 
 
 def _test_6d():
-    q1 = np.random.uniform(-np.pi, np.pi, size=(6,))
-    q2 = np.random.uniform(-np.pi, np.pi, size=(6,))
-    l = np.array([[-2 * np.pi, 2 * np.pi]] * 6)
-    Q1 = find_alt_config2(q1, l)
-    Q2 = find_alt_config2(q2, l)
+    q1 = np.array([0.5, -0.2, 0.3, -0.4, 0.5, -0.6])
+    q2 = np.array([0.9, -0.9, 0.4, 0.5, 0.9, 1.1])
+    # q1 = np.random.uniform(-np.pi, np.pi, size=6)
+    # q2 = np.random.uniform(-np.pi, np.pi, size=6)
+    lall2pi = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    Q1all2pi = find_alt_config2(q1, lall2pi)
+    Q2all2pi = find_alt_config2(q2, lall2pi)
+    print(f"==>> Q1all2pi.shape: \n{Q1all2pi.shape}")
+    print(f"==>> Q2all2pi.shape: \n{Q2all2pi.shape}")
+
+    find_altconfig_redudancy2(Q1all2pi, Q2all2pi, q1, q2)
 
     groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
-        Q1, Q2
+        Q1all2pi, Q2all2pi
     )
     # print("groups_pair groups: \n", groups_pair)
     # print("Number of each group: \n", groups_num)
-    # print("Total number of pairs: \n", total_pairs)
+    print("Total number of pairs: \n", total_pairs)
     # print("Groups matrix: \n", groups_matrix)
 
-    # need_cost = [True] * total_pairs
-    # paths, costs = queue_altconfig_cost_estimation(
-    #     groups_pair, groups_num, total_pairs, Q1, Q2, need_cost
-    # )
-    # print("Costs of unique pairs: \n", costs)
+    print("".center(50, "-"))
+    lphysical = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+    Q1physical = find_alt_config2(q1, lphysical)
+    Q2physical = find_alt_config2(q2, lphysical)
+    print(f"==>> Q1physical.shape: \n{Q1physical.shape}")
+    print(f"==>> Q2physical.shape: \n{Q2physical.shape}")
+
+    find_altconfig_redudancy2(Q1physical, Q2physical, q1, q2)
+
+    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
+        Q1physical, Q2physical
+    )
+    # print("groups_pair groups: \n", groups_pair)
+    print("Number of each group: \n", groups_num)
+    print("Total number of pairs: \n", total_pairs)
+    # print("Groups matrix: \n", groups_matrix)
+    print("".center(50, "-"))
+
+    lontable = np.array(
+        [
+            [-2 * np.pi, 2 * np.pi],
+            [-np.pi, 0],
+            [-np.pi, np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+            [-2 * np.pi, 2 * np.pi],
+        ]
+    )
+
+    Q1ontable = find_alt_config2(q1, lontable)
+    print(f"==>> Q1ontable.shape: \n{Q1ontable.shape}")
+    Q2ontable = find_alt_config2(q2, lontable)
+    print(f"==>> Q2ontable.shape: \n{Q2ontable.shape}")
+
+    find_altconfig_redudancy2(Q1ontable, Q2ontable, q1, q2)
+
+    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
+        Q1ontable, Q2ontable
+    )
+    # print("groups_pair groups: \n", groups_pair)
+    print("Number of each group: \n", groups_num)
+    print("Total number of pairs: \n", total_pairs)
+    # print("Groups matrix: \n", groups_matrix)
+    print("".center(50, "-"))
 
 
 if __name__ == "__main__":
