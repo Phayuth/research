@@ -692,14 +692,14 @@ def visualize():
         markersize=5,
         label="Reachable IK Solutions",
     )
-    ax[1].plot(
-        QSEEDAIK[:, :, 0].ravel(),
-        QSEEDAIK[:, :, 1].ravel(),
-        "k+",
-        alpha=0.5,
-        markersize=3,
-        label="Seed IK Solutions",
-    )
+    # ax[1].plot(
+    #     QSEEDAIK[:, :, 0].ravel(),
+    #     QSEEDAIK[:, :, 1].ravel(),
+    #     "k+",
+    #     alpha=0.5,
+    #     markersize=3,
+    #     label="Seed IK Solutions",
+    # )
     ax[1].plot(
         QINELLIPSE[:, 0],
         QINELLIPSE[:, 1],
@@ -814,7 +814,111 @@ def visualize():
     plt.show()
 
 
-visualize()
+import matplotlib.patches as patches
+
+
+def visualize_torus():
+    fig, ax = plt.subplots()
+
+    Qt1 = Qaik_rall[t1]
+    print(f"==>> Qt1: \n{Qt1}")
+    Qt2 = Qaik_rall[t2]
+    print(f"==>> Qt2: \n{Qt2}")
+
+    QQ = np.concatenate([Qt1[4:8], Qt2[4:8]], axis=0)
+    q1min = QQ[:, 0].min()
+    q1max = QQ[:, 0].max()
+    q2min = QQ[:, 1].min()
+    q2max = QQ[:, 1].max()
+    rect = patches.Rectangle(
+        (q1min, q2min),
+        q1max - q1min,
+        q2max - q2min,
+        linewidth=1,
+        edgecolor="cyan",
+        facecolor="none",
+        alpha=1,
+        label="Bounding Box of IK Solutions",
+    )
+    ax.add_patch(rect)
+
+    Qaltconfighome = find_alt_config2(qinit, limit2, filterOriginalq=True)
+
+    ax.plot(
+        Qaltconfighome[:, 0],
+        Qaltconfighome[:, 1],
+        "r^",
+        markersize=10,
+        label="Alt Home Config But not chosen (no teleport)",
+    )
+    # ax1: C-space
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+    ax.plot(
+        [qinit[0]],
+        [qinit[1]],
+        "k-o",
+        linewidth=2,
+    )
+    ax.text(qinit[0], qinit[1], "home config", fontsize=8, ha="right")
+    ax.plot(
+        cspace_obs[:, 0],
+        cspace_obs[:, 1],
+        "ro",
+        markersize=1,
+        label="C-space Obstacles",
+        alpha=0.1,
+    )
+    ax.scatter(
+        Qaik[:, :, 0].ravel(),
+        Qaik[:, :, 1].ravel(),
+        marker="o",
+        color="lightgray",
+        label="All IK Solutions",
+    )
+    ax.plot(
+        Qaik_rall[:, :, 0].ravel(),
+        Qaik_rall[:, :, 1].ravel(),
+        "gx",
+        markersize=5,
+        label="Reachable IK Solutions",
+    )
+    ax.scatter(
+        Qt1[4:8, 0],
+        Qt1[4:8, 1],
+        marker="^",
+        color="r",
+        label="t1 Alt IK Solutions",
+    )
+    ax.scatter(
+        Qt2[4:8, 0],
+        Qt2[4:8, 1],
+        marker="^",
+        color="b",
+        label="t2 Alt IK Solutions",
+    )
+    if qtour is not None:
+        ax.plot(
+            qtour[:, 0],
+            qtour[:, 1],
+            "m-",
+            linewidth=2,
+            label="GTSP Tour in C-space",
+        )
+    ax.set_aspect("equal")
+    ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax.set_xlabel("q1")
+    ax.set_ylabel("q2")
+    ax.legend(
+        bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
+        loc="lower left",
+    )
+    plt.show()
+
+
+if __name__ == "__main__":
+    # visualize()
+    visualize_torus()
 
 
 # def __test_unused():
