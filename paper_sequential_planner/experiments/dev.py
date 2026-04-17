@@ -825,6 +825,9 @@ def visualize_torus():
     Qt2 = Qaik_rall[t2]
     print(f"==>> Qt2: \n{Qt2}")
 
+    t1nn = nn_union[t1]
+    t1Qnn = Qaik_rall[t1nn]
+
     QQ = np.concatenate([Qt1[4:8], Qt2[4:8]], axis=0)
     q1min = QQ[:, 0].min()
     q1max = QQ[:, 0].max()
@@ -875,13 +878,13 @@ def visualize_torus():
         color="lightgray",
         label="All IK Solutions",
     )
-    ax.plot(
-        Qaik_rall[:, :, 0].ravel(),
-        Qaik_rall[:, :, 1].ravel(),
-        "gx",
-        markersize=5,
-        label="Reachable IK Solutions",
-    )
+    # ax.plot(
+    #     Qaik_rall[:, :, 0].ravel(),
+    #     Qaik_rall[:, :, 1].ravel(),
+    #     "gx",
+    #     markersize=5,
+    #     label="Reachable IK Solutions",
+    # )
     ax.scatter(
         Qt1[4:8, 0],
         Qt1[4:8, 1],
@@ -896,6 +899,15 @@ def visualize_torus():
         color="b",
         label="t2 Alt IK Solutions",
     )
+    cmap = plt.colormaps.get_cmap("tab10")
+    for n in range(len(t1nn)):
+        ax.scatter(
+            t1Qnn[n, :, 0],
+            t1Qnn[n, :, 1],
+            marker="x",
+            color=cmap(n),
+            label="t1 Neighbor IK Solutions",
+        )
     if qtour is not None:
         ax.plot(
             qtour[:, 0],
@@ -911,103 +923,11 @@ def visualize_torus():
     ax.set_ylabel("q2")
     ax.legend(
         bbox_to_anchor=(0.0, 1.02, 1.0, 0.102),
-        loc="lower left",
+        loc="upper right",
     )
     plt.show()
 
 
 if __name__ == "__main__":
-    # visualize()
+    visualize()
     visualize_torus()
-
-
-# def __test_unused():
-#     t1 = 4
-#     t1nn = nn_union[t1]
-#     t2 = t1nn[0]
-#     print(f"==>> t1: \n{t1}")
-#     print(f"==>> t1nn: \n{t1nn}")
-#     print(f"==>> t2: \n{t2}")
-
-#     t1nn_cspace_eudist = cspace_eudist[t1, t2]
-#     print(f"==>> t1nn_cspace_eudist: \n{t1nn_cspace_eudist}")
-#     print(f"==>> t1nn_cspace_eudist.shape: \n{t1nn_cspace_eudist.shape}")
-
-#     epslGH = 1.0
-#     max_allow_cspace_dist = 2 * np.pi
-
-#     # t1_nnnn = nn_dist[t1]
-#     # print(f"==>> t1_nnnn: \n{t1_nnnn}")
-#     # t1nntn = t1_nnnn[0]
-#     # print(f"==>> t1nntn: \n{t1nntn}")
-#     # ts_cs_diff = t1cpc - t1nntn
-#     # print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
-
-#     t1cpc_filtermax = t1nn_cspace_eudist <= max_allow_cspace_dist
-#     print(f"==>> t1cpc_filtermax: \n{t1cpc_filtermax}")
-
-#     t1cpc_group = group_mat[t1, t2]
-#     print(f"==>> t1cpc_group: \n{t1cpc_group}")
-
-#     t1cpc_estimated = np.full_like(
-#         t1nn_cspace_eudist, -1
-#     )  # init -1 to be replaced
-#     print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-#     print("".center(50, "-"))
-
-#     ik_num = 2  # elbow up and down
-#     altc_num = 4  # 4 alt config per ik solution
-#     for ik_i in range(ik_num):
-#         for ik_j in range(ik_num):
-#             i0 = ik_i * altc_num
-#             j0 = ik_j * altc_num
-#             i1 = ik_i * altc_num + altc_num
-#             j1 = ik_j * altc_num + altc_num
-#             t1cpc_lowboud = t1nn_cspace_eudist[i0:i1, j0:j1]
-#             print(f"==>> t1cpc_lowboud: \n{t1cpc_lowboud}")
-
-#             if np.isnan(t1cpc_lowboud).all():  # invalid pair, set to nan
-#                 t1cpc_estimated[i0:i1, j0:j1] = np.nan
-#             else:
-#                 g = t1cpc_group[i0:i1, j0:j1]
-#                 print(f"==>> g: \n{g}")
-#                 p = t1cpc_filtermax[i0:i1, j0:j1]
-#                 print(f"==>> p: \n{p}")
-#                 g_valid = g[p]
-#                 print(f"==>> g_valid: \n{g_valid}")
-#                 g_unique, first_valid_idx, count = np.unique(
-#                     g_valid, return_counts=True, return_index=True
-#                 )
-#                 print(f"==>> g_unique: \n{g_unique}")
-#                 valid_coords = np.column_stack(np.where(p))
-#                 g_unique_ij = valid_coords[first_valid_idx].astype(int)
-#                 print(f"==>> g_unique_ij: \n{g_unique_ij}")
-
-#                 # recovery of full-matrix indices from block-local indices.
-#                 uv = g_unique_ij + np.array([i0, j0], dtype=int)
-#                 print(f"==>> global uv: \n{uv}")
-
-#                 # recover config value from group id
-#                 Qs = Qaik_rall[t1, uv[:, 0]]  # start config
-#                 Qg = Qaik_rall[t2, uv[:, 1]]  # goal config
-
-#                 cost_group_est = np.full_like(g_unique, np.inf, dtype=float)
-#                 # for each pair of qs and qg, we estimate cost
-#                 for idx, (q_s, q_g) in enumerate(zip(Qs, Qg)):
-#                     cost = np.linalg.norm(q_s - q_g) + 0.0 * np.random.uniform()
-#                     cost_group_est[idx] = cost
-#                 print(f"==>> cost_group_est: \n{cost_group_est}")
-
-#                 # assign the estimated cost to all pairs in the same group
-#                 g_cost_est = np.full_like(g, np.nan, dtype=float)
-#                 for idx, g_id in enumerate(g_unique):
-#                     g_cost_est[g == g_id] = cost_group_est[idx]
-#                 print(f"==>> g_cost_est: \n{g_cost_est}")
-
-#                 t1cpc_estimated[i0:i1, j0:j1] = g_cost_est
-
-#             print("".center(50, "-"))
-
-#     print(f"==>> t1cpc_estimated: \n{t1cpc_estimated}")
-#     print("".center(50, "-"))
-#     print("".center(50, "-"))

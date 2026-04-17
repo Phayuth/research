@@ -515,10 +515,10 @@ def GTSP_LOAD():
     }
 
 
-GTSP_WRITE(
-    cspace_eudist_estimated,
-    filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.gtsp"),
-)
+# GTSP_WRITE(
+#     cspace_eudist_estimated,
+#     filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.gtsp"),
+# )
 
 # GTSP_WRITE_INDEX_MAPPING()
 
@@ -552,4 +552,5 @@ def visualize():
     plt.show()
 
 
-visualize()
+if __name__ == "__main__":
+    visualize()
