@@ -346,6 +346,31 @@ for ti in range(ntasks_rech):
 print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
 
 
+def weighted_euclidean_distance():
+    """weighted euclidean distance to initial config,
+    as a way to select subset of configurations for each task
+    """
+    ntasks_rech, n_ik, dof = Qaik_r.shape
+    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
+    cdd = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
+    cdd_recp = 1.0 / (cdd + 0.001)  # add small value to avoid div by zero
+    cdd_sum = np.nansum(cdd_recp)  # use nansum to ignore nan values
+    cdd_ratio = cdd_recp / cdd_sum
+    cdd_ratio_min = np.nanmin(cdd_ratio)
+    cdd_ratio_max = np.nanmax(cdd_ratio)
+    threshold = cdd_ratio_min + 0.5 * (
+        cdd_ratio_max - cdd_ratio_min
+    )  # select configs above the midpoint
+    print(f"min: {cdd_ratio_min}, max: {cdd_ratio_max}, threshold: {threshold}")
+    get_Qind_inthreshold = cdd_ratio >= threshold
+    Qin_threshold = Qaik_r_flat[get_Qind_inthreshold.flatten()]
+    print(f"==>> Qin_threshold: \n{Qin_threshold}")
+    return Qin_threshold
+
+
+Qin_threshold = weighted_euclidean_distance()
+
+
 def GTSP_WRITE(
     cspace_eudist_estimated,
     filename="problem_dev.gtsp",
@@ -876,6 +901,7 @@ def visualize_torus():
         Qaik[:, :, 1].ravel(),
         marker="o",
         color="lightgray",
+        alpha=0.5,
         label="All IK Solutions",
     )
     # ax.plot(
@@ -885,29 +911,36 @@ def visualize_torus():
     #     markersize=5,
     #     label="Reachable IK Solutions",
     # )
+    # ax.scatter(
+    #     Qt1[4:8, 0],
+    #     Qt1[4:8, 1],
+    #     marker="^",
+    #     color="r",
+    #     label="t1 Alt IK Solutions",
+    # )
+    # ax.scatter(
+    #     Qt2[4:8, 0],
+    #     Qt2[4:8, 1],
+    #     marker="^",
+    #     color="b",
+    #     label="t2 Alt IK Solutions",
+    # )
+    # cmap = plt.colormaps.get_cmap("tab10")
+    # for n in range(len(t1nn)):
+    #     ax.scatter(
+    #         t1Qnn[n, :, 0],
+    #         t1Qnn[n, :, 1],
+    #         marker="x",
+    #         color=cmap(n),
+    #         label="t1 Neighbor IK Solutions",
+    #     )
     ax.scatter(
-        Qt1[4:8, 0],
-        Qt1[4:8, 1],
-        marker="^",
-        color="r",
-        label="t1 Alt IK Solutions",
+        Qin_threshold[:, 0],
+        Qin_threshold[:, 1],
+        marker="x",
+        color="magenta",
+        label="Selected Seed IK Solutions",
     )
-    ax.scatter(
-        Qt2[4:8, 0],
-        Qt2[4:8, 1],
-        marker="^",
-        color="b",
-        label="t2 Alt IK Solutions",
-    )
-    cmap = plt.colormaps.get_cmap("tab10")
-    for n in range(len(t1nn)):
-        ax.scatter(
-            t1Qnn[n, :, 0],
-            t1Qnn[n, :, 1],
-            marker="x",
-            color=cmap(n),
-            label="t1 Neighbor IK Solutions",
-        )
     if qtour is not None:
         ax.plot(
             qtour[:, 0],
@@ -929,5 +962,5 @@ def visualize_torus():
 
 
 if __name__ == "__main__":
-    visualize()
+    # visualize()
     visualize_torus()
