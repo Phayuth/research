@@ -71,6 +71,8 @@ class RobotUR5eKin:
     def plot_link_transforms(self, q, frame_size=0.08):
         """Plot all frame transforms derived from DH parameters for a joint state."""
         relative_tf, world_tf = self.get_dh_chain(q)
+        print(f"==>> relative_tf: \n{relative_tf}")
+        print(f"==>> world_tf: \n{world_tf}")
 
         tm = TransformManager()
         for i, A_i in enumerate(relative_tf, start=1):
@@ -137,36 +139,80 @@ if __name__ == "__main__":
     FKurdf = tm.get_transform("tool0", "base_link")
     print(f"==>> FKurdf: \n{FKurdf}")
 
-    position = [0, 0.75, 0]
-    quat = [0, 0, 1, 0]
-    A2B = np.eye(4)
-    A2B[:3, :3] = R.from_quat(quat).as_matrix()
-    A2B[:3, 3] = np.asarray(position, dtype=float)
-    tm.load_urdf(URDF_shelf)
-    tm.add_transform("base", "base_link", A2B)
-    tm.plot_collision_objects("base_link")
-    tm.plot_visuals("base_link")
-
-    pos2 = [0, -0.75, 0]
-    quat2 = [0, 0, 0, 1]
-    A2B2 = np.eye(4)
-    A2B2[:3, :3] = R.from_quat(quat2).as_matrix()
-    A2B2[:3, 3] = np.asarray(pos2, dtype=float)
-    URDF_shelf_1 = URDF_shelf.replace("base", "base_1")
-    tm.load_urdf(URDF_shelf_1)
-    tm.add_transform("base_1", "base_link", A2B2)
-    tm.plot_collision_objects("base_link")
-    tm.plot_visuals("base_link")
-
-    pos3 = [0.75, 0, 0]
-    quat3 = [0, 0, 0.5, 0.5]
-    A2B3 = np.eye(4)
-    A2B3[:3, :3] = R.from_quat(quat3).as_matrix()
-    A2B3[:3, 3] = np.asarray(pos3, dtype=float)
-    URDF_shelf_2 = URDF_shelf.replace("base", "base_2")
-    tm.load_urdf(URDF_shelf_2)
-    tm.add_transform("base_2", "base_link", A2B3)
-    tm.plot_collision_objects("base_link")
-    tm.plot_visuals("base_link")
-
     plt.show()
+
+    # raise
+    # position = [0, 0.75, 0]
+    # quat = [0, 0, 1, 0]
+    # A2B = np.eye(4)
+    # A2B[:3, :3] = R.from_quat(quat).as_matrix()
+    # A2B[:3, 3] = np.asarray(position, dtype=float)
+    # tm.load_urdf(URDF_shelf)
+    # tm.add_transform("base", "base_link", A2B)
+    # tm.plot_collision_objects("base_link")
+    # tm.plot_visuals("base_link")
+
+    # pos2 = [0, -0.75, 0]
+    # quat2 = [0, 0, 0, 1]
+    # A2B2 = np.eye(4)
+    # A2B2[:3, :3] = R.from_quat(quat2).as_matrix()
+    # A2B2[:3, 3] = np.asarray(pos2, dtype=float)
+    # URDF_shelf_1 = URDF_shelf.replace("base", "base_1")
+    # tm.load_urdf(URDF_shelf_1)
+    # tm.add_transform("base_1", "base_link", A2B2)
+    # tm.plot_collision_objects("base_link")
+    # tm.plot_visuals("base_link")
+
+    # pos3 = [0.75, 0, 0]
+    # quat3 = [0, 0, 0.5, 0.5]
+    # A2B3 = np.eye(4)
+    # A2B3[:3, :3] = R.from_quat(quat3).as_matrix()
+    # A2B3[:3, 3] = np.asarray(pos3, dtype=float)
+    # URDF_shelf_2 = URDF_shelf.replace("base", "base_2")
+    # tm.load_urdf(URDF_shelf_2)
+    # tm.add_transform("base_2", "base_link", A2B3)
+    # tm.plot_collision_objects("base_link")
+    # tm.plot_visuals("base_link")
+
+    # plt.show()
+
+    import math
+    import pytorch_kinematics as pk
+    import pytorch_volumetric as pv
+    import torch
+
+    with open(
+        os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"), "rb"
+    ) as f:
+        URDFrb = f.read()
+
+    chain = pk.build_serial_chain_from_urdf(
+        URDFrb, root_link_name="base_link", end_link_name="tool0"
+    )
+    d = "cuda" if torch.cuda.is_available() else "cpu"
+    chain = chain.to(device=d)
+    print(f"==>> chain: \n{chain}")
+    joint_names = chain.get_joint_parameter_names()
+    print(f"==>> joint_names: \n{joint_names}")
+
+    q6 = [0.0, -math.pi / 4.0, 0.0, math.pi / 2.0, 0.0, math.pi / 4.0]
+    # do forward kinematics and get transform objects; end_only=False gives a dictionary of transforms for all links
+    ret = chain.forward_kinematics(q6, end_only=False)
+    print(f"==>> ret: \n{ret}")
+    # look up the transform for a specific link
+    tg = ret["tool0"]
+    print(f"==>> tg: \n{tg}")
+    # get transform matrix (1,4,4), then convert to separate position and unit quaternion
+    m = tg.get_matrix()
+    pos = m[:, :3, 3]
+    rot = pk.matrix_to_quaternion(m[:, :3, :3])
+
+    Q = torch.rand(1000, 6)*torch.pi - torch.pi/2
+    print(f"==>> Q: \n{Q}")
+
+    ret = chain.forward_kinematics(Q.to(d), end_only=True)
+    print(f"==>> type(ret): \n{type(ret)}")
+    print(f"==>> ret: \n{ret}")
+
+    ee = ret["tool0"]
+    print(f"==>> ee.shape: \n{ee.shape}")
