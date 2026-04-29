@@ -12,6 +12,8 @@ from pytransform3d.transformations import plot_transform
 from pytransform3d.plot_utils import make_3d_axis
 from pytransform3d.plot_utils import plot_sphere, plot_box
 import torch
+import pytorch_kinematics as pk
+import yaml
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -90,17 +92,6 @@ class RobotUR5eKin:
         origins = np.array([T_0i[:3, 3] for T_0i in world_tf])
         ax.plot(origins[:, 0], origins[:, 1], origins[:, 2], "k-o", linewidth=2)
 
-        reach = np.sum(np.abs(self.a)) + np.sum(np.abs(self.d))
-        lim = max(0.8, 1.1 * reach)
-        # ax.set_xlim([-lim, lim])
-        # ax.set_ylim([-lim, lim])
-        # ax.set_zlim([0.0, lim])
-        # ax.set_xlabel("X [m]")
-        # ax.set_ylabel("Y [m]")
-        # ax.set_zlabel("Z [m]")
-        # ax.set_title("UR5e DH Link Transformations")
-        # ax.set_box_aspect([1, 1, 1])
-
         # A_chain, T_chain = robot_kin.plot_link_transforms(q)
         # for i, A_i in enumerate(A_chain, start=1):
         #     print(f"A_{i} (link_{i-1} -> link_{i}):\n", A_i)
@@ -112,7 +103,7 @@ class RobotUR5eKin:
         return ax
 
 
-def build_sphere_centers_from_fk(ret, collision_sphere, device):
+def build_sphere_centers_from_fk(fk_tf_dict, collision_sphere, device):
     """Transform link-local collision spheres to base frame for batched FK.
 
     Returns:
@@ -125,11 +116,11 @@ def build_sphere_centers_from_fk(ret, collision_sphere, device):
     center_radius_all_links = []
 
     first_link_name = next(iter(collision_sphere))
-    first_tf = ret[first_link_name].get_matrix()
+    first_tf = fk_tf_dict[first_link_name].get_matrix()
     num_ik = first_tf.shape[0]
 
     for link_name, spheres in collision_sphere.items():
-        link_tf = ret[link_name].get_matrix()  # [num_ik, 4, 4]
+        link_tf = fk_tf_dict[link_name].get_matrix()  # [num_ik, 4, 4]
 
         centers_local = torch.tensor(
             [s["center"] for s in spheres], dtype=link_tf.dtype, device=device
@@ -179,6 +170,225 @@ def build_sphere_centers_from_fk(ret, collision_sphere, device):
     return center_radius_by_link, center_radius_by_sphere, center_radius_all
 
 
+def add_prefix_to_urdf(urdf_str, prefix="id_0_"):
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(urdf_str)
+
+    # helper: prefix if not already prefixed
+    def pref(name):
+        if name is None:
+            return None
+        return name if name.startswith(prefix) else prefix + name
+
+    # robot name
+    if "name" in root.attrib:
+        root.attrib["name"] = pref(root.attrib["name"])
+
+    # link names
+    for link in root.findall("link"):
+        link.attrib["name"] = pref(link.attrib["name"])
+
+    # joint names + parent/child refs
+    for joint in root.findall("joint"):
+        joint.attrib["name"] = pref(joint.attrib["name"])
+
+        parent = joint.find("parent")
+        if parent is not None:
+            parent.attrib["link"] = pref(parent.attrib["link"])
+
+        child = joint.find("child")
+        if child is not None:
+            child.attrib["link"] = pref(child.attrib["link"])
+
+    return ET.tostring(root, encoding="unicode")
+
+
+def box_to_base_link(A2B, size):
+    """
+    Convert an oriented box into an axis-aligned box in base_link.
+
+    Parameters
+    ----------
+    A2B : (4, 4) array
+        Box frame pose in base_link.
+    size : (3,) array
+        Box dimensions in the box's local frame: [x, y, z].
+
+    Returns
+    -------
+    A2B_new : (4, 4) array
+        Axis-aligned box pose in base_link, with identity rotation.
+    size_new : (3,) array
+        Axis-aligned extents in base_link.
+    """
+    size = np.asarray(size, dtype=float)
+    half = 0.5 * size
+
+    corners_local = np.array(
+        [
+            [sx * half[0], sy * half[1], sz * half[2], 1.0]
+            for sx in (-1.0, 1.0)
+            for sy in (-1.0, 1.0)
+            for sz in (-1.0, 1.0)
+        ]
+    )
+
+    corners_base = (A2B @ corners_local.T).T[:, :3]
+
+    mn = corners_base.min(axis=0)
+    mx = corners_base.max(axis=0)
+
+    center = 0.5 * (mn + mx)
+    size_new = mx - mn
+
+    A2B_new = np.eye(4)
+    A2B_new[:3, 3] = center
+
+    return A2B_new, size_new
+
+
+def intesect_sphere_box(spheres, boxes, boxes_size):
+    spheres = np.asarray(spheres, dtype=float)
+    boxes = np.asarray(boxes, dtype=float)
+    boxes_size = np.asarray(boxes_size, dtype=float)
+
+    sphere_center = spheres[:, :3]
+    sphere_radius = spheres[:, 3]
+
+    if boxes.ndim == 3 and boxes.shape[-2:] == (4, 4):
+        box_center = boxes[:, :3, 3]
+    elif boxes.ndim == 2 and boxes.shape[1] == 3:
+        box_center = boxes
+    else:
+        raise ValueError(
+            "boxes must be either (nbox, 3) centers or (nbox, 4, 4) transforms"
+        )
+
+    half_size = 0.5 * boxes_size
+    if half_size.ndim == 1:
+        half_size = half_size[None, :]
+
+    # Sphere centers to box centers, expressed in the common frame.
+    delta = sphere_center[:, None, :] - box_center[None, :, :]
+    closest = np.clip(delta, -half_size[None, :, :], half_size[None, :, :])
+    sep = delta - closest
+
+    collision = np.sum(sep * sep, axis=-1) <= sphere_radius[:, None] ** 2
+    return collision.any()
+
+
+def intesect_sphere_box_vectorized(spheres, boxes, boxes_size):
+    """
+    Check sphere-box collisions for a batch of trajectories (vectorized).
+
+    Parameters
+    ----------
+    spheres : (ntraj, nsphere, 4) array
+        Trajectory batch: xyz center + radius for each sphere.
+    boxes : (nbox, 4, 4) or (nbox, 3) array
+        Box transforms (4x4) or centers (3,).
+    boxes_size : (nbox, 3) array
+        Box sizes [sx, sy, sz] from center.
+
+    Returns
+    -------
+    collision : (ntraj,) bool array
+        Whether each trajectory collides with any box.
+    """
+    spheres = np.asarray(spheres, dtype=float)
+    boxes = np.asarray(boxes, dtype=float)
+    boxes_size = np.asarray(boxes_size, dtype=float)
+
+    ntraj, nsphere = spheres.shape[:2]
+
+    sphere_center = spheres[..., :3]  # (ntraj, nsphere, 3)
+    sphere_radius = spheres[..., 3]  # (ntraj, nsphere)
+
+    if boxes.ndim == 3 and boxes.shape[-2:] == (4, 4):
+        box_center = boxes[:, :3, 3]
+    elif boxes.ndim == 2 and boxes.shape[1] == 3:
+        box_center = boxes
+    else:
+        raise ValueError(
+            "boxes must be either (nbox, 3) centers or (nbox, 4, 4) transforms"
+        )
+
+    half_size = 0.5 * boxes_size
+    if half_size.ndim == 1:
+        half_size = half_size[None, :]
+
+    # Broadcast: (ntraj, nsphere, 1, 3) - (1, 1, nbox, 3) -> (ntraj, nsphere, nbox, 3)
+    delta = sphere_center[:, :, None, :] - box_center[None, None, :, :]
+    closest = np.clip(
+        delta, -half_size[None, None, :, :], half_size[None, None, :, :]
+    )
+    sep = delta - closest
+
+    # Distance squared: (ntraj, nsphere, nbox)
+    dist_sq = np.sum(sep * sep, axis=-1)
+    r_sq = sphere_radius[:, :, None] ** 2
+
+    # Collision per (traj, sphere, box)
+    collision_per_pair = dist_sq <= r_sq
+
+    # Any sphere collides with any box for each trajectory
+    collision = collision_per_pair.any(axis=(1, 2))
+    return collision
+
+
+def intesect_sphere_box_vectorized_torch(spheres, boxes, boxes_size):
+    """
+    Torch version of the batched sphere-box collision check.
+
+    Parameters
+    ----------
+    spheres : (ntraj, nsphere, 4) tensor-like
+        Sphere centers xyz and radius.
+    boxes : (nbox, 4, 4) or (nbox, 3) tensor-like
+        Box transforms or box centers.
+    boxes_size : (nbox, 3) tensor-like
+        Box sizes [sx, sy, sz] from the center.
+
+    Returns
+    -------
+    collision : (ntraj,) bool tensor
+        Whether each trajectory collides with any box.
+    """
+    spheres = torch.as_tensor(spheres)
+    boxes = torch.as_tensor(boxes, device=spheres.device, dtype=spheres.dtype)
+    boxes_size = torch.as_tensor(
+        boxes_size, device=spheres.device, dtype=spheres.dtype
+    )
+
+    sphere_center = spheres[..., :3]
+    sphere_radius = spheres[..., 3]
+
+    if boxes.ndim == 3 and boxes.shape[-2:] == (4, 4):
+        box_center = boxes[:, :3, 3]
+    elif boxes.ndim == 2 and boxes.shape[1] == 3:
+        box_center = boxes
+    else:
+        raise ValueError(
+            "boxes must be either (nbox, 3) centers or (nbox, 4, 4) transforms"
+        )
+
+    half_size = 0.5 * boxes_size
+    if half_size.ndim == 1:
+        half_size = half_size[None, :]
+
+    delta = sphere_center[:, :, None, :] - box_center[None, None, :, :]
+    closest = torch.clamp(
+        delta, min=-half_size[None, None, :, :], max=half_size[None, None, :, :]
+    )
+    sep = delta - closest
+
+    dist_sq = torch.sum(sep * sep, dim=-1)
+    r_sq = sphere_radius[:, :, None] ** 2
+    collision_per_pair = dist_sq <= r_sq
+    return collision_per_pair.any(dim=(1, 2))
+
+
 if __name__ == "__main__":
     robot_kin = RobotUR5eKin()
     q = np.array([0, 0, 0, 0, 0, 0])
@@ -186,100 +396,76 @@ if __name__ == "__main__":
     FKeaik = robot_kin.solve_fk(q)
     print("FK (end-effector pose):\n", FKeaik)
 
-    ax1 = robot_kin.plot_link_transforms(q)
-    plot_transform(ax=ax1, A2B=np.eye(4), s=1.5, name="WORLD")
+    # ax1 = robot_kin.plot_link_transforms(q)
+    # plot_transform(ax=ax1, A2B=np.eye(4), s=1.5, name="WORLD")
 
-    with open(
-        os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"), "r"
-    ) as f:
+    plane_ = os.path.join(rsrc, "./ur5e/plane.urdf")
+    ur_sphr_ = os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf")
+    sphr_info_ = os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.yml")
+    with open(ur_sphr_, "r") as f:
         URDF = f.read()
 
-    with open(os.path.join(rsrc, "./ur5e/shelf.urdf"), "r") as f:
-        URDF_shelf = f.read()
+    with open(ur_sphr_, "rb") as f:
+        URDFrb = f.read()
 
-    tm = UrdfTransformManager()
-    tm.load_urdf(URDF)
-    tm.set_joint("shoulder_pan_joint", q[0])
-    tm.set_joint("shoulder_lift_joint", q[1])
-    tm.set_joint("elbow_joint", q[2])
-    tm.set_joint("wrist_1_joint", q[3])
-    tm.set_joint("wrist_2_joint", q[4])
-    tm.set_joint("wrist_3_joint", q[5])
-    FKurdf = tm.get_transform("tool0", "base_link")
-    print(f"==>> FKurdf: \n{FKurdf}")
+    with open(sphr_info_, "r") as f:
+        sphere_info = yaml.safe_load(f)
+
+    # tm = UrdfTransformManager()
+    # tm.load_urdf(URDF)
+    # tm.set_joint("shoulder_pan_joint", q[0])
+    # tm.set_joint("shoulder_lift_joint", q[1])
+    # tm.set_joint("elbow_joint", q[2])
+    # tm.set_joint("wrist_1_joint", q[3])
+    # tm.set_joint("wrist_2_joint", q[4])
+    # tm.set_joint("wrist_3_joint", q[5])
+    # FKurdf = tm.get_transform("tool0", "base_link")
+    # print(f"==>> FKurdf: \n{FKurdf}")
+
+    # tf to transform and prefix for each shelf in the world frame
+    shelf_tf = {
+        0: ((0, 0.75, 0), (0, 0, 1, 0), "id_0_"),
+        1: ((0, -0.75, 0), (0, 0, 0, 1), "id_1_"),
+        2: ((0.75, 0, 0), (0, 0, 0.5, 0.5), "id_2_"),
+    }
 
     tm_shelf = UrdfTransformManager()
     tm_shelf.add_transform("base_link", "world", np.eye(4))
 
-    position = [0, 0.75, 0]
-    quat = [0, 0, 1, 0]
-    A2B = np.eye(4)
-    A2B[:3, :3] = R.from_quat(quat).as_matrix()
-    A2B[:3, 3] = np.asarray(position, dtype=float)
-    URDF_shelf_0 = URDF_shelf.replace("base", "base_0")
-    tm_shelf.load_urdf(URDF_shelf_0)
-    tm_shelf.add_transform("base_0", "base_link", A2B)
-    tm_shelf.plot_collision_objects("base_link")
-    tm_shelf.plot_visuals("base_link")
+    for id, (position, quat, prefix) in shelf_tf.items():
+        position = np.asarray(position, dtype=float)
+        quat = np.asarray(quat, dtype=float)
+        A2B = np.eye(4)
+        A2B[:3, :3] = R.from_quat(quat).as_matrix()
+        A2B[:3, 3] = position
+        urdf_path = os.path.join(rsrc, f"./ur5e/shelf_{id}.urdf")
+        with open(urdf_path, "r") as f:
+            urdf_str = f.read()
+        urdf_str = add_prefix_to_urdf(urdf_str, prefix)
+        tm_shelf.load_urdf(urdf_str)
+        tm_shelf.add_transform(f"{prefix}base", "base_link", A2B)
 
-    pos2 = [0, -0.75, 0]
-    quat2 = [0, 0, 0, 1]
-    A2B2 = np.eye(4)
-    A2B2[:3, :3] = R.from_quat(quat2).as_matrix()
-    A2B2[:3, 3] = np.asarray(pos2, dtype=float)
-    URDF_shelf_1 = URDF_shelf.replace("base", "base_1")
-    tm_shelf.load_urdf(URDF_shelf_1)
-    tm_shelf.add_transform("base_1", "base_link", A2B2)
-    tm_shelf.plot_collision_objects("base_link")
-    tm_shelf.plot_visuals("base_link")
-
-    pos3 = [0.75, 0, 0]
-    quat3 = [0, 0, 0.5, 0.5]
-    A2B3 = np.eye(4)
-    A2B3[:3, :3] = R.from_quat(quat3).as_matrix()
-    A2B3[:3, 3] = np.asarray(pos3, dtype=float)
-    URDF_shelf_2 = URDF_shelf.replace("base", "base_2")
-    tm_shelf.load_urdf(URDF_shelf_2)
-    tm_shelf.add_transform("base_2", "base_link", A2B3)
-    tm_shelf.plot_collision_objects("base_link")
-    tm_shelf.plot_visuals("base_link")
-
+    # collecting collsion objects from all shelves
     # 7 walls per shelf x 3 shelves = 21 collision objects total
-    co = tm_shelf.collision_objects
-    print(f"==>> len(co): {len(co)}")
-
-    for b in co:
-        print(b.frame)
-        A2B = tm_shelf.get_transform(b.frame, "base_link")
-        print(f"==>> A2B: \n{A2B}")
-        print(b.size)
-    plt.show()
-
-    ax = make_3d_axis(ax_s=1.0)
-    plot_transform(ax=ax, A2B=np.eye(4), s=0.3, lw=2, name="base_link")
-
-    for b in co:
+    col_obj = tm_shelf.collision_objects
+    col_obj_count = len(col_obj)
+    box_tf = np.empty((col_obj_count, 4, 4))
+    box_size = np.empty((col_obj_count, 3))
+    for i, b in enumerate(col_obj):
         A2B = tm_shelf.get_transform(b.frame, "base_link")
         size = b.size
-        plot_box(ax=ax, A2B=A2B, size=size, wireframe=True, alpha=0.3)
-    plt.show()
+        box_tf[i] = A2B
+        box_size[i] = size
+    box_tf_new = np.empty_like(box_tf)
+    box_size_new = np.empty_like(box_size)
+    for i in range(box_tf.shape[0]):
+        box_tf_new[i], box_size_new[i] = box_to_base_link(box_tf[i], box_size[i])
 
-    raise
-    import pytorch_kinematics as pk
-    import yaml
-
-    with open(
-        os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"), "rb"
-    ) as f:
-        URDFrb = f.read()
-
-    with open(
-        os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.yml"), "r"
-    ) as f:
-        sphere_info = yaml.safe_load(f)
-
+    # build kinematic
     chain = pk.build_serial_chain_from_urdf(
-        URDFrb, root_link_name="base_link", end_link_name="tool0"
+        URDFrb,
+        root_link_name="base_link",
+        end_link_name="tool0",
     )
 
     d = "cuda" if torch.cuda.is_available() else "cpu"
@@ -288,7 +474,9 @@ if __name__ == "__main__":
     joint_names = chain.get_joint_parameter_names()
     print(f"==>> joint_names: \n{joint_names}")
 
-    Q = torch.rand(1000, 6).to(d) * torch.pi - torch.pi / 2
+    ntraj = 200000
+    dof = 6
+    Q = torch.rand(ntraj, dof).to(d) * torch.pi - torch.pi / 2
     ret = chain.forward_kinematics(Q, end_only=False)
     sphere_link = sphere_info["metadata"]["links"]
     collision_sphere = sphere_info["collision_spheres"]
@@ -301,19 +489,39 @@ if __name__ == "__main__":
     center_radius_by_link, center_radius_by_sphere, center_radius_all = (
         build_sphere_centers_from_fk(ret, collision_sphere, d)
     )
-    print(f"==>> center_radius_all.shape: {center_radius_all.shape}")
+    # Keep trajectory spheres on torch for the collision query.
+    spheres_all = center_radius_all
+    box_tf_new = torch.as_tensor(box_tf_new, device=d)
+    box_size_new = torch.as_tensor(box_size_new, device=d)
 
-    config_idx = 0
-    center_radius_cfg = center_radius_all[config_idx].detach().cpu().numpy()
-    print(f"==>> center_radius_cfg.shape: {center_radius_cfg.shape}")
+    # Check collisions for all trajectories: (ntraj,) bool array
+    state_array = intesect_sphere_box_vectorized_torch(
+        spheres_all, box_tf_new, box_size_new
+    )
+    collision_count = state_array.sum().item()
+    print(f"==>> Total trajectories: {ntraj}")
+    print(f"==>> Colliding trajectories: {collision_count}")
+    print(f"==>> Collision rate: {collision_count / ntraj * 100:.2f}%")
+
+    in_collision_Q = Q[state_array]
+    print(f"==>> in_collision_Q shape: {in_collision_Q.shape}")
+    in_collision_spheres = spheres_all[state_array]
 
     ax = make_3d_axis(ax_s=1.0)
     plot_transform(ax=ax, A2B=np.eye(4), s=0.3, lw=2, name="base_link")
-    for x, y, z, r in center_radius_cfg:
+    for x, y, z, r in in_collision_spheres[3].detach().cpu().numpy():
         plot_sphere(
             ax=ax,
             p=[x, y, z],
             radius=r,
+            alpha=0.3,
+        )
+    for i in range(box_tf.shape[0]):
+        plot_box(
+            ax=ax,
+            A2B=box_tf_new[i].detach().cpu().numpy(),
+            size=box_size_new[i].detach().cpu().numpy(),
+            wireframe=True,
             alpha=0.3,
         )
     ax.set_box_aspect([1, 1, 1])
