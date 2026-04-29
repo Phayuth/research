@@ -189,6 +189,27 @@ def gmm_bic_clustering(Hse3logerr):
     return labels, cluster_id, num_clusters
 
 
+# Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
+# # Normalize so translation/rotation are comparable:
+# Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
+# Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
+# print(f"==>> Hse3logerr: \n{Hse3logerr}")
+
+# mode = ["DBSCAN", "GMM_BIC"][0]
+# if mode == "DBSCAN":
+#     labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
+# if mode == "GMM_BIC":
+#     labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
+
+# print(f"==>> labels: \n{labels}")
+# print(f"==>> cluster_id: \n{cluster_id}")
+# print(f"==>> num_clusters: \n{num_clusters}")
+
+# Hmeans = {i: None for i in cluster_id if i != -1}
+# for i in Hmeans:
+#     Hmeans[i] = se3_mean(Hlist[labels == i])
+
+
 # find mean of SE(3) poses in a cluster ----------------------------------
 def se3_mean(Hs, max_iter=20):
     H_mean = Hs[0].copy()
@@ -489,10 +510,10 @@ if __name__ == "__main__":
     print("Log error:", se3_error_log(H1, H2))
 
     # Hlist = poses_a()
-    # Hlist = poses_b()
+    Hlist = poses_b()
     # Hlist = poses_c()
     # Hlist = poses_d()
-    Hlist = poses_epGH()
+    # Hlist = poses_epGH()
     print(f"==>> Hlist.shape: \n{Hlist.shape}")
 
     scene = trimesh.Scene()
@@ -508,61 +529,8 @@ if __name__ == "__main__":
     # point_cloud = trimesh.points.PointCloud(points, colors=[255, 0, 0, 255])
     # scene.add_geometry(point_cloud)
     for H in Hlist:
-        axis = trimesh.creation.axis(origin_size=0.002, transform=H, axis_length=0.05, axis_radius=0.0008)
+        axis = trimesh.creation.axis(
+            origin_size=0.002, transform=H, axis_length=0.05, axis_radius=0.0008
+        )
         scene.add_geometry(axis)
     scene.show()
-
-    # DIST = se3_error_pairwise_distance(Hlist, w_rot=1.0)
-    # print(f"==>> DIST: \n{DIST}")
-
-    # # raise
-    # Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
-    # # Normalize so translation/rotation are comparable:
-    # Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
-    # Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
-    # print(f"==>> Hse3logerr: \n{Hse3logerr}")
-
-    # mode = ["DBSCAN", "GMM_BIC"][0]
-    # if mode == "DBSCAN":
-    #     labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
-    # if mode == "GMM_BIC":
-    #     labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
-
-    # print(f"==>> labels: \n{labels}")
-    # print(f"==>> cluster_id: \n{cluster_id}")
-    # print(f"==>> num_clusters: \n{num_clusters}")
-
-    # Hmeans = {i: None for i in cluster_id if i != -1}
-    # for i in Hmeans:
-    #     Hmeans[i] = se3_mean(Hlist[labels == i])
-
-    # nbrs = NearestNeighbors(n_neighbors=10).fit(Hse3logerr)
-    # dists, indices = nbrs.kneighbors(Hse3logerr)
-    # print(f"==>> dists: \n{dists}")
-    # print(f"==>> indices: \n{indices}")
-    # idx = 5
-    # H0 = Hlist[idx]
-    # H0neigh = Hlist[indices[idx]]
-
-    # ----------------------------- Visualization -----------------------------
-    # ax = make_3d_axis(1)
-    # plot_transform(ax, name="world")
-    # for i, H in Hmeans.items():
-    #     plot_transform(ax, H, s=0.1, name=f"Hmean_{i}")
-    # for i, H in enumerate(Hlist):
-    #     plot_transform(ax, H, s=0.05, name=f"Cls {labels[i]}")
-    # for hn in H0neigh:
-    #     ax.plot(
-    #         [H0[0, 3], hn[0, 3]],
-    #         [H0[1, 3], hn[1, 3]],
-    #         [H0[2, 3], hn[2, 3]],
-    #         "k--",
-    #         alpha=0.5,
-    #     )
-    # ax.set_title("SE(3) Error Metrics")
-    # ax.set_xlabel("X")
-    # ax.set_ylabel("Y")
-    # ax.set_zlabel("Z")
-    # ax.set_title(f"{mode} found {num_clusters} clusters")
-    # ax.set_box_aspect([1, 1, 1])
-    # plt.show()

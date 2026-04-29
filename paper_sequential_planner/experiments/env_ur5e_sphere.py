@@ -1,8 +1,6 @@
 import os
 import tqdm
 import numpy as np
-import pybullet as p
-import pybullet_data
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R
 from eaik.IK_DH import DhRobot
@@ -103,7 +101,7 @@ class RobotUR5eKin:
         return ax
 
 
-def build_sphere_centers_from_fk(fk_tf_dict, collision_sphere, device):
+def fkin_sphere_links(fk_tf_dict, collision_sphere, device):
     """Transform link-local collision spheres to base frame for batched FK.
 
     Returns:
@@ -111,13 +109,13 @@ def build_sphere_centers_from_fk(fk_tf_dict, collision_sphere, device):
         center_radius_by_sphere: dict["link_name[i]"] -> [num_ik, 4]
         center_radius_all: [num_ik, total_num_spheres, 4]
     """
-    center_radius_by_link = {}
-    center_radius_by_sphere = {}
-    center_radius_all_links = []
-
     first_link_name = next(iter(collision_sphere))
     first_tf = fk_tf_dict[first_link_name].get_matrix()
     num_ik = first_tf.shape[0]
+
+    # center_radius_by_link = {}
+    # center_radius_by_sphere = {}
+    center_radius_all_links = []
 
     for link_name, spheres in collision_sphere.items():
         link_tf = fk_tf_dict[link_name].get_matrix()  # [num_ik, 4, 4]
@@ -158,16 +156,41 @@ def build_sphere_centers_from_fk(fk_tf_dict, collision_sphere, device):
                 radii[:, si] = float(s["radius"])
 
         center_radius_link = torch.cat([centers_base, radii.unsqueeze(-1)], dim=-1)
-        center_radius_by_link[link_name] = center_radius_link
+        # center_radius_by_link[link_name] = center_radius_link
         center_radius_all_links.append(center_radius_link)
 
-        for si in range(center_radius_link.shape[1]):
-            center_radius_by_sphere[f"{link_name}[{si}]"] = center_radius_link[
-                :, si, :
-            ]
+        # for si in range(center_radius_link.shape[1]):
+        #     center_radius_by_sphere[f"{link_name}[{si}]"] = center_radius_link[
+        #         :, si, :
+        #     ]
 
     center_radius_all = torch.cat(center_radius_all_links, dim=1)
-    return center_radius_by_link, center_radius_by_sphere, center_radius_all
+
+    # return center_radius_by_link, center_radius_by_sphere, center_radius_all
+    return center_radius_all
+
+
+def fkin_sphere_batch(chain, Q, collision_sphere):
+    """
+    Compute collision sphere centers for a batch of joint configurations.
+
+    Parameters
+    ----------
+    chain : pytorch_kinematics.Chain
+        The robot kinematic chain.
+    Q : (ntraj, dof) tensor
+        Batch of joint configurations.
+    collision_sphere : dict[link_name] -> list of spheres
+        Sphere definitions per link, where each sphere has a "center" and "radius".
+
+    Returns
+    -------
+    spheres_in_base : (ntraj, total_num_spheres, 4) tensor
+        Sphere centers in base frame and their radii for all trajectories.
+    """
+    fk_tf_dict = chain.forward_kinematics(Q, end_only=False)
+    spheres_in_base = fkin_sphere_links(fk_tf_dict, collision_sphere, Q.device)
+    return spheres_in_base
 
 
 def add_prefix_to_urdf(urdf_str, prefix="id_0_"):
@@ -202,6 +225,21 @@ def add_prefix_to_urdf(urdf_str, prefix="id_0_"):
             child.attrib["link"] = pref(child.attrib["link"])
 
     return ET.tostring(root, encoding="unicode")
+
+
+def load_spheres():
+    sphr_info_ = os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.yml")
+    with open(sphr_info_, "r") as f:
+        sphere_info = yaml.safe_load(f)
+
+    sphere_link = sphere_info["metadata"]["links"]
+    collision_sphere = sphere_info["collision_spheres"]
+    sphere_link_count = []
+    for link_name, sphere in collision_sphere.items():
+        sphere_link_count.append(len(sphere))
+    print(f"==>> sphere_link: \n{sphere_link}")
+    print(f"==>> sphere_link_count: \n{sphere_link_count}")
+    return collision_sphere
 
 
 def box_to_base_link(A2B, size):
@@ -248,37 +286,59 @@ def box_to_base_link(A2B, size):
     return A2B_new, size_new
 
 
-def intesect_sphere_box(spheres, boxes, boxes_size):
-    spheres = np.asarray(spheres, dtype=float)
-    boxes = np.asarray(boxes, dtype=float)
-    boxes_size = np.asarray(boxes_size, dtype=float)
+def load_boxes_to_base_link():
+    plane_ = os.path.join(rsrc, "./ur5e/plane.urdf")
+    with open(plane_, "r") as f:
+        plane_urdf = f.read()
 
-    sphere_center = spheres[:, :3]
-    sphere_radius = spheres[:, 3]
+    # tf to transform and prefix for each shelf in the world frame
+    shelf_tf = {
+        0: ((0, 0.75, 0), (0, 0, 1, 0), "id_0_"),
+        1: ((0, -0.75, 0), (0, 0, 0, 1), "id_1_"),
+        2: ((0.75, 0, 0), (0, 0, 0.5, 0.5), "id_2_"),
+    }
 
-    if boxes.ndim == 3 and boxes.shape[-2:] == (4, 4):
-        box_center = boxes[:, :3, 3]
-    elif boxes.ndim == 2 and boxes.shape[1] == 3:
-        box_center = boxes
-    else:
-        raise ValueError(
-            "boxes must be either (nbox, 3) centers or (nbox, 4, 4) transforms"
+    tm_shelf = UrdfTransformManager()
+    tm_shelf.add_transform("base_link", "world", np.eye(4))
+
+    for id, (position, quat, prefix) in shelf_tf.items():
+        position = np.asarray(position, dtype=float)
+        quat = np.asarray(quat, dtype=float)
+        A2B = np.eye(4)
+        A2B[:3, :3] = R.from_quat(quat).as_matrix()
+        A2B[:3, 3] = position
+        urdf_path = os.path.join(rsrc, f"./ur5e/shelf.urdf")
+        with open(urdf_path, "r") as f:
+            urdf_str = f.read()
+        urdf_str = add_prefix_to_urdf(urdf_str, prefix)
+        tm_shelf.load_urdf(urdf_str)
+        tm_shelf.add_transform(f"{prefix}base", "base_link", A2B)
+
+    tm_shelf.load_urdf(plane_urdf)
+    tm_shelf.add_transform("plane", "base_link", np.eye(4))
+
+    # collecting collsion objects from all shelves
+    # 7 walls per shelf x 3 shelves = 21 collision objects total
+    col_obj = tm_shelf.collision_objects
+    col_obj_count = len(col_obj)
+    box_in_local = np.empty((col_obj_count, 4, 4))
+    boxsz_in_local = np.empty((col_obj_count, 3))
+    for i, b in enumerate(col_obj):
+        A2B = tm_shelf.get_transform(b.frame, "base_link")
+        size = b.size
+        box_in_local[i] = A2B
+        boxsz_in_local[i] = size
+    box_in_base = np.empty_like(box_in_local)
+    boxsz_in_base = np.empty_like(boxsz_in_local)
+    for i in range(box_in_local.shape[0]):
+        box_in_base[i], boxsz_in_base[i] = box_to_base_link(
+            box_in_local[i], boxsz_in_local[i]
         )
 
-    half_size = 0.5 * boxes_size
-    if half_size.ndim == 1:
-        half_size = half_size[None, :]
-
-    # Sphere centers to box centers, expressed in the common frame.
-    delta = sphere_center[:, None, :] - box_center[None, :, :]
-    closest = np.clip(delta, -half_size[None, :, :], half_size[None, :, :])
-    sep = delta - closest
-
-    collision = np.sum(sep * sep, axis=-1) <= sphere_radius[:, None] ** 2
-    return collision.any()
+    return box_in_base, boxsz_in_base
 
 
-def intesect_sphere_box_vectorized(spheres, boxes, boxes_size):
+def check_sphr_box_vec(spheres, boxes, boxes_size):
     """
     Check sphere-box collisions for a batch of trajectories (vectorized).
 
@@ -337,7 +397,7 @@ def intesect_sphere_box_vectorized(spheres, boxes, boxes_size):
     return collision
 
 
-def intesect_sphere_box_vectorized_torch(spheres, boxes, boxes_size):
+def check_sphr_box_vec_torch(spheres, boxes, boxes_size):
     """
     Torch version of the batched sphere-box collision check.
 
@@ -389,79 +449,75 @@ def intesect_sphere_box_vectorized_torch(spheres, boxes, boxes_size):
     return collision_per_pair.any(dim=(1, 2))
 
 
+def pick_task_poses():
+    def _gen_linear_H(s, e, quat, num_tasks=10):
+        t = np.linspace(s, e, num_tasks)
+        Hlist = [np.eye(4) for _ in range(num_tasks)]
+        for i in range(num_tasks):
+            Hlist[i][:3, 3] = t[i]
+            Hlist[i][:3, :3] = R.from_quat(quat).as_matrix()
+        return Hlist
+
+    def _Hrot_Z(a):
+        H = np.eye(4)
+        c, s = np.cos(a), np.sin(a)
+        H[0:3, 0:3] = [[c, -s, 0], [s, c, 0], [0, 0, 1]]
+        return H
+
+    def _RotPI(H):
+        Hdh_to_urdf = _Hrot_Z(np.pi)
+        return np.linalg.inv(Hdh_to_urdf) @ H
+
+    size = 4
+    params = {
+        0: ([-0.4, 0.6, 0.5], [0.4, 0.6, 0.5], [-0.707106, 0.0, 0.0, 0.707106]),
+        1: ([-0.4, 0.6, 0.2], [0.4, 0.6, 0.2], [-0.707106, 0.0, 0.0, 0.707106]),
+        2: ([-0.6, -0.4, 0.5], [-0.6, 0.4, 0.5], [-0.5, -0.5, 0.5, 0.5]),
+        3: ([-0.6, -0.4, 0.2], [-0.6, 0.4, 0.2], [-0.5, -0.5, 0.5, 0.5]),
+        4: ([0.4, -0.6, 0.5], [-0.4, -0.6, 0.5], [0.0, -0.707106, 0.707106, 0.0]),
+        5: ([0.4, -0.6, 0.2], [-0.4, -0.6, 0.2], [0.0, -0.707106, 0.707106, 0.0]),
+    }
+    HH = []
+    for k in params:
+        s, e, quat = params[k]
+        quat_noise = quat + np.random.normal(0, 0.05, size=4)
+        HH += _gen_linear_H(s, e, quat_noise, num_tasks=size)
+    Hlist = np.array(HH)
+    Hlist = np.array([_RotPI(H) for H in Hlist])
+    return Hlist
+
+
 if __name__ == "__main__":
     robot_kin = RobotUR5eKin()
     q = np.array([0, 0, 0, 0, 0, 0])
-
     FKeaik = robot_kin.solve_fk(q)
     print("FK (end-effector pose):\n", FKeaik)
 
     # ax1 = robot_kin.plot_link_transforms(q)
     # plot_transform(ax=ax1, A2B=np.eye(4), s=1.5, name="WORLD")
 
-    plane_ = os.path.join(rsrc, "./ur5e/plane.urdf")
     ur_sphr_ = os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf")
-    sphr_info_ = os.path.join(rsrc, "./ur5e/ur5e_extract_calibrated_spherized.yml")
     with open(ur_sphr_, "r") as f:
         URDF = f.read()
 
     with open(ur_sphr_, "rb") as f:
         URDFrb = f.read()
 
-    with open(sphr_info_, "r") as f:
-        sphere_info = yaml.safe_load(f)
+    tm = UrdfTransformManager()
+    tm.load_urdf(URDF)
+    tm.set_joint("shoulder_pan_joint", q[0])
+    tm.set_joint("shoulder_lift_joint", q[1])
+    tm.set_joint("elbow_joint", q[2])
+    tm.set_joint("wrist_1_joint", q[3])
+    tm.set_joint("wrist_2_joint", q[4])
+    tm.set_joint("wrist_3_joint", q[5])
+    FKurdf = tm.get_transform("tool0", "base_link")
+    print(f"==>> FKurdf: \n{FKurdf}")
 
-    # tm = UrdfTransformManager()
-    # tm.load_urdf(URDF)
-    # tm.set_joint("shoulder_pan_joint", q[0])
-    # tm.set_joint("shoulder_lift_joint", q[1])
-    # tm.set_joint("elbow_joint", q[2])
-    # tm.set_joint("wrist_1_joint", q[3])
-    # tm.set_joint("wrist_2_joint", q[4])
-    # tm.set_joint("wrist_3_joint", q[5])
-    # FKurdf = tm.get_transform("tool0", "base_link")
-    # print(f"==>> FKurdf: \n{FKurdf}")
+    # load box collision objects and convert to base_link frame
+    box_in_base, boxsz_in_base = load_boxes_to_base_link()
 
-    # tf to transform and prefix for each shelf in the world frame
-    shelf_tf = {
-        0: ((0, 0.75, 0), (0, 0, 1, 0), "id_0_"),
-        1: ((0, -0.75, 0), (0, 0, 0, 1), "id_1_"),
-        2: ((0.75, 0, 0), (0, 0, 0.5, 0.5), "id_2_"),
-    }
-
-    tm_shelf = UrdfTransformManager()
-    tm_shelf.add_transform("base_link", "world", np.eye(4))
-
-    for id, (position, quat, prefix) in shelf_tf.items():
-        position = np.asarray(position, dtype=float)
-        quat = np.asarray(quat, dtype=float)
-        A2B = np.eye(4)
-        A2B[:3, :3] = R.from_quat(quat).as_matrix()
-        A2B[:3, 3] = position
-        urdf_path = os.path.join(rsrc, f"./ur5e/shelf_{id}.urdf")
-        with open(urdf_path, "r") as f:
-            urdf_str = f.read()
-        urdf_str = add_prefix_to_urdf(urdf_str, prefix)
-        tm_shelf.load_urdf(urdf_str)
-        tm_shelf.add_transform(f"{prefix}base", "base_link", A2B)
-
-    # collecting collsion objects from all shelves
-    # 7 walls per shelf x 3 shelves = 21 collision objects total
-    col_obj = tm_shelf.collision_objects
-    col_obj_count = len(col_obj)
-    box_tf = np.empty((col_obj_count, 4, 4))
-    box_size = np.empty((col_obj_count, 3))
-    for i, b in enumerate(col_obj):
-        A2B = tm_shelf.get_transform(b.frame, "base_link")
-        size = b.size
-        box_tf[i] = A2B
-        box_size[i] = size
-    box_tf_new = np.empty_like(box_tf)
-    box_size_new = np.empty_like(box_size)
-    for i in range(box_tf.shape[0]):
-        box_tf_new[i], box_size_new[i] = box_to_base_link(box_tf[i], box_size[i])
-
-    # build kinematic
+    # build batch kinematic
     chain = pk.build_serial_chain_from_urdf(
         URDFrb,
         root_link_name="base_link",
@@ -471,41 +527,53 @@ if __name__ == "__main__":
     d = "cuda" if torch.cuda.is_available() else "cpu"
     chain = chain.to(device=d)
     print(f"==>> chain: \n{chain}")
-    joint_names = chain.get_joint_parameter_names()
-    print(f"==>> joint_names: \n{joint_names}")
+    # joint_names = chain.get_joint_parameter_names()
+    # print(f"==>> joint_names: \n{joint_names}")
 
-    ntraj = 200000
+    ntraj = 100000
     dof = 6
     Q = torch.rand(ntraj, dof).to(d) * torch.pi - torch.pi / 2
-    ret = chain.forward_kinematics(Q, end_only=False)
-    sphere_link = sphere_info["metadata"]["links"]
-    collision_sphere = sphere_info["collision_spheres"]
-    sphere_link_count = []
-    for link_name, sphere in collision_sphere.items():
-        sphere_link_count.append(len(sphere))
-    print(f"==>> sphere_link: \n{sphere_link}")
-    print(f"==>> sphere_link_count: \n{sphere_link_count}")
-
-    center_radius_by_link, center_radius_by_sphere, center_radius_all = (
-        build_sphere_centers_from_fk(ret, collision_sphere, d)
-    )
-    # Keep trajectory spheres on torch for the collision query.
-    spheres_all = center_radius_all
-    box_tf_new = torch.as_tensor(box_tf_new, device=d)
-    box_size_new = torch.as_tensor(box_size_new, device=d)
+    collision_sphere = load_spheres()
+    spheres_in_base = fkin_sphere_batch(chain, Q, collision_sphere)
+    box_in_base = torch.as_tensor(box_in_base, device=d)
+    boxsz_in_base = torch.as_tensor(boxsz_in_base, device=d)
 
     # Check collisions for all trajectories: (ntraj,) bool array
-    state_array = intesect_sphere_box_vectorized_torch(
-        spheres_all, box_tf_new, box_size_new
+    col_states = check_sphr_box_vec_torch(
+        spheres_in_base, box_in_base, boxsz_in_base
     )
-    collision_count = state_array.sum().item()
+    collision_count = col_states.sum().item()
     print(f"==>> Total trajectories: {ntraj}")
     print(f"==>> Colliding trajectories: {collision_count}")
     print(f"==>> Collision rate: {collision_count / ntraj * 100:.2f}%")
 
-    in_collision_Q = Q[state_array]
+    in_collision_Q = Q[col_states]
     print(f"==>> in_collision_Q shape: {in_collision_Q.shape}")
-    in_collision_spheres = spheres_all[state_array]
+    in_collision_spheres = spheres_in_base[col_states]
+
+    nstore = 1000000
+    dataset = torch.empty(nstore, dof)
+    dataset_y = torch.empty(nstore, dtype=torch.bool)
+    batch = 100000
+    it = nstore // batch
+    for i in tqdm.tqdm(range(it)):
+        start = i * batch
+        end = start + batch
+        dataset[start:end, :dof] = (
+            torch.rand(batch, dof).to(d) * torch.pi - torch.pi / 2
+        )
+        spheres_in_base = fkin_sphere_batch(
+            chain, dataset[start:end, :dof], collision_sphere
+        )
+        col_states = check_sphr_box_vec_torch(
+            spheres_in_base, box_in_base, boxsz_in_base
+        )
+        dataset_y[start:end] = col_states
+
+    collision_rate = dataset_y.sum().item() / nstore
+    print(f"==>> Dataset collision rate: {collision_rate * 100:.2f}%")
+
+    Hlist = pick_task_poses()
 
     ax = make_3d_axis(ax_s=1.0)
     plot_transform(ax=ax, A2B=np.eye(4), s=0.3, lw=2, name="base_link")
@@ -515,14 +583,17 @@ if __name__ == "__main__":
             p=[x, y, z],
             radius=r,
             alpha=0.3,
+            color="r",
         )
-    for i in range(box_tf.shape[0]):
+    for i in range(box_in_base.shape[0]):
         plot_box(
             ax=ax,
-            A2B=box_tf_new[i].detach().cpu().numpy(),
-            size=box_size_new[i].detach().cpu().numpy(),
-            wireframe=True,
+            A2B=box_in_base[i].detach().cpu().numpy(),
+            size=boxsz_in_base[i].detach().cpu().numpy(),
+            wireframe=False,
             alpha=0.3,
         )
+    for h in Hlist:
+        plot_transform(ax=ax, A2B=h, s=0.1, name="task")
     ax.set_box_aspect([1, 1, 1])
     plt.show()
