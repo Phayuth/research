@@ -287,10 +287,6 @@ def box_to_base_link(A2B, size):
 
 
 def load_boxes_to_base_link():
-    plane_ = os.path.join(rsrc, "./ur5e/plane.urdf")
-    with open(plane_, "r") as f:
-        plane_urdf = f.read()
-
     # tf to transform and prefix for each shelf in the world frame
     shelf_tf = {
         0: ((0, 0.75, 0), (0, 0, 1, 0), "id_0_"),
@@ -314,6 +310,9 @@ def load_boxes_to_base_link():
         tm_shelf.load_urdf(urdf_str)
         tm_shelf.add_transform(f"{prefix}base", "base_link", A2B)
 
+    plane_ = os.path.join(rsrc, "./ur5e/plane.urdf")
+    with open(plane_, "r") as f:
+        plane_urdf = f.read()
     tm_shelf.load_urdf(plane_urdf)
     tm_shelf.add_transform("plane", "base_link", np.eye(4))
 
@@ -491,7 +490,7 @@ if __name__ == "__main__":
     robot_kin = RobotUR5eKin()
     q = np.array([0, 0, 0, 0, 0, 0])
     FKeaik = robot_kin.solve_fk(q)
-    print("FK (end-effector pose):\n", FKeaik)
+    print(f"==>> FKeaik: \n{FKeaik}")
 
     # ax1 = robot_kin.plot_link_transforms(q)
     # plot_transform(ax=ax1, A2B=np.eye(4), s=1.5, name="WORLD")
@@ -552,8 +551,8 @@ if __name__ == "__main__":
     in_collision_spheres = spheres_in_base[col_states]
 
     nstore = 1000000
-    dataset = torch.empty(nstore, dof)
-    dataset_y = torch.empty(nstore, dtype=torch.bool)
+    dataset = torch.empty(nstore, dof).to(d)
+    dataset_y = torch.empty(nstore, dtype=torch.bool).to(d)
     batch = 100000
     it = nstore // batch
     for i in tqdm.tqdm(range(it)):
