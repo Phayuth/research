@@ -204,13 +204,15 @@ def find_altconfig_redudancy(Q1, Q2, Dist=None):
         Dist, return_index=True, return_inverse=True, return_counts=True
     )
     total_pairs = len(groups_num)
-    groups_id = list(range(total_pairs))
     group_pairs = [np.where(groups_matrix == k) for k in range(total_pairs)]
     group_pairs = [np.column_stack(gp) for gp in group_pairs]
     return group_pairs, groups_num, total_pairs, groups_matrix
 
 
 def find_altconfig_redudancy2(Q1, Q2, q1, q2):
+    """
+    Same version as find_altconfig_redudancy but fixing the wrong result
+    """
     diff1 = Q1 - q1
     diff2 = Q2 - q2
     unique_diffs = set()
@@ -225,10 +227,13 @@ def find_altconfig_redudancy2(Q1, Q2, q1, q2):
             delta = tuple((d2 - d1).round(5).tolist())
             group_id[i, j] = list(unique_diffs).index(delta)
 
-    dist = nan_euclidean_distances(Q1, Q2)
-    print(f"==>> dist: \n{dist}")
-    print(f"Unique deltas: {unique_diffs}")
-    print(f"Group ID matrix: \n{group_id}")
+    unq_val, idx, groups_matrix, groups_num = np.unique(
+        group_id, return_index=True, return_inverse=True, return_counts=True
+    )
+    total_pairs = len(groups_num)
+    group_pairs = [np.where(groups_matrix == k) for k in range(total_pairs)]
+    group_pairs = [np.column_stack(gp) for gp in group_pairs]
+    return group_pairs, groups_num, total_pairs, groups_matrix
 
 
 def transform_path_torus1(path, qs_new):
@@ -326,21 +331,42 @@ def _test_2d():
     Q11 = find_alt_config2(q11, l)
     Q22 = find_alt_config2(q22, l)
 
-    find_altconfig_redudancy2(Q1, Q2, q1, q2)
-    find_altconfig_redudancy2(Q11, Q22, q11, q22)
-
-    g_pair, g_num, total_pairs, g_matrix = find_altconfig_redudancy(Q1, Q2)
-    g_pair1, g_num1, total_pairs1, g_matrix1 = find_altconfig_redudancy(Q11, Q22)
     print("".center(50, "-"))
-    # print(f"==>> g_pair: \n{g_pair}")
-    # print(f"==>> g_num: \n{g_num}")
-    # print(f"==>> total_pairs: \n{total_pairs}")
-    # print(f"==>> g_matrix: \n{g_matrix}")
+    g_pair_c, g_num_c, total_pairs_c, g_matrix_c = find_altconfig_redudancy2(
+        Q1, Q2, q1, q2
+    )
+    print(f"==>> g_pair_c: \n{g_pair_c}")
+    print(f"==>> g_num_c: \n{g_num_c}")
+    print(f"==>> total_pairs_c: \n{total_pairs_c}")
+    print(f"==>> g_matrix_c: \n{g_matrix_c}")
+    print("".center(50, "-"))
+    g_pair, g_num, total_pairs, g_matrix = find_altconfig_redudancy(Q1, Q2)
+    print(f"==>> g_pair: \n{g_pair}")
+    print(f"==>> g_num: \n{g_num}")
+    print(f"==>> total_pairs: \n{total_pairs}")
+    print(f"==>> g_matrix: \n{g_matrix}")
+    print("".center(50, "-"))
+
+    print("".center(50, "-"))
+    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy2(
+        Q11, Q22, q11, q22
+    )
+    print(f"==>> g_pair_c1: \n{g_pair_c1}")
+    print(f"==>> g_num_c1: \n{g_num_c1}")
+    print(f"==>> total_pairs_c1: \n{total_pairs_c1}")
+    print(f"==>> g_matrix_c1: \n{g_matrix_c1}")
+    print("".center(50, "-"))
+    g_pair1, g_num1, total_pairs1, g_matrix1 = find_altconfig_redudancy(Q11, Q22)
+    print(f"==>> g_pair: \n{g_pair1}")
+    print(f"==>> g_num: \n{g_num1}")
+    print(f"==>> total_pairs: \n{total_pairs1}")
+    print(f"==>> g_matrix: \n{g_matrix1}")
+    print("".center(50, "-"))
 
     unique_colors_1 = plt.cm.get_cmap("tab10", total_pairs)
     unique_colors_2 = plt.cm.get_cmap("tab10", total_pairs1)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2)
     ax1.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
     ax1.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
     for gi, group in enumerate(g_pair):
@@ -359,8 +385,7 @@ def _test_2d():
     ax1.set_xlim(-2 * np.pi, 2 * np.pi)
     ax1.set_ylim(-2 * np.pi, 2 * np.pi)
     ax1.set_aspect("equal")
-    ax1.set_title("Converse Redundancy when delta is different")
-    ax1.legend()
+    ax1.set_title("Correct Redundancy when delta is different")
 
     ax2.plot(Q11[:, 0], Q11[:, 1], "bo", label="Q11")
     ax2.plot(Q22[:, 0], Q22[:, 1], "ro", label="Q22")
@@ -377,11 +402,47 @@ def _test_2d():
                     else None
                 ),
             )
+
+    # correct result
+    unique_colors_11 = plt.cm.get_cmap("tab10", total_pairs_c)
+    unique_colors_22 = plt.cm.get_cmap("tab10", total_pairs_c1)
+    ax3.plot(Q1[:, 0], Q1[:, 1], "bo", label="Q1")
+    ax3.plot(Q2[:, 0], Q2[:, 1], "ro", label="Q2")
+    for gi, group in enumerate(g_pair_c):
+        for i, j in group:
+            ax3.plot(
+                [Q1[i, 0], Q2[j, 0]],
+                [Q1[i, 1], Q2[j, 1]],
+                "--",
+                color=unique_colors_11(gi),
+                label=(
+                    f"Group {gi}"
+                    if i == group[0][0] and j == group[0][1]
+                    else None
+                ),
+            )
+
+    ax4.plot(Q11[:, 0], Q11[:, 1], "bo", label="Q11")
+    ax4.plot(Q22[:, 0], Q22[:, 1], "ro", label="Q22")
+    for gi, group in enumerate(g_pair_c1):
+        for i, j in group:
+            ax4.plot(
+                [Q11[i, 0], Q22[j, 0]],
+                [Q11[i, 1], Q22[j, 1]],
+                "--",
+                color=unique_colors_22(gi),
+                label=(
+                    f"Group {gi}"
+                    if i == group[0][0] and j == group[0][1]
+                    else None
+                ),
+            )
     ax2.set_xlim(-2 * np.pi, 2 * np.pi)
     ax2.set_ylim(-2 * np.pi, 2 * np.pi)
     ax2.set_aspect("equal")
     ax2.set_title("Wrong Lost of redundancy when delta is the same")
     ax2.legend()
+
     plt.show()
 
 

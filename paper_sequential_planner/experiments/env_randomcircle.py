@@ -83,8 +83,9 @@ if __name__ == "__main__":
     from paper_sequential_planner.scripts.rtsp_solver import RTSP, GLKHHelper
 
     # problem setup
-    num_clusters = 30
-    each_cluster = 8
+    num_clusters = 100
+    each_cluster = 64
+    dim = num_clusters * each_cluster
     cluster_radius = 0.2
     center_radius = 2.5
     Q_reachable, num_qreachable, cluster_centers = RandomCircleGen.generate(
@@ -109,16 +110,17 @@ if __name__ == "__main__":
     cspace_adjm_euc_min = RTSP.edgecost_eucl_distance(Q_reachable)
     print(f"==>> cspace_adjm_euc_min: \n{cspace_adjm_euc_min}")
 
+    filename = "problem_randomcircle" + "d" + str(dim) + "s" + str(num_clusters)
     GLKHHelper.write_glkh_fullmatrix_file(
-        os.path.join(GLKHHelper.problemdir, "problem_randomcircle.gtsp"),
+        os.path.join(GLKHHelper.problemdir, f"{filename}.gtsp"),
         cspace_adjm_euc_min,
         cluster_ttc,
     )
 
     tour = None
-    if os.path.exists(os.path.join(GLKHHelper.problemdir, "problem_randomcircle.tour")):
+    if os.path.exists(os.path.join(GLKHHelper.problemdir, f"{filename}.tour")):
         tour = GLKHHelper.read_tour_file(
-            os.path.join(GLKHHelper.problemdir, "problem_randomcircle.tour")
+            os.path.join(GLKHHelper.problemdir, f"{filename}.tour")
         )
         print(f"==>> tour: \n{tour}")
 

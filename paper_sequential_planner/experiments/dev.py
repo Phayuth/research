@@ -418,6 +418,7 @@ def GTSP_WRITE(
     )
     np.fill_diagonal(weight_mat, 0)
 
+    filename = filename + "d" + str(dimension) + "s" + str(ntask) + ".gtsp"
     with open(filename, "w") as f:
         f.write("NAME: rtsp_problem\n")
         f.write("TYPE: GTSP\n")
@@ -442,17 +443,11 @@ def GTSP_WRITE(
         f.write("EOF\n")
 
     print(f"==>> wrote GTSP file: {filename}")
-    print(
-        f"==>> dimension: {dimension}, sets: {ntask}, no_edge_weight: {no_edge_weight}"
-    )
+    print(f"==>> dim: {dimension}, sets: {ntask}, no_edge_w: {no_edge_weight}")
     return filename
 
 
-def GTSP_WRITE_INDEX_MAPPING():
-    pass
-
-
-def GTSP_LOAD():
+def GLKH_LOAD():
     """
     Load GLKH tour file and map flattened node IDs back to (task_id, node_id).
 
@@ -528,15 +523,91 @@ def GTSP_LOAD():
     }
 
 
-# GTSP_WRITE(
-#     cspace_eudist_estimated,
-#     filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev.gtsp"),
-# )
+def GLNS_LOAD():
+    """
+    Load GLNS solution file and map flattened node IDs back to (task_id, node_id).
 
-# GTSP_WRITE_INDEX_MAPPING()
+    Expected solution format includes a line like:
+      Tour             : [238, 227, ...]
+
+    Returns a dict with the same fields as GLKH_LOAD().
+    """
+    filename = os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_glns.tour")
+
+    tour_nodes = None
+    with open(filename, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or "Tour" not in line:
+                continue
+
+            if ":" in line:
+                line = line.split(":", 1)[1].strip()
+
+            if line.startswith("[") and line.endswith("]"):
+                payload = line[1:-1].strip()
+                if payload:
+                    tour_nodes = [
+                        int(token.strip()) for token in payload.split(",")
+                    ]
+                else:
+                    tour_nodes = []
+                break
+
+    if tour_nodes is None:
+        raise ValueError(f"No GLNS tour line found in {filename}")
+    if len(tour_nodes) == 0:
+        raise ValueError(f"No tour node IDs found in {filename}")
+
+    # GLNS already reports the tour as a Python-style list of 1-based vertices.
+    tour_global_0based = [n - 1 for n in tour_nodes]
+    if tour_global_0based[0] != tour_global_0based[-1]:
+        tour_global_0based.append(tour_global_0based[0])
+
+    ntask_local, nodes_per_task, _ = Qaik_rall.shape
+    dimension = ntask_local * nodes_per_task
+
+    for g in tour_global_0based:
+        if g < 0 or g >= dimension:
+            raise ValueError(
+                f"Tour node id {g} out of range [0, {dimension - 1}] for current Qaik_rall"
+            )
+
+    tour_task_node = []
+    tour_q = []
+    for g in tour_global_0based:
+        task_local = g // nodes_per_task
+        node_local = g % nodes_per_task
+        tour_task_node.append((task_local, node_local))
+        tour_q.append(Qaik_rall[task_local, node_local])
+    tour_q = np.asarray(tour_q)
+
+    task_local_to_original = np.full(ntask_local, -1, dtype=int)
+    if ntask_local > 1:
+        task_local_to_original[1:] = np.where(~X_isunr)[0]
+    tour_task_original = [task_local_to_original[t] for t, _ in tour_task_node]
+
+    print(f"==>> loaded GLNS solution file: {filename}")
+    print(f"==>> number of nodes in closed tour: {len(tour_global_0based)}")
+
+    return {
+        "tour_global_0based": tour_global_0based,
+        "tour_task_node": tour_task_node,
+        "tour_task_original": tour_task_original,
+        "tour_q": tour_q,
+    }
+
+
+# -------------------------------------
+GTSP_WRITE(
+    cspace_eudist_estimated,
+    filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev"),
+)
+
 
 tour_data = None
-tour_data = GTSP_LOAD()
+tour_data = GLKH_LOAD()
+# tour_data = GLNS_LOAD()
 qtour = tour_data["tour_q"]
 print(f"==>> qtour: \n{qtour}")
 
