@@ -162,7 +162,7 @@ def minimum_dist_torus(qa, qb):
     return np.linalg.norm(deltat)
 
 
-def find_altconfig_redudancy(Q1, Q2, Dist=None):
+def find_altconfig_redudancy_wrong(Q1, Q2, Dist=None):
     """
     When q1 and q2 delta distance of each joint have the same value
     I get the wrong result.
@@ -209,7 +209,7 @@ def find_altconfig_redudancy(Q1, Q2, Dist=None):
     return group_pairs, groups_num, total_pairs, groups_matrix
 
 
-def find_altconfig_redudancy2(Q1, Q2, q1, q2):
+def find_altconfig_redudancy(Q1, Q2, q1, q2):
     """
     Same version as find_altconfig_redudancy but fixing the wrong result
     """
@@ -332,7 +332,7 @@ def _test_2d():
     Q22 = find_alt_config2(q22, l)
 
     print("".center(50, "-"))
-    g_pair_c, g_num_c, total_pairs_c, g_matrix_c = find_altconfig_redudancy2(
+    g_pair_c, g_num_c, total_pairs_c, g_matrix_c = find_altconfig_redudancy(
         Q1, Q2, q1, q2
     )
     print(f"==>> g_pair_c: \n{g_pair_c}")
@@ -340,7 +340,7 @@ def _test_2d():
     print(f"==>> total_pairs_c: \n{total_pairs_c}")
     print(f"==>> g_matrix_c: \n{g_matrix_c}")
     print("".center(50, "-"))
-    g_pair, g_num, total_pairs, g_matrix = find_altconfig_redudancy(Q1, Q2)
+    g_pair, g_num, total_pairs, g_matrix = find_altconfig_redudancy_wrong(Q1, Q2)
     print(f"==>> g_pair: \n{g_pair}")
     print(f"==>> g_num: \n{g_num}")
     print(f"==>> total_pairs: \n{total_pairs}")
@@ -348,7 +348,7 @@ def _test_2d():
     print("".center(50, "-"))
 
     print("".center(50, "-"))
-    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy2(
+    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy(
         Q11, Q22, q11, q22
     )
     print(f"==>> g_pair_c1: \n{g_pair_c1}")
@@ -356,7 +356,9 @@ def _test_2d():
     print(f"==>> total_pairs_c1: \n{total_pairs_c1}")
     print(f"==>> g_matrix_c1: \n{g_matrix_c1}")
     print("".center(50, "-"))
-    g_pair1, g_num1, total_pairs1, g_matrix1 = find_altconfig_redudancy(Q11, Q22)
+    g_pair1, g_num1, total_pairs1, g_matrix1 = find_altconfig_redudancy_wrong(
+        Q11, Q22
+    )
     print(f"==>> g_pair: \n{g_pair1}")
     print(f"==>> g_num: \n{g_num1}")
     print(f"==>> total_pairs: \n{total_pairs1}")
@@ -386,6 +388,7 @@ def _test_2d():
     ax1.set_ylim(-2 * np.pi, 2 * np.pi)
     ax1.set_aspect("equal")
     ax1.set_title("Correct Redundancy when delta is different")
+    ax1.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
     ax2.plot(Q11[:, 0], Q11[:, 1], "bo", label="Q11")
     ax2.plot(Q22[:, 0], Q22[:, 1], "ro", label="Q22")
@@ -402,6 +405,11 @@ def _test_2d():
                     else None
                 ),
             )
+    ax2.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax2.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax2.set_aspect("equal")
+    ax2.set_title("Wrong Lost of redundancy when delta is the same")
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
     # correct result
     unique_colors_11 = plt.cm.get_cmap("tab10", total_pairs_c)
@@ -421,6 +429,11 @@ def _test_2d():
                     else None
                 ),
             )
+    ax3.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax3.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax3.set_aspect("equal")
+    ax3.set_title("Correct Redundancy when delta is different")
+    ax3.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
 
     ax4.plot(Q11[:, 0], Q11[:, 1], "bo", label="Q11")
     ax4.plot(Q22[:, 0], Q22[:, 1], "ro", label="Q22")
@@ -437,12 +450,11 @@ def _test_2d():
                     else None
                 ),
             )
-    ax2.set_xlim(-2 * np.pi, 2 * np.pi)
-    ax2.set_ylim(-2 * np.pi, 2 * np.pi)
-    ax2.set_aspect("equal")
-    ax2.set_title("Wrong Lost of redundancy when delta is the same")
-    ax2.legend()
-
+    ax4.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax4.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax4.set_aspect("equal")
+    ax4.set_title("Correct Redundancy when delta is the same")
+    ax4.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.show()
 
 
@@ -466,10 +478,10 @@ def _test_6d():
     print(f"==>> Q1all2pi.shape: \n{Q1all2pi.shape}")
     print(f"==>> Q2all2pi.shape: \n{Q2all2pi.shape}")
 
-    find_altconfig_redudancy2(Q1all2pi, Q2all2pi, q1, q2)
+    find_altconfig_redudancy(Q1all2pi, Q2all2pi, q1, q2)
 
-    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
-        Q1all2pi, Q2all2pi
+    groups_pair, groups_num, total_pairs, groups_matrix = (
+        find_altconfig_redudancy_wrong(Q1all2pi, Q2all2pi)
     )
     # print("groups_pair groups: \n", groups_pair)
     # print("Number of each group: \n", groups_num)
@@ -492,10 +504,10 @@ def _test_6d():
     print(f"==>> Q1physical.shape: \n{Q1physical.shape}")
     print(f"==>> Q2physical.shape: \n{Q2physical.shape}")
 
-    find_altconfig_redudancy2(Q1physical, Q2physical, q1, q2)
+    find_altconfig_redudancy(Q1physical, Q2physical, q1, q2)
 
-    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
-        Q1physical, Q2physical
+    groups_pair, groups_num, total_pairs, groups_matrix = (
+        find_altconfig_redudancy_wrong(Q1physical, Q2physical)
     )
     # print("groups_pair groups: \n", groups_pair)
     print("Number of each group: \n", groups_num)
@@ -519,10 +531,10 @@ def _test_6d():
     Q2ontable = find_alt_config2(q2, lontable)
     print(f"==>> Q2ontable.shape: \n{Q2ontable.shape}")
 
-    find_altconfig_redudancy2(Q1ontable, Q2ontable, q1, q2)
+    find_altconfig_redudancy(Q1ontable, Q2ontable, q1, q2)
 
-    groups_pair, groups_num, total_pairs, groups_matrix = find_altconfig_redudancy(
-        Q1ontable, Q2ontable
+    groups_pair, groups_num, total_pairs, groups_matrix = (
+        find_altconfig_redudancy_wrong(Q1ontable, Q2ontable)
     )
     # print("groups_pair groups: \n", groups_pair)
     print("Number of each group: \n", groups_num)

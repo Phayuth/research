@@ -6,7 +6,7 @@ from pytransform3d.transformations import plot_transform
 from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
-    find_altconfig_redudancy,
+    find_altconfig_redudancy_wrong,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
