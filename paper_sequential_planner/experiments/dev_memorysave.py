@@ -1,76 +1,29 @@
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-from pytransform3d.plot_utils import make_3d_axis
-from pytransform3d.transformations import plot_transform
-from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy_wrong,
+    find_altconfig_redudancy,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
-    poses_a,
-    poses_b,
-    poses_c,
     poses_d,
-    poses_epGH,
     H_to_X,
     xlist_to_Xlist,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
     se3_error_pairwise_distance,
+    task_space_correlation,
 )
 from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
-import pprint
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 robkin = RobotUR5eKin()
-
-
-def radius_neighbors(D, radius):
-    neighbors = []
-    for i in range(D.shape[0]):
-        idx = np.where(D[i] < radius)[0]
-        idx = idx[idx != i]  # remove self
-        neighbors.append(idx.tolist())
-    return neighbors
-
-
-def knn_from_distance(D, k=5):
-    # ignore self-distance by setting diagonal large
-    D = D.copy()
-    np.fill_diagonal(D, np.inf)
-
-    idx = np.argpartition(D, k, axis=1)[:, :k]  # (N, k)
-
-    # optional: sort neighbors by distance
-    row_idx = np.arange(D.shape[0])[:, None]
-    sorted_order = np.argsort(D[row_idx, idx], axis=1)
-    idx = idx[row_idx, sorted_order]
-
-    return idx.tolist()  # indices of k nearest per row
-
-
-def task_space_correlation():
-    nnr = 0.15
-    nnk = 5
-    nn_r = radius_neighbors(tspace_dist, radius=nnr)
-    nn_k = knn_from_distance(tspace_dist, k=nnk)
-    nn_union = []
-    for i in range(tspace_dist.shape[0]):
-        union_set = set(nn_r[i]) | set(nn_k[i])
-        nn_union.append(sorted(union_set))
-    nn_dist = []
-    for i in range(len(nn_union)):
-        dists = [tspace_dist[i, j].item() for j in nn_union[i]]
-        nn_dist.append(dists)
-
-    nn_count = [len(n) for n in nn_union]
-    return nn_union, nn_dist, nn_count, nn_r, nn_k
+scene = None  # for collision checking, not implemented yet
+planner = None  # placeholder for planner instance, not implemented yet
 
 
 def wspace_ik_extended(robot, Xtspace):
@@ -149,7 +102,6 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 # -----------------------------------------------------------------
 
 # to visit task ---------------------------------------------------
-# H = poses_epGH()
 H = poses_d()
 X = Hlist_to_Xlist(H)
 Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
@@ -180,37 +132,21 @@ print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 # -----------------------------------------------------------------
 
 
-nn_union, nn_dist, nn_count, nn_r, nn_k = task_space_correlation()
+tspace_coorrelation = task_space_correlation(tspace_dist)
+nn_union, nn_dist, nn_count, nn_r, nn_k = (
+    tspace_coorrelation["nn_union"],
+    tspace_coorrelation["nn_dist"],
+    tspace_coorrelation["nn_count"],
+    tspace_coorrelation["nn_r"],
+    tspace_coorrelation["nn_k"],
+)
 print(f"==>> nn_union: \n{nn_union}")
+print(f"==>> nn_dist: \n{nn_dist}")
 print(f"==>> nn_count: \n{nn_count}")
-
-t1 = 1
-t1nn = nn_union[t1]
-t2 = t1nn[0]
-print(f"==>> t1: \n{t1}")
-print(f"==>> t1nn: \n{t1nn}")
-print(f"==>> t2: \n{t2}")
-
-# Qt1 = Qaik_rall[t1]  # (n_ik*altcnf, dof)
-# Qt2 = Qaik_rall[t2]  # (n_ik*altcnf, dof)
-# print(f"==>> Qt1.shape: \n{Qt1.shape}")
-# print(f"==>> Qt1: \n{Qt1}")
-# print(f"==>> Qt2.shape: \n{Qt2.shape}")
-# print(f"==>> Qt2: \n{Qt2}")
-
-# CspaceDistT1T2 = nan_euclidean_distances(Qt1, Qt2)
-# print(f"==>> CspaceDistT1T2: \n{CspaceDistT1T2}")
-
-# CspaceDistT2T1 = nan_euclidean_distances(Qt2, Qt1)
-# print(f"==>> CspaceDistT2T1: \n{CspaceDistT2T1}")
-
-# C = np.isclose(CspaceDistT1T2, CspaceDistT2T1)  # should be symmetric
-# print(f"==>> C: \n{C}")
+print(f"==>> nn_r: \n{nn_r}")
+print(f"==>> nn_k: \n{nn_k}")
 
 
-# k-NN: directed graph (not mutual)
-# r-NN: undirected graph (mutual, under symmetric metric)
-# so we most likely dont find mutual k-NN
 nnn = {}
 for i in range(len(nn_union)):
     for j in nn_union[i]:
@@ -227,21 +163,22 @@ for i in range(len(nn_union)):
         edges_set.add((a, b))
 
 edges = sorted(edges_set)
+num_uniq_tedges = len(edges)
 print(f"==>> edges_unique (i<j): \n{edges}")
-
+print(f"==>> number of unique undirected edges: \n{num_uniq_tedges}")
 
 # assign a value to each undirected edge (here: task-space distance)
 edge_value = {(a, b): np.random.randint(10) for (a, b) in edges}
 print(f"==>> edge_value: \n{edge_value}")
 
 
-def query_edge_value(i, j, value_map):
+def query_edge_value(i, j, data):
     if j < i:
         a, b = (i, j) if i < j else (j, i)
-        return value_map.get((a, b), None)*1000
+        return data.get((a, b), None) * 1000
     else:
         a, b = (i, j) if i < j else (j, i)
-        return value_map.get((a, b), None)
+        return data.get((a, b), None)
 
 
 # example: query (I, J) and (J, I) give the same value
@@ -250,3 +187,35 @@ vij = query_edge_value(I, J, edge_value)
 vji = query_edge_value(J, I, edge_value)
 print(f"==>> query ({I}, {J}) = {vij}")
 print(f"==>> query ({J}, {I}) = {vji}")
+
+
+ntasks_rech, n_ik, dof = Qaik_rall.shape
+print(f"==>> ntasks_rech: \n{ntasks_rech}")
+print(f"==>> n_ik: \n{n_ik}")
+print(f"==>> dof: \n{dof}")
+
+
+cspace_eudist = np.empty((num_uniq_tedges, n_ik, n_ik))
+for idx, (i, j) in enumerate(edges):
+    Qt1 = Qaik_rall[i]  # (n_ik*altcnf, dof)
+    Qt2 = Qaik_rall[j]  # (n_ik*altcnf, dof)
+    CspaceDistT1T2 = nan_euclidean_distances(Qt1, Qt2)
+    cspace_eudist[idx] = CspaceDistT1T2
+print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
+
+
+def query_cspace_distance(i, j, cspace_eudist):
+    if j < i:
+        a, b = (i, j) if i < j else (j, i)
+        idx = edges.index((a, b))
+        return cspace_eudist[idx].T  # transpose to swap T1 and T2
+    else:
+        a, b = (i, j) if i < j else (j, i)
+        idx = edges.index((a, b))
+        return cspace_eudist[idx]
+
+
+CspaceDistIJ = query_cspace_distance(I, J, cspace_eudist)
+CspaceDistJI = query_cspace_distance(J, I, cspace_eudist)
+print(f"==>> CspaceDist({I}, {J}).shape: \n{CspaceDistIJ.shape}")
+print(f"==>> CspaceDist({J}, {I}).shape: \n{CspaceDistJI.shape}")

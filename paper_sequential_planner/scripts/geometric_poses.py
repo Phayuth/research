@@ -1,23 +1,14 @@
-from ctypes import util
 import os
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from sklearn.mixture import GaussianMixture
+from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
-
-# here we want to develop a cluster of task to reduce num edges
-# cluster cost metric is to be discussed later
-# we want to identify task clusters that are close, meaning it learn
-# they belong to the same topological region
-# also we want to identify task cluster to cluster as well
-# but moving from task to task is not straightforward, we need to consider the cspace connectivity as well
-# if we fail to identify the cluster, we will have to connect all task to all task, which is O(n^2) edges, which is not scalable
-# if cluster only found 1: meaning it is either the same topology or they dont correlate at all, we need to decide on that
 
 
 # Combined SE(3) metric (common practice) -----------------------------
@@ -147,7 +138,95 @@ def se3_error_log(H1, H2):
     return xi, np.linalg.norm(xi)
 
 
-# cluster algorithm ----------------------------------------------------------
+# *taskspace correlation ------------------------------------------------------
+# k-NN: directed graph (not mutual)
+# r-NN: undirected graph (mutual, under symmetric metric)
+# so we most likely dont find mutual k-NN
+def rnn_from_distance(D, radius):
+    neighbors = []
+    for i in range(D.shape[0]):
+        idx = np.where(D[i] < radius)[0]
+        idx = idx[idx != i]  # remove self
+        neighbors.append(idx.tolist())
+    return neighbors
+
+
+def knn_from_distance(D, k):
+    # ignore self-distance by setting diagonal large
+    D = D.copy()
+    np.fill_diagonal(D, np.inf)
+
+    idx = np.argpartition(D, k, axis=1)[:, :k]  # (N, k)
+
+    # optional: sort neighbors by distance
+    row_idx = np.arange(D.shape[0])[:, None]
+    sorted_order = np.argsort(D[row_idx, idx], axis=1)
+    idx = idx[row_idx, sorted_order]
+
+    return idx.tolist()  # indices of k nearest per row
+
+
+def task_space_correlation(tspace_dist, nnr=0.15, nnk=5):
+    nn_r = rnn_from_distance(tspace_dist, radius=nnr)
+    nn_k = knn_from_distance(tspace_dist, k=nnk)
+    nn_union = []
+    for i in range(tspace_dist.shape[0]):
+        union_set = set(nn_r[i]) | set(nn_k[i])
+        nn_union.append(sorted(union_set))
+    nn_dist = []
+    for i in range(len(nn_union)):
+        dists = [tspace_dist[i, j].item() for j in nn_union[i]]
+        nn_dist.append(dists)
+
+    nn_count = [len(n) for n in nn_union]
+
+    tspace_coorrelation = {
+        "nn_union": nn_union,
+        "nn_dist": nn_dist,
+        "nn_count": nn_count,
+        "nn_r": nn_r,
+        "nn_k": nn_k,
+    }
+    return tspace_coorrelation
+
+
+def task_space_correlation_mapping(tspace_coorrelation):
+    nn_union, nn_dist, nn_count, nn_r, nn_k = (
+        tspace_coorrelation["nn_union"],
+        tspace_coorrelation["nn_dist"],
+        tspace_coorrelation["nn_count"],
+        tspace_coorrelation["nn_r"],
+        tspace_coorrelation["nn_k"],
+    )
+
+    task_to_nn_mapping = {}
+    for i in range(len(nn_union)):
+        for j in nn_union[i]:
+            task_to_nn_mapping[i] = task_to_nn_mapping.get(i, []) + [j]
+
+    # unique undirected edges in canonical order: (i, j) with i < j
+    task_to_nn_unique = set()
+    for i in range(len(nn_union)):
+        for j in nn_union[i]:
+            if i == j:
+                continue
+            a, b = (i, j) if i < j else (j, i)
+            task_to_nn_unique.add((a, b))
+
+    task_to_nn_unique = sorted(task_to_nn_unique)
+
+    tspace_mapping = {
+        "task_to_nn_mapping": task_to_nn_mapping,
+        "task_to_nn_unique": task_to_nn_unique,
+    }
+    return tspace_mapping
+
+
+def query_tspace_edges_mapping(i, j, tspace_mapping):
+    pass
+
+
+# *cluster algorithm ----------------------------------------------------------
 def dbscan_clustering(Hse3logerr):
 
     def _estimate_eps(X, k=10):
@@ -189,29 +268,24 @@ def gmm_bic_clustering(Hse3logerr):
     return labels, cluster_id, num_clusters
 
 
-# Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
 # # Normalize so translation/rotation are comparable:
+# Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
 # Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
 # Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
-# print(f"==>> Hse3logerr: \n{Hse3logerr}")
-
 # mode = ["DBSCAN", "GMM_BIC"][0]
 # if mode == "DBSCAN":
 #     labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
 # if mode == "GMM_BIC":
 #     labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
-
-# print(f"==>> labels: \n{labels}")
-# print(f"==>> cluster_id: \n{cluster_id}")
-# print(f"==>> num_clusters: \n{num_clusters}")
-
 # Hmeans = {i: None for i in cluster_id if i != -1}
 # for i in Hmeans:
 #     Hmeans[i] = se3_mean(Hlist[labels == i])
 
 
-# find mean of SE(3) poses in a cluster ----------------------------------
 def se3_mean(Hs, max_iter=20):
+    """
+    Determine the mean pose of SE(3) from cluster of Hs
+    """
     H_mean = Hs[0].copy()
 
     for _ in range(max_iter):
@@ -247,18 +321,14 @@ def se3_mean(Hs, max_iter=20):
     return H_mean
 
 
-# pose format conversion ------------------------------------------------------
+# *pose format conversion ------------------------------------------------------
+# x = (x,y,z) # shape (3,)
 # X = (x,y,z, qx, qy, qz, qw) # shape (7,)
 # Xlist = [(x,y,z, qx, qy, qz, qw), ...] # shape (N,7)
 # H = [R|t] in SE(3) # shape (4,4)
 # Hlist = [H1, H2, ...] # shape (N,4,4)
 
 
-# testing
-# Hlist = poses_a()
-# Xlist = Hlist_to_Xlist(Hlist)
-# Hlistrecover = Xlist_to_Hlist(Xlist)
-# t = np.allclose(Hlist, Hlistrecover, atol=1e-6)
 def H_to_X(H):
     t = H[:3, 3]
     R_mat = H[:3, :3]
@@ -291,11 +361,13 @@ def Hlist_to_Xlist(Hlist):
     return np.array(Xlist)
 
 
-# Repair pose format -----------------------------------------------------------
-# due to some robot dofs is not 6dof, we concat the pose with some dummy values
-# X = (x,y,z, qx, qy, qz, qw) # shape (7,)
-# H = [R|t] in SE(3) # shape (4,4)
 def xlist_to_Xlist(xlist):
+    """
+    Repair pose format
+    due to some robot dofs is not 6dof, we concat the pose with some dummy values
+    X = (x,y,z, qx, qy, qz, qw) # shape (7,)
+    H = [R|t] in SE(3) # shape (4,4)
+    """
     if xlist.shape[1] == 2:  # 2DOF robot - (ntasks, 2), z=0, quat=(0,0,0,1)
         ntasks = xlist.shape[0]
         dummy = np.array([[0.0, 0.0, 0.0, 0.0, 1.0]] * ntasks)
@@ -308,7 +380,76 @@ def xlist_to_Xlist(xlist):
         return Xlist
 
 
-# generate synthetic poses ----------------------------------------------
+# *cspace --------------------------------------------------------------------
+def brute_cspace_distance(Q):
+    """
+    Very easy but memory-heavy way to compute pairwise cspace distance by IK pairing
+    Q is (ntasks_rech, n_ik*altcnf, dof)
+
+    Return shape (ntasks_rech, ntasks_rech, n_ik*altcnf, n_ik*altcnf)
+    accessing same id will give us dist to itself, which we dont need.
+    always access different task id to get task-to-task distance, which we need
+    """
+    ntasks_rech, n_ik, dof = Q.shape
+    _Qflat = Q.reshape(ntasks_rech * n_ik, dof)
+    _cspace_eudist_flat = nan_euclidean_distances(_Qflat, _Qflat)
+    cspace_eudist = _cspace_eudist_flat.reshape(
+        ntasks_rech, n_ik, ntasks_rech, n_ik
+    )
+    cspace_eudist = cspace_eudist.transpose(0, 2, 1, 3)
+    return cspace_eudist
+
+
+def brute_cspace_min_distance(cspace_eudist):
+    """ """
+    _cspace_dist_inf = np.where(np.isnan(cspace_eudist), np.inf, cspace_eudist)
+    cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
+    cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
+
+    min_flat_idx = np.argmin(
+        _cspace_dist_inf.reshape(
+            _cspace_dist_inf.shape[0], _cspace_dist_inf.shape[1], -1
+        ),
+        axis=2,
+    )
+    min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
+    cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
+
+    cspace_task_min_values = {
+        "cspace_task_min": cspace_task_min,
+        "cspace_task_min_idx": cspace_task_min_idx,
+    }
+    return cspace_task_min_values
+
+
+def task_to_task_configuration_interp(Qaik_rall, nintp=10):
+    """
+    Vectorized Interpolate between all pairs of task-reachable configurations,
+    and set to nan if either of the pair is invalid.
+    final shape (ntasks_rech, ntasks_rech, n_ik, n_ik, nintp, dof)
+
+    [This memory-heavy interpolation, only be used for small number of tasks]
+    Ex:
+    tt_cspace_interp = task_to_task_configuration_interp(Qaik_rall, nintp=10)
+    t0t1q0q0 = tt_cspace_interp[0, 1, 0, 0]
+    give us interp bet/ first IK of task0 to first IK of task1.
+    task id should not be the same
+    """
+    ntasks_rech, n_ik, dof = Qaik_rall.shape
+    Q1 = Qaik_rall[:, None, :, None, None, :]  # (ntasks_rech,1,n_ik,1,1,dof)
+    Q2 = Qaik_rall[None, :, None, :, None, :]  # (1,ntasks_rech,1,n_ik,1,dof)
+    tau = np.linspace(0.0, 1.0, nintp, dtype=Qaik_rall.dtype)
+    tau = tau[None, None, None, None, :, None]  # (1,1,1,1,nintp,1)
+    # (ntasks_rech,ntasks_rech,n_ik,n_ik,nintp,dof)
+    interp = (1.0 - tau) * Q1 + tau * Q2
+    invalid_cfg = np.isnan(Qaik_rall).all(axis=-1)  # (ntasks_rech,n_ik)
+    # (ntasks_rech,ntasks_rech,n_ik,n_ik)
+    invalid_pair = invalid_cfg[:, None, :, None] | invalid_cfg[None, :, None, :]
+    interp = np.where(invalid_pair[..., None, None], np.nan, interp)
+    return interp
+
+
+# *generate synthetic poses ----------------------------------------------
 def poses_a():
     y = np.linspace(-0.5, 0.5, 5)
     z = np.linspace(-0.5, 0.5, 5)
@@ -421,51 +562,51 @@ def poses_d():
     return Hlist
 
 
-def transform_lookat(at, eye, up):
-    """Copied from OpenRAVE's transformLookat function in "geometry.h".
-
-    Returns an end effector transform matrix that looks along a ray with a desired up vector (corresponding to y axis of the end effector).
-    If up vector is parallel to ray, tries to use +y or +x direction instead.
-    If ray length is zero, chooses ray to be +z direction by default.
-
-    @param at the point space to look at, the camera will rotation and zoom around this point
-    @param eye the position of the camera in space
-    @param up desired end effector y axis direction
-    @return end effector transform matrix
-    """
-    vdir = np.array(at) - eye
-    if np.linalg.norm(vdir) > 1e-6:
-        vdir *= 1 / np.linalg.norm(vdir)
-    else:
-        vdir = [0.0, 0.0, 1.0]
-
-    vup = np.array(up) - vdir * np.dot(up, vdir)
-    if np.linalg.norm(vup) < 1e-8:
-        vup = [0.0, 1.0, 0.0]
-        vup -= vdir * np.dot(vdir, vup)
-        if np.linalg.norm(vup) < 1e-8:
-            vup = [1.0, 0.0, 0.0]
-            vup -= vdir * np.dot(vdir, vup)
-
-    vup *= 1 / np.linalg.norm(vup)
-    right = np.cross(vup, vdir)
-
-    rot_mat = np.transpose([right, vup, vdir])
-    T = [
-        list(rot_mat[0]) + [eye[0]],
-        list(rot_mat[1]) + [eye[1]],
-        list(rot_mat[2]) + [eye[2]],
-        [0, 0, 0, 1],
-    ]
-    return np.array(T)
-
-
 def poses_epGH():
     """Generates discrete set of poses to form the task space.
 
     Generates discrete set of poses, manually defined here as uniform grid facing into the world -z direction with 45 deg offsets.
 
     """
+
+    def transform_lookat(at, eye, up):
+        """Copied from OpenRAVE's transformLookat function in "geometry.h".
+
+        Returns an end effector transform matrix that looks along a ray with a desired up vector (corresponding to y axis of the end effector).
+        If up vector is parallel to ray, tries to use +y or +x direction instead.
+        If ray length is zero, chooses ray to be +z direction by default.
+
+        @param at the point space to look at, the camera will rotation and zoom around this point
+        @param eye the position of the camera in space
+        @param up desired end effector y axis direction
+        @return end effector transform matrix
+        """
+        vdir = np.array(at) - eye
+        if np.linalg.norm(vdir) > 1e-6:
+            vdir *= 1 / np.linalg.norm(vdir)
+        else:
+            vdir = [0.0, 0.0, 1.0]
+
+        vup = np.array(up) - vdir * np.dot(up, vdir)
+        if np.linalg.norm(vup) < 1e-8:
+            vup = [0.0, 1.0, 0.0]
+            vup -= vdir * np.dot(vdir, vup)
+            if np.linalg.norm(vup) < 1e-8:
+                vup = [1.0, 0.0, 0.0]
+                vup -= vdir * np.dot(vdir, vup)
+
+        vup *= 1 / np.linalg.norm(vup)
+        right = np.cross(vup, vdir)
+
+        rot_mat = np.transpose([right, vup, vdir])
+        T = [
+            list(rot_mat[0]) + [eye[0]],
+            list(rot_mat[1]) + [eye[1]],
+            list(rot_mat[2]) + [eye[2]],
+            [0, 0, 0, 1],
+        ]
+        return np.array(T)
+
     poses = []
     ats = [
         [0.0, 0.0, -1.0],
@@ -497,17 +638,6 @@ def poses_epGH():
 
 if __name__ == "__main__":
     import trimesh
-    import matplotlib.pyplot as plt
-    from pytransform3d.transformations import plot_transform
-    from pytransform3d.plot_utils import make_3d_axis
-
-    H1 = np.eye(4)
-    H1[0:3, 3] = [1.0, 0.0, 0.0]
-    H2 = np.eye(4)
-    H2[0:3, 3] = [1.0, 0.0, 0.1]
-    print("Split error:", se3_error_split(H1, H2))
-    print("Total error:", se3_error(H1, H2, w_rot=10.0))
-    print("Log error:", se3_error_log(H1, H2))
 
     # Hlist = poses_a()
     Hlist = poses_b()

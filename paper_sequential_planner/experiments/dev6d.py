@@ -1,25 +1,18 @@
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-from pytransform3d.plot_utils import make_3d_axis
-from pytransform3d.transformations import plot_transform
-from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy_wrong,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
-    poses_a,
-    poses_b,
-    poses_c,
     poses_d,
-    poses_epGH,
     H_to_X,
     xlist_to_Xlist,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
     se3_error_pairwise_distance,
+    task_space_correlation,
 )
 from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
 
@@ -28,6 +21,8 @@ np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 robkin = RobotUR5eKin()
+scene = None  # for collision checking, not implemented yet
+planner = None  # placeholder for planner instance, not implemented yet
 
 
 def sample_reachable_wspace(ntasks):
@@ -162,72 +157,14 @@ print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
 # -----------------------------------------------------------------
 
 
-# maybe not useful yet
-# task-to-task distance by best IK pairing -> (ntasks_rech, ntasks_rech) -------
-_cspace_dist_inf = np.where(np.isnan(cspace_eudist), np.inf, cspace_eudist)
-cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
-cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
-print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
-# -----------------------------------------------------------------
-
-
-# task-to-task distance by best IK pairing -> shape (ntasks_rech, ntasks_rech, 2,)
-min_flat_idx = np.argmin(
-    _cspace_dist_inf.reshape(
-        _cspace_dist_inf.shape[0], _cspace_dist_inf.shape[1], -1
-    ),
-    axis=2,
+tspace_coorrelation = task_space_correlation(tspace_dist)
+nn_union, nn_dist, nn_count, nn_r, nn_k = (
+    tspace_coorrelation["nn_union"],
+    tspace_coorrelation["nn_dist"],
+    tspace_coorrelation["nn_count"],
+    tspace_coorrelation["nn_r"],
+    tspace_coorrelation["nn_k"],
 )
-min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
-cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
-print(f"==>> cspace_task_min_idx.shape: \n{cspace_task_min_idx.shape}")
-# -----------------------------------------------------------------
-
-
-def radius_neighbors(D, radius):
-    neighbors = []
-    for i in range(D.shape[0]):
-        idx = np.where(D[i] < radius)[0]
-        idx = idx[idx != i]  # remove self
-        neighbors.append(idx.tolist())
-    return neighbors
-
-
-def knn_from_distance(D, k=5):
-    # ignore self-distance by setting diagonal large
-    D = D.copy()
-    np.fill_diagonal(D, np.inf)
-
-    idx = np.argpartition(D, k, axis=1)[:, :k]  # (N, k)
-
-    # optional: sort neighbors by distance
-    row_idx = np.arange(D.shape[0])[:, None]
-    sorted_order = np.argsort(D[row_idx, idx], axis=1)
-    idx = idx[row_idx, sorted_order]
-
-    return idx.tolist()  # indices of k nearest per row
-
-
-# task space neighbors by radius and knn, then union them ---------
-def task_space_correlation():
-    nnr = 0.5
-    nnk = 5
-    nn_r = radius_neighbors(tspace_dist, radius=nnr)
-    nn_k = knn_from_distance(tspace_dist, k=nnk)
-    nn_union = []
-    for i in range(tspace_dist.shape[0]):
-        union_set = set(nn_r[i]) | set(nn_k[i])
-        nn_union.append(sorted(union_set))
-    nn_dist = []
-    for i in range(len(nn_union)):
-        dists = [tspace_dist[i, j].item() for j in nn_union[i]]
-        nn_dist.append(dists)
-
-    nn_count = [len(n) for n in nn_union]
-    return nn_union, nn_dist, nn_count, nn_r, nn_k
-
-
-nn_union, nn_dist, nn_count, nn_r, nn_k = task_space_correlation()
 print(f"==>> nn_count: \n{nn_count}")
 # -----------------------------------------------------------------
 
@@ -515,10 +452,10 @@ def GTSP_LOAD():
     }
 
 
-# GTSP_WRITE(
-#     cspace_eudist_estimated,
-#     filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.gtsp"),
-# )
+GTSP_WRITE(
+    cspace_eudist_estimated,
+    filename=os.path.join(rsrc, "GLKH-1.1", "PROBLEMS", "problem_dev_6d.gtsp"),
+)
 
 # GTSP_WRITE_INDEX_MAPPING()
 
@@ -553,4 +490,8 @@ def visualize():
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from pytransform3d.plot_utils import make_3d_axis
+    from pytransform3d.transformations import plot_transform
+
     visualize()

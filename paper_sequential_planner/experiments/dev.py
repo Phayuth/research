@@ -16,11 +16,12 @@ from paper_sequential_planner.scripts.geometric_torus import (
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
-    Hlist_to_Xlist,
     Xlist_to_Hlist,
     xlist_to_Xlist,
-    se3_error,
     se3_error_pairwise_distance,
+    task_space_correlation,
+    brute_cspace_distance,
+    brute_cspace_min_distance,
 )
 from paper_sequential_planner.scripts.geometric_ellipse import *
 
@@ -72,9 +73,6 @@ X_r = X[~X_isunr]  # (ntasks_rech, 2)
 Qaik_valid_r = Qaik_valid[~X_isunr]  # (ntasks_rech, n_ik * altcnf, 1)
 Qaik_r = Qaik[~X_isunr]  # (ntasks_rech, n_ik * altcnf, dof)
 Qaik_r = np.where(Qaik_valid_r == 1, Qaik_r, np.nan)  # set value to nan if invalid
-# -----------------------------------------------------------------
-
-
 # concate Xinit, qinit ------------------------------------------------
 X_rall = np.vstack((Xinit, X_r))  # (ntasks+1, 2) & init
 qinit_all = np.full((1, Qaik_r.shape[1], Qaik_r.shape[2]), np.nan)
@@ -85,118 +83,34 @@ print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 # -----------------------------------------------------------------
 
 
-# taskspace distance -----------------------------------------------
+# distance -----------------------------------------------
 X_r_full = xlist_to_Xlist(X_rall)  # (ntasks_rech, 6)
 H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
 tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
-# -----------------------------------------------------------------
 
-
-# cspace distance by IK pairing------------------------------------
-# shape (ntasks_rech, ntasks_rech, n_ik * altcnf, n_ik * altcnf)
-# accessing same id will give us dist to itself, which we dont need.
-# always access different task id to get task-to-task distance, which we need
-ntasks_rech, n_ik, dof = Qaik_rall.shape
-_Qflat = Qaik_rall.reshape(ntasks_rech * n_ik, dof)
-_cspace_eudist_flat = nan_euclidean_distances(_Qflat, _Qflat)
-cspace_eudist = _cspace_eudist_flat.reshape(ntasks_rech, n_ik, ntasks_rech, n_ik)
-cspace_eudist = cspace_eudist.transpose(0, 2, 1, 3)
+cspace_eudist = brute_cspace_distance(Qaik_rall)
 print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
-# -----------------------------------------------------------------
 
-
-# maybe not useful yet
-# task-to-task distance by best IK pairing -> (ntasks_rech, ntasks_rech) -------
-_cspace_dist_inf = np.where(np.isnan(cspace_eudist), np.inf, cspace_eudist)
-cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
-cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
-print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
-# -----------------------------------------------------------------
-
-
-# task-to-task distance by best IK pairing -> shape (ntasks_rech, ntasks_rech, 2,)
-min_flat_idx = np.argmin(
-    _cspace_dist_inf.reshape(
-        _cspace_dist_inf.shape[0], _cspace_dist_inf.shape[1], -1
-    ),
-    axis=2,
+cspace_task_min_values = brute_cspace_min_distance(cspace_eudist)
+cspace_task_min, cspace_task_min_idx = (
+    cspace_task_min_values["cspace_task_min"],
+    cspace_task_min_values["cspace_task_min_idx"],
 )
-min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
-cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
+print(f"==>> cspace_task_min.shape: \n{cspace_task_min.shape}")
 print(f"==>> cspace_task_min_idx.shape: \n{cspace_task_min_idx.shape}")
 # -----------------------------------------------------------------
 
 
-def task_to_task_configuration_interp(Qaik_rall, nintp=10):
-    """
-    Interpolate between all pairs of task-reachable configurations,
-    and set to nan if either of the pair is invalid.
-    final shape (ntasks_rech, ntasks_rech, n_ik, n_ik, nintp, dof)
-    Ex:
-    tt_cspace_interp = task_to_task_configuration_interp(Qaik_rall, nintp=10)
-    t0t1q0q0 = tt_cspace_interp[0, 1, 0, 0]
-    give us interp bet/ first IK of task0 to first IK of task1.
-    task id should not be the same
-    """
-    ntasks_rech, n_ik, dof = Qaik_rall.shape
-    Q1 = Qaik_rall[:, None, :, None, None, :]  # (ntasks_rech,1,n_ik,1,1,dof)
-    Q2 = Qaik_rall[None, :, None, :, None, :]  # (1,ntasks_rech,1,n_ik,1,dof)
-    tau = np.linspace(0.0, 1.0, nintp, dtype=Qaik_rall.dtype)
-    tau = tau[None, None, None, None, :, None]  # (1,1,1,1,nintp,1)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik,nintp,dof)
-    interp = (1.0 - tau) * Q1 + tau * Q2
-    invalid_cfg = np.isnan(Qaik_rall).all(axis=-1)  # (ntasks_rech,n_ik)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik)
-    invalid_pair = invalid_cfg[:, None, :, None] | invalid_cfg[None, :, None, :]
-    interp = np.where(invalid_pair[..., None, None], np.nan, interp)
-    return interp
-
-
-def radius_neighbors(D, radius):
-    neighbors = []
-    for i in range(D.shape[0]):
-        idx = np.where(D[i] < radius)[0]
-        idx = idx[idx != i]  # remove self
-        neighbors.append(idx.tolist())
-    return neighbors
-
-
-def knn_from_distance(D, k=5):
-    # ignore self-distance by setting diagonal large
-    D = D.copy()
-    np.fill_diagonal(D, np.inf)
-
-    idx = np.argpartition(D, k, axis=1)[:, :k]  # (N, k)
-
-    # optional: sort neighbors by distance
-    row_idx = np.arange(D.shape[0])[:, None]
-    sorted_order = np.argsort(D[row_idx, idx], axis=1)
-    idx = idx[row_idx, sorted_order]
-
-    return idx.tolist()  # indices of k nearest per row
-
-
 # task space neighbors by radius and knn, then union them ---------
-def task_space_correlation():
-    nnr = 0.5
-    nnk = 5
-    nn_r = radius_neighbors(tspace_dist, radius=nnr)
-    nn_k = knn_from_distance(tspace_dist, k=nnk)
-    nn_union = []
-    for i in range(tspace_dist.shape[0]):
-        union_set = set(nn_r[i]) | set(nn_k[i])
-        nn_union.append(sorted(union_set))
-    nn_dist = []
-    for i in range(len(nn_union)):
-        dists = [tspace_dist[i, j].item() for j in nn_union[i]]
-        nn_dist.append(dists)
-
-    nn_count = [len(n) for n in nn_union]
-    return nn_union, nn_dist, nn_count, nn_r, nn_k
-
-
-nn_union, nn_dist, nn_count, nn_r, nn_k = task_space_correlation()
+tspace_coorrelation = task_space_correlation(tspace_dist)
+nn_union, nn_dist, nn_count, nn_r, nn_k = (
+    tspace_coorrelation["nn_union"],
+    tspace_coorrelation["nn_dist"],
+    tspace_coorrelation["nn_count"],
+    tspace_coorrelation["nn_r"],
+    tspace_coorrelation["nn_k"],
+)
 print(f"==>> nn_count: \n{nn_count}")
 # -----------------------------------------------------------------
 
@@ -209,18 +123,6 @@ for i in range(tspace_dist.shape[0]):
         task_to_task_adj[i, j] = True
         task_to_task_adj[j, i] = True  # undirected
 print(f"==>> task_to_task_adj.shape: \n{task_to_task_adj.shape}")
-
-
-# from this adjmat, we eliminate the task-to-task q pairs
-# not need since i can just use the task-to-task adjmat
-def task_to_task_cspace_adj():
-    c_to_c_adj = np.zeros_like(cspace_eudist, dtype=bool)
-    for i in range(task_to_task_adj.shape[0]):
-        for j in range(i + 1, task_to_task_adj.shape[0]):
-            if task_to_task_adj[i, j]:
-                c_to_c_adj[i, j] = True
-                c_to_c_adj[j, i] = True  # undirected
-    return c_to_c_adj
 
 
 # unique groups of IK ----------------------------------------------
