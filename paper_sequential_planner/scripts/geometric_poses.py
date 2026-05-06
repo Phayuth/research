@@ -214,10 +214,12 @@ def task_space_correlation_mapping(tspace_coorrelation):
             task_to_nn_unique.add((a, b))
 
     task_to_nn_unique = sorted(task_to_nn_unique)
+    task_to_nn_unique_len = len(task_to_nn_unique)
 
     tspace_mapping = {
         "task_to_nn_mapping": task_to_nn_mapping,
         "task_to_nn_unique": task_to_nn_unique,
+        "task_to_nn_unique_len": task_to_nn_unique_len,
     }
     return tspace_mapping
 

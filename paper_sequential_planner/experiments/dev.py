@@ -159,26 +159,13 @@ print(f"==>> group_mat.shape: \n{group_mat.shape}")
 # -----------------------------------------------------------------
 
 
-t1 = 1
-t1nn = nn_union[t1]
-t2 = t1nn[0]
-print(f"==>> t1: \n{t1}")
-print(f"==>> t1nn: \n{t1nn}")
-print(f"==>> t2: \n{t2}")
-
-# thinking of doing isometry distance
+# constants for GTSP
 epslGH = 1.0
 eta_collision = 0.1  # resolution of collision checking
-# t1_nnnn = nn_dist[t1]
-# print(f"==>> t1_nnnn: \n{t1_nnnn}")
-# t1nntn = t1_nnnn[0]
-# print(f"==>> t1nntn: \n{t1nntn}")
-# ts_cs_diff = t1cpc - t1nntn
-# print(f"==>> ts_cs_diff: \n{ts_cs_diff}")
+max_allow_cspace_dist = 2 * np.pi  # max distance in cspace
 
 
 # bulk processing for all task pairs --------------------------------------
-max_allow_cspace_dist = 2 * np.pi
 cspace_eudist_filtermax = cspace_eudist <= max_allow_cspace_dist
 cspace_eudist_filtered = np.where(cspace_eudist_filtermax, cspace_eudist, np.nan)
 t_to_t_adj_proc = np.zeros_like(task_to_task_adj, dtype=bool)  # track processed
@@ -520,6 +507,14 @@ for q in qtour:
 Xtour = np.array(Xtour)
 
 # raise
+
+
+t1 = 1
+t1nn = nn_union[t1]
+t2 = t1nn[0]
+print(f"==>> t1: \n{t1}")
+print(f"==>> t1nn: \n{t1nn}")
+print(f"==>> t2: \n{t2}")
 
 
 def visualize():
