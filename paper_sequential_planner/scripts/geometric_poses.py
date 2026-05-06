@@ -451,6 +451,47 @@ def task_to_task_configuration_interp(Qaik_rall, nintp=10):
     return interp
 
 
+def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
+    """
+    From paper CASE2022
+    An Efficient Approach for solving RTSP Considering Spatial Constraint
+
+    Filter candidate configurations that are too far from initial configuration
+    Weighted euclidean distance to initial config. now i dont have the weight.
+    thresh_mult is a hyperparam to control how aggressive the filtering is,
+    between 0 and 1 of min to max ratio value.
+    """
+    ntasks_rech, n_ik, dof = Qaik_r.shape
+    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
+    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
+    sim_val = 1.0 / (dist + 0.001)  # add small value to avoid div by zero
+    optimal_val = sim_val / np.nansum(sim_val)  # use nansum to ignore nan
+    optimal_val_min = np.nanmin(optimal_val)
+    optimal_val_max = np.nanmax(optimal_val)
+    threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
+    get_Qind_inthreshold = optimal_val >= threshold
+    Qin_threshold = Qaik_r_flat[get_Qind_inthreshold.flatten()]
+    selected_rate = np.sum(get_Qind_inthreshold) / get_Qind_inthreshold.size
+    print(f"min: {optimal_val_min}, max: {optimal_val_max}, thresh: {threshold}")
+    print(f"==>> selected_rate: \n{selected_rate}")
+    return Qin_threshold
+
+
+def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
+    """
+    Filter candidate configurations that are too far from initial configuration
+    using a simple radius threshold in cspace.
+    """
+    ntasks_rech, n_ik, dof = Qaik_r.shape
+    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
+    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
+    get_Qind_inradius = dist.flatten() <= radius
+    Qin_radius = Qaik_r_flat[get_Qind_inradius]
+    selected_rate = np.sum(get_Qind_inradius) / get_Qind_inradius.size
+    print(f"==>> selected_rate: \n{selected_rate}")
+    return Qin_radius
+
+
 # *generate synthetic poses ----------------------------------------------
 def poses_a():
     y = np.linspace(-0.5, 0.5, 5)

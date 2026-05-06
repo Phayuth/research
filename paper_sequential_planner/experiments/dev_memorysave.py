@@ -4,6 +4,7 @@ from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy_wrong,
     find_altconfig_redudancy,
+    wrap_to_pi,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
@@ -15,6 +16,8 @@ from paper_sequential_planner.scripts.geometric_poses import (
     se3_error_pairwise_distance,
     task_space_correlation,
     task_space_correlation_mapping,
+    filter_cspace_candidate_similar_to_qinit,
+    filter_cspace_candidate_radius_to_qinit,
 )
 from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
 
@@ -25,6 +28,11 @@ rsrc = os.environ["RSRC_DIR"]
 robkin = RobotUR5eKin()
 scene = None  # for collision checking, not implemented yet
 planner = None  # placeholder for planner instance, not implemented yet
+
+alt_num = 32
+unique_sols = 8
+num_sols = unique_sols * alt_num
+dof = 6
 
 
 def wspace_ik_extended(robot, Xtspace):
@@ -44,10 +52,6 @@ def wspace_ik_extended(robot, Xtspace):
     # limit6[1, 1] = 0
 
     ntasks = Xtspace.shape[0]
-    alt_num = 32
-    unique_sols = 8
-    num_sols = unique_sols * alt_num
-    dof = 6
     Qaik = np.full((ntasks, num_sols, dof), np.nan)
 
     Htasks = Xlist_to_Hlist(Xtspace)
@@ -155,13 +159,10 @@ print(f"==>> task_to_nn_unique (i<j): \n{task_to_nn_unique}")
 print(f"==>> number of unique undirected edges: \n{task_to_nn_unique_len}")
 
 
-ntasks_rech, n_ik, dof = Qaik_rall.shape
+ntasks_rech, _, _ = Qaik_rall.shape
 print(f"==>> ntasks_rech: \n{ntasks_rech}")
-print(f"==>> n_ik: \n{n_ik}")
-print(f"==>> dof: \n{dof}")
 
-
-cspace_eudist = np.empty((task_to_nn_unique_len, n_ik, n_ik))
+cspace_eudist = np.empty((task_to_nn_unique_len, num_sols, num_sols))
 for idx, (i, j) in enumerate(task_to_nn_unique):
     Qt1 = Qaik_rall[i]  # (n_ik*altcnf, dof)
     Qt2 = Qaik_rall[j]  # (n_ik*altcnf, dof)
@@ -185,14 +186,6 @@ def query_cspace_distance(i, j, cspace_eudist):
         return cspace_eudist[idx]
 
 
-I = 0
-J = 10
-CspaceDistIJ = query_cspace_distance(I, J, cspace_eudist)
-CspaceDistJI = query_cspace_distance(J, I, cspace_eudist)
-print(f"==>> CspaceDist({I}, {J}).shape: \n{CspaceDistIJ.shape}")
-print(f"==>> CspaceDist({J}, {I}).shape: \n{CspaceDistJI.shape}")
-
-
 # constants for GTSP
 epslGH = 1.0
 eta_collision = 0.1  # resolution of collision checking
@@ -202,14 +195,44 @@ cspace_eudist_filtermax = cspace_eudist <= max_allow_cspace_dist
 cspace_eudist_filtered = np.where(cspace_eudist_filtermax, cspace_eudist, np.nan)
 # print(f"==>> cspace_eudist_filtered: \n{cspace_eudist_filtered}")
 
-# # how many valid edges after filtering by cspace distance?
-# for idx in range(task_to_nn_unique_len):
-#     num_valid_edges = np.sum(~np.isnan(cspace_eudist_filtered[idx]))
-#     print(f"==>> number of valid edges for edge {task_to_nn_unique[idx]}: \n{num_valid_edges}")
 
-proc_task = [0] * task_to_nn_unique_len
-for idx, (i, j) in enumerate(task_to_nn_unique):
-    d = query_cspace_distance(i, j, cspace_eudist_filtered)
-    u, v = np.where(~np.isnan(d))
-    print(f"==>> u: \n{u}")
-    print(f"==>> v: \n{v}")
+Q_filter_max_valid = np.full_like(Qaik_valid_rall, False, dtype=bool)
+print(f"==>> Q_filter_max_valid.shape: \n{Q_filter_max_valid.shape}")
+
+# edges_unique_after_filter = [set() for _ in range(ntasks_rech)]
+# for idx, (i, j) in enumerate(task_to_nn_unique):
+#     d = query_cspace_distance(i, j, cspace_eudist_filtered)
+#     u, v = np.where(~np.isnan(d))
+#     u = set(u)
+#     v = set(v)
+#     edges_unique_after_filter[i].update(u)
+#     edges_unique_after_filter[j].update(v)
+# for i in range(ntasks_rech):
+#     valid_sols = edges_unique_after_filter[i]
+#     print(f"==>> valid_sols: \n{len(valid_sols)}")
+
+
+I = 1
+J = 5
+group_mat = np.zeros((num_sols, num_sols), dtype=np.int32)
+print(f"==>> group_mat.shape: \n{group_mat.shape}")
+for ik_i in range(unique_sols):
+    for ik_j in range(unique_sols):
+        i0 = ik_i * alt_num
+        j0 = ik_j * alt_num
+        i1 = i0 + alt_num
+        j1 = j0 + alt_num
+        _, _, total_pairs, groups_matrix = find_altconfig_redudancy(
+            Qaik_rall[I, i0:i1], Qaik_rall[J, j0:j1]
+        )
+        # print(f"++>> total_pairs: \n{total_pairs}")
+        # print(f"==>> groups_matrix: \n{groups_matrix}")
+        group_mat[i0:i1, j0:j1] = groups_matrix
+print(f"==>> group_mat: \n{group_mat}")
+
+Qin_threshold = filter_cspace_candidate_similar_to_qinit(
+    Qaik_r, qinit, thresh_mult=0.08
+)
+Qin_threshold_radius = filter_cspace_candidate_radius_to_qinit(
+    Qaik_r, qinit, radius=2*np.pi
+)

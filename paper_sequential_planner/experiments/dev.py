@@ -17,11 +17,13 @@ from paper_sequential_planner.scripts.geometric_torus import (
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
+    filter_cspace_candidate_radius_to_qinit,
     xlist_to_Xlist,
     se3_error_pairwise_distance,
     task_space_correlation,
     brute_cspace_distance,
     brute_cspace_min_distance,
+    filter_cspace_candidate_similar_to_qinit,
 )
 from paper_sequential_planner.scripts.geometric_ellipse import *
 
@@ -235,29 +237,12 @@ for ti in range(ntasks_rech):
 print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
 
 
-def weighted_euclidean_distance():
-    """weighted euclidean distance to initial config,
-    as a way to select subset of configurations for each task
-    """
-    ntasks_rech, n_ik, dof = Qaik_r.shape
-    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
-    cdd = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
-    cdd_recp = 1.0 / (cdd + 0.001)  # add small value to avoid div by zero
-    cdd_sum = np.nansum(cdd_recp)  # use nansum to ignore nan values
-    cdd_ratio = cdd_recp / cdd_sum
-    cdd_ratio_min = np.nanmin(cdd_ratio)
-    cdd_ratio_max = np.nanmax(cdd_ratio)
-    threshold = cdd_ratio_min + 0.5 * (
-        cdd_ratio_max - cdd_ratio_min
-    )  # select configs above the midpoint
-    print(f"min: {cdd_ratio_min}, max: {cdd_ratio_max}, threshold: {threshold}")
-    get_Qind_inthreshold = cdd_ratio >= threshold
-    Qin_threshold = Qaik_r_flat[get_Qind_inthreshold.flatten()]
-    print(f"==>> Qin_threshold: \n{Qin_threshold}")
-    return Qin_threshold
-
-
-Qin_threshold = weighted_euclidean_distance()
+Qin_threshold = filter_cspace_candidate_similar_to_qinit(
+    Qaik_r, qinit, thresh_mult=0.08
+)
+Qin_radius = filter_cspace_candidate_radius_to_qinit(
+    Qaik_r, qinit, radius=2 * np.pi
+)
 
 
 def GTSP_WRITE(
@@ -905,9 +890,16 @@ def visualize_torus():
     ax.scatter(
         Qin_threshold[:, 0],
         Qin_threshold[:, 1],
-        marker="x",
+        marker="+",
         color="magenta",
-        label="Selected Seed IK Solutions",
+        label="Selected Seed IK Solutions by Similarity Threshold",
+    )
+    ax.scatter(
+        Qin_radius[:, 0],
+        Qin_radius[:, 1],
+        marker="x",
+        color="cyan",
+        label="Selected Seed IK Solutions by Radius",
     )
     if qtour is not None:
         ax.plot(
@@ -929,6 +921,42 @@ def visualize_torus():
     plt.show()
 
 
+def rack():
+    cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles_extended.npy"))
+
+    Q1 = Qaik_rall[t1]
+    Q2 = Qaik_rall[t2]
+    q1 = Q1[4]
+    q2 = Q2[5]
+    print(f"==>> q1: \n{q1}")
+    print(f"==>> q2: \n{q2}")
+    path = np.linspace(q1, q2, num=10)
+
+    fig, ax = plt.subplots()
+    ax.plot(
+        cspace_obs[:, 0],
+        cspace_obs[:, 1],
+        "ro",
+        markersize=1,
+        label="C-space Obstacles",
+        alpha=0.1,
+    )
+    ax.plot(
+        path[:, 0],
+        path[:, 1],
+        "g*",
+        linewidth=2,
+        label="Straight Line Path in C-space",
+    )
+    ax.set_aspect("equal")
+    ax.set_xlim(-2 * np.pi, 2 * np.pi)
+    ax.set_ylim(-2 * np.pi, 2 * np.pi)
+    ax.set_xlabel("q1")
+    ax.set_ylabel("q2")
+    plt.show()
+
+
 if __name__ == "__main__":
     # visualize()
-    visualize_torus()
+    # visualize_torus()
+    rack()

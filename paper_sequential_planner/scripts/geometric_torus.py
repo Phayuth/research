@@ -209,10 +209,14 @@ def find_altconfig_redudancy_wrong(Q1, Q2, Dist=None):
     return group_pairs, groups_num, total_pairs, groups_matrix
 
 
-def find_altconfig_redudancy(Q1, Q2, q1, q2):
+def find_altconfig_redudancy(Q1, Q2, q1=None, q2=None):
     """
     Same version as find_altconfig_redudancy but fixing the wrong result
     """
+    if q1 is None:
+        q1 = wrap_to_pi(Q1[0])
+    if q2 is None:
+        q2 = wrap_to_pi(Q2[0])
     diff1 = Q1 - q1
     diff2 = Q2 - q2
     unique_diffs = set()

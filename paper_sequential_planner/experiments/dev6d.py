@@ -3,6 +3,7 @@ import numpy as np
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy_wrong,
+    find_altconfig_redudancy,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
