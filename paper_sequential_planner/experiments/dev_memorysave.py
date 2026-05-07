@@ -1,5 +1,8 @@
 import os
 import numpy as np
+import time
+import tqdm
+import torch
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy,
@@ -8,6 +11,7 @@ from paper_sequential_planner.scripts.geometric_torus import (
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
     poses_d,
+    poses_c,
     H_to_X,
     xlist_to_Xlist,
     Hlist_to_Xlist,
@@ -17,16 +21,20 @@ from paper_sequential_planner.scripts.geometric_poses import (
     task_space_correlation_map,
     filter_cspace_candidate_similar_to_qinit,
     filter_cspace_candidate_radius_to_qinit,
-    query_tasks_data_from_tspace_map,
+    query_data_from_tspace_map,
 )
-from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
+from paper_sequential_planner.experiments.env_ur5e_sphere import (
+    RobotUR5eKin,
+    SceneUR5eSpherized,
+    device,
+)
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 robkin = RobotUR5eKin()
-scene = None  # for collision checking, not implemented yet
+scene = SceneUR5eSpherized()
 planner = None  # placeholder for planner instance, not implemented yet
 
 alt_num = 32
@@ -66,6 +74,25 @@ def wspace_ik_extended(robot, Xtspace):
     return Qaik
 
 
+def queue_Qaik_batch_collision(Qaik, robscene):
+    # Qaik shape: (ntasks, num_sols, dof)
+    ntasks = Qaik.shape[0]
+    Qmin_rep = np.empty((ntasks, unique_sols, dof))
+    for taski in range(ntasks):
+        for solj in range(unique_sols):
+            i = solj * alt_num
+            j = (solj + 1) * alt_num
+            Q = Qaik[taski, i:j]  # (alt_num, dof)
+            q = Q[0]
+            Qmin_rep[taski, solj] = q
+    Qmin_flat = Qmin_rep.reshape(-1, dof)  # (ntasks*unique_sols, dof)
+    col_states = robscene.collision_check(Qmin_flat)
+    col_states_rep = col_states.reshape(ntasks, unique_sols)
+    Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
+    Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
+    return Qaik_rep_col
+
+
 def wspace_ik_validity_extended(Qaik, robscene):
     limit6 = np.array(
         [
@@ -77,6 +104,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
             [-2 * np.pi, 2 * np.pi],
         ]
     )
+    Qaik_rep_col = queue_Qaik_batch_collision(Qaik, robscene)  # batch colcheck
     ntasks = Qaik.shape[0]
     num_sols = Qaik.shape[1]
     eps = 1e-9
@@ -87,7 +115,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
             if np.isnan(q).any():
                 Qaik_valid[taski, solj] = -1  # No solution
             else:
-                isCollsion = False  # robscene.check_collision(q)
+                isCollsion = Qaik_rep_col[taski, solj]
                 if isCollsion:
                     Qaik_valid[taski, solj] = -2  # In collision
                 else:
@@ -107,7 +135,7 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 H = poses_d()
 X = Hlist_to_Xlist(H)
 Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
-Qaik_valid = wspace_ik_validity_extended(Qaik, None)  # (ntasks, 7, 1)
+Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, 7, 1)
 X_isunr = np.all(Qaik_valid != 1, axis=1).flatten()  # (ntasks, ) True/False
 X_r = X[~X_isunr]  # (ntasks_rech, 2)
 Qaik_valid_r = Qaik_valid[~X_isunr]  # (ntasks_rech, n_ik * altcnf, 1)
@@ -123,21 +151,14 @@ Qaik_valid_rall = np.vstack((qinit_valid, Qaik_valid_r))
 print(f"==>> X_rall.shape: \n{X_rall.shape}")
 print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 print(f"==>> Qaik_valid_rall.shape: \n{Qaik_valid_rall.shape}")
-
-# # Save validity table as CSV with shape (256, 25): rows=IK configs, cols=tasks.
-# qaik_valid_csv = Qaik_valid_rall[:, :, 0].T
-# csv_path = os.path.join(os.path.dirname(__file__), "Qaik_valid_rall_256x25.csv")
-# np.savetxt(csv_path, qaik_valid_csv, delimiter=",", fmt="%d")
-# print(f"==>> saved Qaik_valid_rall CSV: {csv_path}")
 # -----------------------------------------------------------------
 
 # taskspace distance -----------------------------------------------
 H_r_full = Xlist_to_Hlist(X_rall)  # (ntasks_rech, 4, 4)
 tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
-# -----------------------------------------------------------------
 
-
+# tspace neighborhood and mapping --------------------------------------
 tspace_coorrelation = task_space_correlation(tspace_dist)
 tspace_mapping = task_space_correlation_map(tspace_coorrelation)
 task_to_nn_mapping, task_to_nn_unique, task_to_nn_unique_len = (
@@ -183,14 +204,18 @@ for idx, (ti, tj) in enumerate(task_to_nn_unique):
 epslGH = 1.0
 eta_collision = 0.1  # resolution of collision checking
 cmax_d = 2 * np.pi  # max distance in cspace
+r_max = 2 * np.pi  # max radius for candidate selection in cspace
+tmult = 0.08  # threshold multiplier for candidate selection in cspace
 
+# filter candidate
+# eliminate edges
 cspace_eudist_v = cspace_eudist <= cmax_d
 cspace_eudist_f = np.where(cspace_eudist_v, cspace_eudist, np.nan)
 print(f"==>> cspace_eudist_f.shape: \n{cspace_eudist_f.shape}")
 
-
-fd_sim = filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08)
-fd_r = filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi)
+# eliminate nodes
+fd_sim = filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=tmult)
+fd_r = filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=r_max)
 Qin_sim, task_ids_sim, qi_in_task_sim = (
     fd_sim["Qin_sim"],
     fd_sim["task_ids"],
@@ -203,37 +228,86 @@ Qin_radius, task_ids_radius, qi_in_task_radius = (
 )
 
 
-I = 1
-J = 5
-qi_in_task_radius_I = qi_in_task_radius[task_ids_radius == I]
-qi_in_task_radius_J = qi_in_task_radius[task_ids_radius == J]
-print(f"==>> qi_in_task_radius_I: \n{qi_in_task_radius_I}")
-print(f"==>> qi_in_task_radius_J: \n{qi_in_task_radius_J}")
+def interp_rack(Q1, Q2, num_points):
+    """
+    Pairwise linear interpolation between two sets of configurations.
 
-CIJ = query_tasks_data_from_tspace_map(I, J, cspace_eudist, task_to_nn_unique)
-print(f"==>> CIJ.shape: \n{CIJ.shape}")
-print(f"==>> CIJ: \n{CIJ}")
+    Q1: n, dof
+    Q2: n, dof
+    num_points: number of interpolation points (including endpoints)
 
-CIJ_F = query_tasks_data_from_tspace_map(I, J, cspace_eudist_f, task_to_nn_unique)
-print(f"==>> CIJ_F.shape: \n{CIJ_F.shape}")
-print(f"==>> CIJ_F: \n{CIJ_F}")
+    return: n, n, num_points, dof
+    """
+    n, dof = Q1.shape
 
-CIJ_val_e = query_tasks_data_from_tspace_map(
-    I, J, cspace_eudist_v, task_to_nn_unique
-)
-print(f"==>> CIJ_val_e.shape: \n{CIJ_val_e.shape}")
-print(f"==>> CIJ_val_e: \n{CIJ_val_e}")
+    # Create interpolation parameter: [0, 1] with num_points samples
+    t = np.linspace(0, 1, num_points)  # shape: (num_points,)
 
-U, V = np.where(CIJ)
-print(f"==>> U: \n{U}")
-print(f"==>> V: \n{V}")
+    # Reshape for broadcasting
+    Q1_reshaped = Q1[:, np.newaxis, np.newaxis, :]  # (n, 1, 1, dof)
+    Q2_reshaped = Q2[np.newaxis, :, np.newaxis, :]  # (1, n, 1, dof)
+    t_reshaped = t[np.newaxis, np.newaxis, :, np.newaxis]  # (1, 1, num_points, 1)
 
-qi_to_keep_I = np.intersect1d(qi_in_task_radius_I, U.astype(int))
-print(f"==>> qi_to_keep_I: \n{qi_to_keep_I}")
-qi_to_keep_J = np.intersect1d(qi_in_task_radius_J, V.astype(int))
-print(f"==>> qi_to_keep_J: \n{qi_to_keep_J}")
+    # Linear interpolation: Q(t) = Q1 + t * (Q2 - Q1)
+    result = Q1_reshaped + t_reshaped * (Q2_reshaped - Q1_reshaped)
 
-Qaik_rall_I = Qaik_rall[I]  # (n_ik*altcnf, dof)
-print(f"==>> Qaik_rall_I: \n{Qaik_rall_I}")
-Qaik_rall_J = Qaik_rall[J]  # (n_ik*altcnf, dof)
-print(f"==>> Qaik_rall_J: \n{Qaik_rall_J}")
+    return result  # (n, n, num_points, dof)
+
+
+if __name__ == "__main__":
+    I = 1
+    J = 5
+    qi_in_task_radius_I = qi_in_task_radius[task_ids_radius == I]
+    qi_in_task_radius_J = qi_in_task_radius[task_ids_radius == J]
+    print(f"==>> qi_in_task_radius_I: \n{qi_in_task_radius_I}")
+    print(f"==>> qi_in_task_radius_J: \n{qi_in_task_radius_J}")
+
+    CIJ = query_data_from_tspace_map(I, J, cspace_eudist, task_to_nn_unique)
+    print(f"==>> CIJ.shape: \n{CIJ.shape}")
+    print(f"==>> CIJ: \n{CIJ}")
+
+    CIJ_F = query_data_from_tspace_map(I, J, cspace_eudist_f, task_to_nn_unique)
+    print(f"==>> CIJ_F.shape: \n{CIJ_F.shape}")
+    print(f"==>> CIJ_F: \n{CIJ_F}")
+
+    CIJ_E = query_data_from_tspace_map(I, J, cspace_eudist_v, task_to_nn_unique)
+    print(f"==>> CIJ_E.shape: \n{CIJ_E.shape}")
+    print(f"==>> CIJ_E: \n{CIJ_E}")
+
+    U, V = np.where(CIJ)
+    print(f"==>> U: \n{U}")
+    print(f"==>> V: \n{V}")
+
+    qi_to_keep_I = np.intersect1d(qi_in_task_radius_I, U.astype(int))
+    print(f"==>> qi_to_keep_I: \n{qi_to_keep_I}")
+    qi_to_keep_J = np.intersect1d(qi_in_task_radius_J, V.astype(int))
+    print(f"==>> qi_to_keep_J: \n{qi_to_keep_J}")
+
+    Qaik_rall_I = Qaik_rall[I]  # (n_ik*altcnf, dof)
+    print(f"==>> Qaik_rall_I: \n{Qaik_rall_I}")
+    Qaik_rall_J = Qaik_rall[J]  # (n_ik*altcnf, dof)
+    print(f"==>> Qaik_rall_J: \n{Qaik_rall_J}")
+
+    numpoints = 20
+    interp = interp_rack(Qaik_rall_I, Qaik_rall_J, num_points=numpoints)
+    print(f"==>> interp.shape: \n{interp.shape}")
+
+    Q = interp.reshape(-1, interp.shape[3])
+    Qtorch = torch.as_tensor(Q, device=device, dtype=torch.float32)
+    print(f"==>> Qtorch.shape: \n{Qtorch.shape}")
+    nbatch = Qtorch.shape[0] // numpoints
+    print(f"==>> nbatch: \n{nbatch}")
+
+    dataset_y = torch.empty(Qtorch.shape[0], dtype=torch.bool).to(device)
+
+    it = Qtorch.shape[0] // nbatch
+    print(f"==>> it: \n{it}")
+    for i in tqdm.tqdm(range(it)):
+        start = i * nbatch
+        end = (i + 1) * nbatch
+        Qbatch = Qtorch[start:end]
+        col_states = scene.collision_check(Qbatch)
+        dataset_y[start:end] = col_states
+
+    collision_rate = dataset_y.sum().item() / Qtorch.shape[0]
+    print(f"==>> Dataset collision rate: {collision_rate * 100:.2f}%")

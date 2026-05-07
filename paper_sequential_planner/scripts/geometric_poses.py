@@ -218,7 +218,7 @@ def task_space_correlation_map(tspace_coorrelation):
     return tspace_mapping
 
 
-def query_tasks_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_unique):
+def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_unique):
     """
     I is task [from] id
     J is task [to] id
