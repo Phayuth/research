@@ -240,6 +240,52 @@ def find_altconfig_redudancy(Q1, Q2, q1=None, q2=None):
     return group_pairs, groups_num, total_pairs, groups_matrix
 
 
+def find_altconfig_redudancy_fast(Q1, Q2, q1=None, q2=None):
+    """
+    MUST vectorized for speed up, but I haven't done it yet.
+    """
+    if q1 is None:
+        q1 = wrap_to_pi(Q1[0])
+    if q2 is None:
+        q2 = wrap_to_pi(Q2[0])
+    diff1 = Q1 - q1
+    diff2 = Q2 - q2
+    # Compute all pairwise differences (d2 - d1) in a vectorized way.
+    # diff1: (n1, dof), diff2: (n2, dof)
+    # deltas: (n1, n2, dof) where deltas[i, j] = diff2[j] - diff1[i]
+    deltas = diff2[None, :, :] - diff1[:, None, :]
+    # Round to same precision as the original implementation to avoid
+    # floating-point grouping issues.
+    deltas_rounded = np.round(deltas, 5)
+
+    n1, n2, dof = deltas_rounded.shape
+    # Flatten to (n1*n2, dof) and use np.unique along rows to get group ids
+    deltas_flat = deltas_rounded.reshape(-1, dof)
+
+    unq_val, idx, groups_flat, groups_num = np.unique(
+        deltas_flat,
+        axis=0,
+        return_index=True,
+        return_inverse=True,
+        return_counts=True,
+    )
+
+    # groups_flat maps each flattened pair to its group id; reshape back to (n1, n2)
+    groups_matrix = groups_flat.reshape(n1, n2)
+    total_pairs = len(groups_num)
+    flat_pairs = np.column_stack(np.unravel_index(np.arange(n1 * n2), (n1, n2)))
+    order = np.argsort(groups_flat, kind="stable")
+    sorted_pairs = flat_pairs[order]
+    group_pairs = np.split(sorted_pairs, np.cumsum(groups_num)[:-1])
+    return group_pairs, groups_num, total_pairs, groups_matrix
+
+
+def identify_torus_type(q):
+    qwrap = wrap_to_pi(q)
+    qdiff = qwrap - q
+    return qdiff
+
+
 def transform_path_torus1(path, qs_new):
     """
     Path must start with q1, and qs_new must be the alternative configuration of q1.
@@ -336,7 +382,7 @@ def _test_2d():
     Q22 = find_alt_config2(q22, l)
 
     print("".center(50, "-"))
-    g_pair_c, g_num_c, total_pairs_c, g_matrix_c = find_altconfig_redudancy(
+    g_pair_c, g_num_c, total_pairs_c, g_matrix_c = find_altconfig_redudancy_fast(
         Q1, Q2, q1, q2
     )
     print(f"==>> g_pair_c: \n{g_pair_c}")
@@ -352,7 +398,7 @@ def _test_2d():
     print("".center(50, "-"))
 
     print("".center(50, "-"))
-    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy(
+    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy_fast(
         Q11, Q22, q11, q22
     )
     print(f"==>> g_pair_c1: \n{g_pair_c1}")

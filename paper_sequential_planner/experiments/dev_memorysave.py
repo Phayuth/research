@@ -2,9 +2,8 @@ import os
 import numpy as np
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
-    find_altconfig_redudancy_wrong,
     find_altconfig_redudancy,
-    wrap_to_pi,
+    find_altconfig_redudancy_fast,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
@@ -15,9 +14,10 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     se3_error_pairwise_distance,
     task_space_correlation,
-    task_space_correlation_mapping,
+    task_space_correlation_map,
     filter_cspace_candidate_similar_to_qinit,
     filter_cspace_candidate_radius_to_qinit,
+    query_tasks_data_from_tspace_map,
 )
 from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
 
@@ -139,16 +139,7 @@ print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 
 
 tspace_coorrelation = task_space_correlation(tspace_dist)
-nn_union, nn_dist, nn_count, nn_r, nn_k = (
-    tspace_coorrelation["nn_union"],
-    tspace_coorrelation["nn_dist"],
-    tspace_coorrelation["nn_count"],
-    tspace_coorrelation["nn_r"],
-    tspace_coorrelation["nn_k"],
-)
-
-
-tspace_mapping = task_space_correlation_mapping(tspace_coorrelation)
+tspace_mapping = task_space_correlation_map(tspace_coorrelation)
 task_to_nn_mapping, task_to_nn_unique, task_to_nn_unique_len = (
     tspace_mapping["task_to_nn_mapping"],
     tspace_mapping["task_to_nn_unique"],
@@ -158,10 +149,10 @@ print(f"==>> task_to_nn_mapping: \n{task_to_nn_mapping}")
 print(f"==>> task_to_nn_unique (i<j): \n{task_to_nn_unique}")
 print(f"==>> number of unique undirected edges: \n{task_to_nn_unique_len}")
 
-
 ntasks_rech, _, _ = Qaik_rall.shape
 print(f"==>> ntasks_rech: \n{ntasks_rech}")
 
+# compute cspace distance for all unique task pairs (i, j) where i < j
 cspace_eudist = np.empty((task_to_nn_unique_len, num_sols, num_sols))
 for idx, (i, j) in enumerate(task_to_nn_unique):
     Qt1 = Qaik_rall[i]  # (n_ik*altcnf, dof)
@@ -170,69 +161,79 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
     cspace_eudist[idx] = CspaceDistT1T2
 print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
 
-
-def query_cspace_distance(i, j, cspace_eudist):
-    """
-    query (I, J) and (J, I) give the same value
-    but the shape is transposed to swap T1 and T2
-    """
-    if j < i:
-        a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_unique.index((a, b))
-        return cspace_eudist[idx].T  # transpose to swap T1 and T2
+# compute grouping matrix for all unique task pairs (i, j) where i < j
+cspace_group = np.empty_like(cspace_eudist, dtype=np.int32)
+for idx, (ti, tj) in enumerate(task_to_nn_unique):
+    if ti == 0:
+        pass  # ingore task 0 which is qinit for now.
     else:
-        a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_unique.index((a, b))
-        return cspace_eudist[idx]
+        for ik_i in range(unique_sols):
+            for ik_j in range(unique_sols):
+                i0 = ik_i * alt_num
+                j0 = ik_j * alt_num
+                i1 = i0 + alt_num
+                j1 = j0 + alt_num
+                Qt1 = Qaik_rall[ti, i0:i1]  # (altcnf, dof)
+                Qt2 = Qaik_rall[tj, j0:j1]  # (altcnf, dof)
+                group_matrix = find_altconfig_redudancy_fast(Qt1, Qt2)[3]
+                cspace_group[idx, i0:i1, j0:j1] = group_matrix
 
 
 # constants for GTSP
 epslGH = 1.0
 eta_collision = 0.1  # resolution of collision checking
-max_allow_cspace_dist = 2 * np.pi  # max distance in cspace
+cmax_d = 2 * np.pi  # max distance in cspace
 
-cspace_eudist_filtermax = cspace_eudist <= max_allow_cspace_dist
-cspace_eudist_filtered = np.where(cspace_eudist_filtermax, cspace_eudist, np.nan)
-# print(f"==>> cspace_eudist_filtered: \n{cspace_eudist_filtered}")
+cspace_eudist_v = cspace_eudist <= cmax_d
+cspace_eudist_f = np.where(cspace_eudist_v, cspace_eudist, np.nan)
+print(f"==>> cspace_eudist_f.shape: \n{cspace_eudist_f.shape}")
 
 
-Q_filter_max_valid = np.full_like(Qaik_valid_rall, False, dtype=bool)
-print(f"==>> Q_filter_max_valid.shape: \n{Q_filter_max_valid.shape}")
-
-# edges_unique_after_filter = [set() for _ in range(ntasks_rech)]
-# for idx, (i, j) in enumerate(task_to_nn_unique):
-#     d = query_cspace_distance(i, j, cspace_eudist_filtered)
-#     u, v = np.where(~np.isnan(d))
-#     u = set(u)
-#     v = set(v)
-#     edges_unique_after_filter[i].update(u)
-#     edges_unique_after_filter[j].update(v)
-# for i in range(ntasks_rech):
-#     valid_sols = edges_unique_after_filter[i]
-#     print(f"==>> valid_sols: \n{len(valid_sols)}")
+fd_sim = filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08)
+fd_r = filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi)
+Qin_sim, task_ids_sim, qi_in_task_sim = (
+    fd_sim["Qin_sim"],
+    fd_sim["task_ids"],
+    fd_sim["qi_in_task"],
+)
+Qin_radius, task_ids_radius, qi_in_task_radius = (
+    fd_r["Qin_radius"],
+    fd_r["task_ids"],
+    fd_r["qi_in_task"],
+)
 
 
 I = 1
 J = 5
-group_mat = np.zeros((num_sols, num_sols), dtype=np.int32)
-print(f"==>> group_mat.shape: \n{group_mat.shape}")
-for ik_i in range(unique_sols):
-    for ik_j in range(unique_sols):
-        i0 = ik_i * alt_num
-        j0 = ik_j * alt_num
-        i1 = i0 + alt_num
-        j1 = j0 + alt_num
-        _, _, total_pairs, groups_matrix = find_altconfig_redudancy(
-            Qaik_rall[I, i0:i1], Qaik_rall[J, j0:j1]
-        )
-        # print(f"++>> total_pairs: \n{total_pairs}")
-        # print(f"==>> groups_matrix: \n{groups_matrix}")
-        group_mat[i0:i1, j0:j1] = groups_matrix
-print(f"==>> group_mat: \n{group_mat}")
+qi_in_task_radius_I = qi_in_task_radius[task_ids_radius == I]
+qi_in_task_radius_J = qi_in_task_radius[task_ids_radius == J]
+print(f"==>> qi_in_task_radius_I: \n{qi_in_task_radius_I}")
+print(f"==>> qi_in_task_radius_J: \n{qi_in_task_radius_J}")
 
-Qin_threshold = filter_cspace_candidate_similar_to_qinit(
-    Qaik_r, qinit, thresh_mult=0.08
+CIJ = query_tasks_data_from_tspace_map(I, J, cspace_eudist, task_to_nn_unique)
+print(f"==>> CIJ.shape: \n{CIJ.shape}")
+print(f"==>> CIJ: \n{CIJ}")
+
+CIJ_F = query_tasks_data_from_tspace_map(I, J, cspace_eudist_f, task_to_nn_unique)
+print(f"==>> CIJ_F.shape: \n{CIJ_F.shape}")
+print(f"==>> CIJ_F: \n{CIJ_F}")
+
+CIJ_val_e = query_tasks_data_from_tspace_map(
+    I, J, cspace_eudist_v, task_to_nn_unique
 )
-Qin_threshold_radius = filter_cspace_candidate_radius_to_qinit(
-    Qaik_r, qinit, radius=2*np.pi
-)
+print(f"==>> CIJ_val_e.shape: \n{CIJ_val_e.shape}")
+print(f"==>> CIJ_val_e: \n{CIJ_val_e}")
+
+U, V = np.where(CIJ)
+print(f"==>> U: \n{U}")
+print(f"==>> V: \n{V}")
+
+qi_to_keep_I = np.intersect1d(qi_in_task_radius_I, U.astype(int))
+print(f"==>> qi_to_keep_I: \n{qi_to_keep_I}")
+qi_to_keep_J = np.intersect1d(qi_in_task_radius_J, V.astype(int))
+print(f"==>> qi_to_keep_J: \n{qi_to_keep_J}")
+
+Qaik_rall_I = Qaik_rall[I]  # (n_ik*altcnf, dof)
+print(f"==>> Qaik_rall_I: \n{Qaik_rall_I}")
+Qaik_rall_J = Qaik_rall[J]  # (n_ik*altcnf, dof)
+print(f"==>> Qaik_rall_J: \n{Qaik_rall_J}")

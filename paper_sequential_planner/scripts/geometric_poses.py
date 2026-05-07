@@ -190,14 +190,8 @@ def task_space_correlation(tspace_dist, nnr=0.15, nnk=5):
     return tspace_coorrelation
 
 
-def task_space_correlation_mapping(tspace_coorrelation):
-    nn_union, nn_dist, nn_count, nn_r, nn_k = (
-        tspace_coorrelation["nn_union"],
-        tspace_coorrelation["nn_dist"],
-        tspace_coorrelation["nn_count"],
-        tspace_coorrelation["nn_r"],
-        tspace_coorrelation["nn_k"],
-    )
+def task_space_correlation_map(tspace_coorrelation):
+    nn_union = tspace_coorrelation["nn_union"]
 
     task_to_nn_mapping = {}
     for i in range(len(nn_union)):
@@ -224,8 +218,24 @@ def task_space_correlation_mapping(tspace_coorrelation):
     return tspace_mapping
 
 
-def query_tspace_edges_mapping(i, j, tspace_mapping):
-    pass
+def query_tasks_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_unique):
+    """
+    I is task [from] id
+    J is task [to] id
+    query (I, J) and (J, I) give the same value
+    but the shape is transposed to swap T1 and T2
+    """
+    if j < i:
+        a, b = (i, j) if i < j else (j, i)
+        idx = task_to_nn_unique.index((a, b))
+        return cspace_eudist[idx].T  # transpose to swap T1 and T2
+    else:
+        a, b = (i, j) if i < j else (j, i)
+        idx = task_to_nn_unique.index((a, b))
+        return cspace_eudist[idx]
+
+
+# *rack system ----------------------------------------------------------------
 
 
 # *cluster algorithm ----------------------------------------------------------
@@ -470,11 +480,20 @@ def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
     optimal_val_max = np.nanmax(optimal_val)
     threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
     get_Qind_inthreshold = optimal_val >= threshold
-    Qin_threshold = Qaik_r_flat[get_Qind_inthreshold.flatten()]
+    Qin_sim = Qaik_r_flat[get_Qind_inthreshold.flatten()]
     selected_rate = np.sum(get_Qind_inthreshold) / get_Qind_inthreshold.size
+    task_ids = np.where(get_Qind_inthreshold)[0] // n_ik
+    qi_in_task = np.where(get_Qind_inthreshold)[0] % n_ik
+
     print(f"min: {optimal_val_min}, max: {optimal_val_max}, thresh: {threshold}")
-    print(f"==>> selected_rate: \n{selected_rate}")
-    return Qin_threshold
+    print(f"==>> selected {len(Qin_sim)} / {len(Qaik_r_flat)} configurations")
+    print(f"==>> selected_rate: {selected_rate}")
+    fd_sim = {
+        "Qin_sim": Qin_sim,
+        "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
+        "qi_in_task": qi_in_task,
+    }
+    return fd_sim
 
 
 def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
@@ -488,8 +507,21 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     get_Qind_inradius = dist.flatten() <= radius
     Qin_radius = Qaik_r_flat[get_Qind_inradius]
     selected_rate = np.sum(get_Qind_inradius) / get_Qind_inradius.size
-    print(f"==>> selected_rate: \n{selected_rate}")
-    return Qin_radius
+    task_ids = np.where(get_Qind_inradius)[0] // n_ik
+    qi_in_task = np.where(get_Qind_inradius)[0] % n_ik
+
+    print(f"==>> selected {len(Qin_radius)} / {len(Qaik_r_flat)} configurations")
+    print(f"==>> selected_rate: {selected_rate}")
+    fd_radius = {
+        "Qin_radius": Qin_radius,
+        "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
+        "qi_in_task": qi_in_task,
+    }
+    return fd_radius
+
+
+def filter_cspace_edges():
+    pass
 
 
 # *generate synthetic poses ----------------------------------------------

@@ -13,6 +13,7 @@ from paper_sequential_planner.scripts.rtsp_solver import RTSP
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
     find_altconfig_redudancy_wrong,
+    find_altconfig_redudancy_fast,
 )
 from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
@@ -236,13 +237,12 @@ for ti in range(ntasks_rech):
                             )  # undirected
 print(f"==>> cspace_eudist_estimated.shape: \n{cspace_eudist_estimated.shape}")
 
-
-Qin_threshold = filter_cspace_candidate_similar_to_qinit(
-    Qaik_r, qinit, thresh_mult=0.08
-)
-Qin_radius = filter_cspace_candidate_radius_to_qinit(
-    Qaik_r, qinit, radius=2 * np.pi
-)
+fd_sim = filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08)
+Qin_threshold, task_ids_sim = fd_sim["Qin_sim"], fd_sim["task_ids"]
+print(f"==>> Qin_threshold: \n{Qin_threshold}")
+print(f"==>> task_ids_sim: \n{task_ids_sim}")
+fd_r = filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi)
+Qin_radius, task_ids_radius = fd_r["Qin_radius"], fd_r["task_ids"]
 
 
 def GTSP_WRITE(
@@ -694,26 +694,12 @@ def visualize():
             label="GTSP Tour in C-space",
         )
 
-    # -------------hover interactivity for edge info display----------------
-    def _fmt_vec(q):
-        return np.array2string(q, precision=3, separator=", ")
-
-    hover_lines = []
-    hover_meta = {}
     for idx, (qs, qg) in enumerate(zip(Qs, Qg)):
         (line,) = ax[1].plot(
             [qs[0], qg[0]],
             [qs[1], qg[1]],
             "g--",
             alpha=0.5,
-        )
-        line.set_pickradius(2)
-        hover_lines.append(line)
-        hover_meta[line] = (
-            "type: all available edge\n"
-            f"cost distance: {cost_all[idx]:.4f}\n"
-            f"start config: {_fmt_vec(qs)}\n"
-            f"goal config: {_fmt_vec(qg)}"
         )
 
     for idx, (qs, qg) in enumerate(zip(Qscond, Qgconsd)):
@@ -723,62 +709,6 @@ def visualize():
             "b--",
             alpha=0.5,
         )
-        line.set_pickradius(10)
-        hover_lines.append(line)
-        hover_meta[line] = (
-            "type: considered edge\n"
-            f"cost distance: {cost_considered[idx]:.4f}\n"
-            f"start config: {_fmt_vec(qs)}\n"
-            f"goal config: {_fmt_vec(qg)}"
-        )
-
-    hover_annot = ax[1].annotate(
-        "",
-        xy=(0, 0),
-        xytext=(12, 12),
-        textcoords="offset points",
-        bbox=dict(boxstyle="round", fc="white", ec="black", alpha=0.9),
-        arrowprops=dict(arrowstyle="->", color="black"),
-    )
-    hover_annot.set_visible(False)
-    active_line = {"line": None}
-
-    def _set_hover_line(line):
-        if active_line["line"] is line:
-            return
-        if active_line["line"] is not None:
-            active_line["line"].set_linewidth(1.5)
-            active_line["line"].set_alpha(0.5)
-        if line is not None:
-            line.set_linewidth(3.0)
-            line.set_alpha(1.0)
-        active_line["line"] = line
-
-    def _on_move(event):
-        if event.inaxes != ax[1]:
-            if hover_annot.get_visible() or active_line["line"] is not None:
-                _set_hover_line(None)
-                hover_annot.set_visible(False)
-                fig.canvas.draw_idle()
-            return
-
-        for line in hover_lines:
-            contains, _ = line.contains(event)
-            if contains:
-                _set_hover_line(line)
-                hover_annot.xy = (event.xdata, event.ydata)
-                hover_annot.set_text(hover_meta[line])
-                hover_annot.set_visible(True)
-                fig.canvas.draw_idle()
-                return
-
-        if hover_annot.get_visible() or active_line["line"] is not None:
-            _set_hover_line(None)
-            hover_annot.set_visible(False)
-            fig.canvas.draw_idle()
-
-    fig.canvas.mpl_connect("motion_notify_event", _on_move)
-    # -------------hover interactivity for edge info display----------------
 
     ax[1].set_aspect("equal")
     ax[1].set_xlim(-2 * np.pi, 2 * np.pi)
@@ -931,6 +861,11 @@ def rack():
     print(f"==>> q1: \n{q1}")
     print(f"==>> q2: \n{q2}")
     path = np.linspace(q1, q2, num=10)
+    rack = path[1:-1]
+
+    # include endpoints
+    rackin = path[1:None]
+    rack_back = rackin - 0.5 * (q2 - q1) / np.linalg.norm(q2 - q1)
 
     fig, ax = plt.subplots()
     ax.plot(
@@ -948,6 +883,27 @@ def rack():
         linewidth=2,
         label="Straight Line Path in C-space",
     )
+    ax.plot(
+        rack[:, 0],
+        rack[:, 1],
+        "kx",
+        markersize=8,
+        label="Rack Points (excluding endpoints)",
+    )
+    ax.plot(
+        rackin[:, 0],
+        rackin[:, 1],
+        "k+",
+        markersize=8,
+        label="Rack Points (including endpoints)",
+    )
+    ax.plot(
+        rack_back[:, 0],
+        rack_back[:, 1],
+        "k+",
+        markersize=8,
+        label="Rack Points (backwards)",
+    )
     ax.set_aspect("equal")
     ax.set_xlim(-2 * np.pi, 2 * np.pi)
     ax.set_ylim(-2 * np.pi, 2 * np.pi)
@@ -957,6 +913,6 @@ def rack():
 
 
 if __name__ == "__main__":
-    # visualize()
-    # visualize_torus()
+    visualize()
+    visualize_torus()
     rack()
