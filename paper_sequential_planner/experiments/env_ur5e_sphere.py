@@ -105,28 +105,36 @@ class RobotUR5eKin:
 class SceneUR5eSpherized:
 
     def __init__(self):
+        self.device = torch.device(device)
+        self.dtype = torch.float32
         self.robot_kin = RobotUR5eKin()
         self.chain = self.load_urdf_chain()
         self.collision_sphere = self.load_spheres()
         self.box_in_base, self.boxsz_in_base = self.load_boxes_to_base_link()
 
+    def load_urdf(self):
+        ur_sphr_ = os.path.join(
+            rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"
+        )
+        with open(ur_sphr_, "r") as f:
+            URDF = f.read()
+
+        q = [0, -np.pi / 4, 0, -np.pi / 2, 0, np.pi / 3]
+        tm = UrdfTransformManager()
+        tm.load_urdf(URDF)
+        tm.set_joint("shoulder_pan_joint", q[0])
+        tm.set_joint("shoulder_lift_joint", q[1])
+        tm.set_joint("elbow_joint", q[2])
+        tm.set_joint("wrist_1_joint", q[3])
+        tm.set_joint("wrist_2_joint", q[4])
+        tm.set_joint("wrist_3_joint", q[5])
+        FKurdf = tm.get_transform("tool0", "base_link")
+        print(f"==>> FKurdf: \n{FKurdf}")
+
     def load_urdf_chain(self):
         ur_sphr_ = os.path.join(
             rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"
         )
-        # with open(ur_sphr_, "r") as f:
-        #     URDF = f.read()
-        # tm = UrdfTransformManager()
-        # tm.load_urdf(URDF)
-        # tm.set_joint("shoulder_pan_joint", q[0])
-        # tm.set_joint("shoulder_lift_joint", q[1])
-        # tm.set_joint("elbow_joint", q[2])
-        # tm.set_joint("wrist_1_joint", q[3])
-        # tm.set_joint("wrist_2_joint", q[4])
-        # tm.set_joint("wrist_3_joint", q[5])
-        # FKurdf = tm.get_transform("tool0", "base_link")
-        # print(f"==>> FKurdf: \n{FKurdf}")
-
         with open(ur_sphr_, "rb") as f:
             URDFrb = f.read()
 
@@ -136,6 +144,7 @@ class SceneUR5eSpherized:
             root_link_name="base_link",
             end_link_name="tool0",
         )
+        chain = chain.to(device=self.device, dtype=self.dtype)
         # joint_names = chain.get_joint_parameter_names()
         # print(f"==>> joint_names: \n{joint_names}")
         return chain
@@ -147,13 +156,16 @@ class SceneUR5eSpherized:
         with open(sphr_info_, "r") as f:
             sphere_info = yaml.safe_load(f)
 
-        sphere_link = sphere_info["metadata"]["links"]
         collision_sphere = sphere_info["collision_spheres"]
-        sphere_link_count = []
-        for link_name, sphere in collision_sphere.items():
-            sphere_link_count.append(len(sphere))
+
+        # read links and count spheres per link
+        # sphere_link = sphere_info["metadata"]["links"]
+        # sphere_link_count = []
+        # for link_name, sphere in collision_sphere.items():
+        #     sphere_link_count.append(len(sphere))
         # print(f"==>> sphere_link: \n{sphere_link}")
         # print(f"==>> sphere_link_count: \n{sphere_link_count}")
+
         return collision_sphere
 
     def load_boxes_to_base_link(self):
@@ -302,6 +314,9 @@ class SceneUR5eSpherized:
         spheres_in_base : (ntraj, total_num_spheres, 4) tensor
             Sphere centers in base frame and their radii for all trajectories.
         """
+        Q = torch.as_tensor(Q, dtype=self.dtype, device=self.device)
+
+        # batch forward kinematics
         fk_tf_dict = self.chain.forward_kinematics(Q, end_only=False)
 
         # Transform link-local collision spheres to base frame for batched FK.
@@ -316,10 +331,13 @@ class SceneUR5eSpherized:
 
         for link_name, spheres in self.collision_sphere.items():
             link_tf = fk_tf_dict[link_name].get_matrix()  # [num_ik, 4, 4]
+            tf_device = link_tf.device
 
             # [num_spheres, 3]
             centers_local = torch.tensor(
-                [s["center"] for s in spheres], dtype=link_tf.dtype, device=device
+                [s["center"] for s in spheres],
+                dtype=link_tf.dtype,
+                device=tf_device,
             )
             # [num_spheres, 4]
             centers_hom = torch.cat(
@@ -329,24 +347,28 @@ class SceneUR5eSpherized:
                         centers_local.shape[0],
                         1,
                         dtype=link_tf.dtype,
-                        device=device,
+                        device=tf_device,
                     ),
                 ],
                 dim=1,
             )
 
-            centers_base = torch.einsum("bij,nj->bni", link_tf, centers_hom)[
-                ..., :3
-            ]
+            centers_base = torch.einsum(
+                "bij,nj->bni",
+                link_tf,
+                centers_hom,
+            )[..., :3]
 
             radii = torch.empty(
-                (num_ik, len(spheres)), dtype=link_tf.dtype, device=device
+                (num_ik, len(spheres)),
+                dtype=link_tf.dtype,
+                device=tf_device,
             )
             for si, s in enumerate(spheres):
                 # Supports fixed radius or optional per-IK radii in s["radius_by_ik"].
                 if "radius_by_ik" in s:
                     r = torch.as_tensor(
-                        s["radius_by_ik"], dtype=link_tf.dtype, device=device
+                        s["radius_by_ik"], dtype=link_tf.dtype, device=tf_device
                     )
                     if r.ndim == 0:
                         radii[:, si] = r
@@ -362,8 +384,8 @@ class SceneUR5eSpherized:
             center_radius_link = torch.cat(
                 [centers_base, radii.unsqueeze(-1)], dim=-1
             )
-            # center_radius_by_link[link_name] = center_radius_link
             center_radius_all_links.append(center_radius_link)
+            # center_radius_by_link[link_name] = center_radius_link
 
             # for si in range(center_radius_link.shape[1]):
             #     center_radius_by_sphere[f"{link_name}[{si}]"] = center_radius_link[
@@ -434,7 +456,7 @@ class SceneUR5eSpherized:
 
     def view_scene(self, q, Hlist=None):
         qSphere = self.fkin_sphere(q)
-        sphere = qSphere[0]
+        sphere = qSphere[0].detach().cpu().numpy()
 
         ax = make_3d_axis(ax_s=1.0)
         plot_transform(ax=ax, A2B=np.eye(4), s=0.3, lw=2, name="base_link")

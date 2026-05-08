@@ -86,7 +86,7 @@ def queue_Qaik_batch_collision(Qaik, robscene):
             q = Q[0]
             Qmin_rep[taski, solj] = q
     Qmin_flat = Qmin_rep.reshape(-1, dof)  # (ntasks*unique_sols, dof)
-    col_states = robscene.collision_check(Qmin_flat)
+    col_states = robscene.collision_check(Qmin_flat).detach().cpu().numpy()
     col_states_rep = col_states.reshape(ntasks, unique_sols)
     Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
     Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
@@ -183,6 +183,7 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
 print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
 
 # compute grouping matrix for all unique task pairs (i, j) where i < j
+K_encode = 10  # encode grouping
 cspace_group = np.empty_like(cspace_eudist, dtype=np.int32)
 for idx, (ti, tj) in enumerate(task_to_nn_unique):
     if ti == 0:
@@ -196,8 +197,9 @@ for idx, (ti, tj) in enumerate(task_to_nn_unique):
                 j1 = j0 + alt_num
                 Qt1 = Qaik_rall[ti, i0:i1]  # (altcnf, dof)
                 Qt2 = Qaik_rall[tj, j0:j1]  # (altcnf, dof)
-                group_matrix = find_altconfig_redudancy_fast(Qt1, Qt2)[3]
-                cspace_group[idx, i0:i1, j0:j1] = group_matrix
+                group_mat = find_altconfig_redudancy_fast(Qt1, Qt2)[3]
+                id_encode = i0 * K_encode + j0
+                cspace_group[idx, i0:i1, j0:j1] = group_mat * id_encode
 
 
 # constants for GTSP
@@ -226,6 +228,9 @@ Qin_radius, task_ids_radius, qi_in_task_radius = (
     fd_r["task_ids"],
     fd_r["qi_in_task"],
 )
+print(f"==>> Qin_radius: \n{Qin_radius}")
+print(f"==>> task_ids_radius: \n{task_ids_radius}")
+print(f"==>> qi_in_task_radius: \n{qi_in_task_radius}")
 
 
 def interp_rack(Q1, Q2, num_points):
@@ -250,44 +255,56 @@ def interp_rack(Q1, Q2, num_points):
 
     # Linear interpolation: Q(t) = Q1 + t * (Q2 - Q1)
     result = Q1_reshaped + t_reshaped * (Q2_reshaped - Q1_reshaped)
-
     return result  # (n, n, num_points, dof)
 
 
 if __name__ == "__main__":
     I = 1
     J = 5
-    qi_in_task_radius_I = qi_in_task_radius[task_ids_radius == I]
-    qi_in_task_radius_J = qi_in_task_radius[task_ids_radius == J]
-    print(f"==>> qi_in_task_radius_I: \n{qi_in_task_radius_I}")
-    print(f"==>> qi_in_task_radius_J: \n{qi_in_task_radius_J}")
-
-    CIJ = query_data_from_tspace_map(I, J, cspace_eudist, task_to_nn_unique)
-    print(f"==>> CIJ.shape: \n{CIJ.shape}")
-    print(f"==>> CIJ: \n{CIJ}")
-
-    CIJ_F = query_data_from_tspace_map(I, J, cspace_eudist_f, task_to_nn_unique)
-    print(f"==>> CIJ_F.shape: \n{CIJ_F.shape}")
-    print(f"==>> CIJ_F: \n{CIJ_F}")
-
-    CIJ_E = query_data_from_tspace_map(I, J, cspace_eudist_v, task_to_nn_unique)
-    print(f"==>> CIJ_E.shape: \n{CIJ_E.shape}")
-    print(f"==>> CIJ_E: \n{CIJ_E}")
-
-    U, V = np.where(CIJ)
-    print(f"==>> U: \n{U}")
-    print(f"==>> V: \n{V}")
-
-    qi_to_keep_I = np.intersect1d(qi_in_task_radius_I, U.astype(int))
-    print(f"==>> qi_to_keep_I: \n{qi_to_keep_I}")
-    qi_to_keep_J = np.intersect1d(qi_in_task_radius_J, V.astype(int))
-    print(f"==>> qi_to_keep_J: \n{qi_to_keep_J}")
 
     Qaik_rall_I = Qaik_rall[I]  # (n_ik*altcnf, dof)
     print(f"==>> Qaik_rall_I: \n{Qaik_rall_I}")
     Qaik_rall_J = Qaik_rall[J]  # (n_ik*altcnf, dof)
     print(f"==>> Qaik_rall_J: \n{Qaik_rall_J}")
 
+    t1qid_select = qi_in_task_radius[task_ids_radius == I]
+    print(f"==>> t1qid_select: \n{t1qid_select}")
+    t2qid_select = qi_in_task_radius[task_ids_radius == J]
+    print(f"==>> t2qid_select: \n{t2qid_select}")
+
+    edge_ck = query_data_from_tspace_map(I, J, cspace_eudist_v, task_to_nn_unique)
+    print(f"==>> edge_ck: \n{edge_ck}")
+
+    # get the edges that is true in edge_ck AND the node indices exist in the radius-based candidate selection
+    # Ic, Jc = np.where(edge_ck)
+    # print(f"==>> Ic: \n{Ic}")
+    # print(f"==>> Jc: \n{Jc}")
+
+    # Create 2D boolean masks for valid nodes
+    valid_nodes_i = np.isin(np.arange(edge_ck.shape[0]), t1qid_select)
+    valid_nodes_j = np.isin(np.arange(edge_ck.shape[1]), t2qid_select)
+
+    # Broadcast to 2D: (n, 1) & (1, m) → (n, m)
+    valid_node_pairs = valid_nodes_i[:, np.newaxis] & valid_nodes_j[np.newaxis, :]
+
+    # Combine with edge_ck
+    edges_to_check = edge_ck & valid_node_pairs
+    Ic, Jc = np.where(edges_to_check)
+
+    print(f"==>> Ic: \n{Ic}")
+    print(f"==>> Jc: \n{Jc}")
+
+    group_ckIJ = query_data_from_tspace_map(I, J, cspace_group, task_to_nn_unique)
+
+    gck_I = group_ckIJ[Ic][:, Jc]
+    print(f"==>> gck_I: \n{gck_I}")
+
+    Uval, Ucnt = np.unique(gck_I, return_counts=True)
+    print(f"==>> Uval: \n{Uval}")
+    print(f"==>> Ucnt: \n{Ucnt}")
+    # uni_id = len(Ucnt)
+    # print(f"==>> uni_id: \n{uni_id}")
+    raise
     numpoints = 20
     interp = interp_rack(Qaik_rall_I, Qaik_rall_J, num_points=numpoints)
     print(f"==>> interp.shape: \n{interp.shape}")
@@ -298,8 +315,7 @@ if __name__ == "__main__":
     nbatch = Qtorch.shape[0] // numpoints
     print(f"==>> nbatch: \n{nbatch}")
 
-    dataset_y = torch.empty(Qtorch.shape[0], dtype=torch.bool).to(device)
-
+    col_data = torch.empty(Qtorch.shape[0], dtype=torch.bool).to(device)
     it = Qtorch.shape[0] // nbatch
     print(f"==>> it: \n{it}")
     for i in tqdm.tqdm(range(it)):
@@ -307,7 +323,6 @@ if __name__ == "__main__":
         end = (i + 1) * nbatch
         Qbatch = Qtorch[start:end]
         col_states = scene.collision_check(Qbatch)
-        dataset_y[start:end] = col_states
-
-    collision_rate = dataset_y.sum().item() / Qtorch.shape[0]
+        col_data[start:end] = col_states
+    collision_rate = col_data.sum().item() / Qtorch.shape[0]
     print(f"==>> Dataset collision rate: {collision_rate * 100:.2f}%")

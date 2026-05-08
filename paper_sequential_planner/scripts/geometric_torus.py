@@ -280,6 +280,15 @@ def find_altconfig_redudancy_fast(Q1, Q2, q1=None, q2=None):
     return group_pairs, groups_num, total_pairs, groups_matrix
 
 
+def find_altconfig_redundancy_tasktotask(Q1, Q2):
+    """
+    consider the whole grouping for task to task redundancy,
+    handle the case with nan joint values
+    group id matrix all different
+    """
+    pass
+
+
 def identify_torus_type(q):
     qwrap = wrap_to_pi(q)
     qdiff = qwrap - q
@@ -398,8 +407,8 @@ def _test_2d():
     print("".center(50, "-"))
 
     print("".center(50, "-"))
-    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = find_altconfig_redudancy_fast(
-        Q11, Q22, q11, q22
+    g_pair_c1, g_num_c1, total_pairs_c1, g_matrix_c1 = (
+        find_altconfig_redudancy_fast(Q11, Q22, q11, q22)
     )
     print(f"==>> g_pair_c1: \n{g_pair_c1}")
     print(f"==>> g_num_c1: \n{g_num_c1}")
