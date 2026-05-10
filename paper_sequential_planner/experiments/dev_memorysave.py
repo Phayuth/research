@@ -136,11 +136,13 @@ H = poses_d()
 X = Hlist_to_Xlist(H)
 Qaik = wspace_ik_extended(robkin, X)  # (ntasks, 7)
 Qaik_valid = wspace_ik_validity_extended(Qaik, scene)  # (ntasks, 7, 1)
+
 X_isunr = np.all(Qaik_valid != 1, axis=1).flatten()  # (ntasks, ) True/False
 X_r = X[~X_isunr]  # (ntasks_rech, 2)
 Qaik_valid_r = Qaik_valid[~X_isunr]  # (ntasks_rech, n_ik * altcnf, 1)
 Qaik_r = Qaik[~X_isunr]  # (ntasks_rech, n_ik * altcnf, dof)
 Qaik_r = np.where(Qaik_valid_r == 1, Qaik_r, np.nan)  # set value to nan if invalid
+
 X_rall = np.vstack((Xinit, X_r))  # (ntasks+1, 2) & init
 qinit_all = np.full((1, Qaik_r.shape[1], Qaik_r.shape[2]), np.nan)
 qinit_all[0, 0] = qinit  # set first IK to qinit and rest to nan, real val no alt
@@ -304,7 +306,7 @@ if __name__ == "__main__":
     print(f"==>> Ucnt: \n{Ucnt}")
     # uni_id = len(Ucnt)
     # print(f"==>> uni_id: \n{uni_id}")
-    raise
+    # raise
     numpoints = 20
     interp = interp_rack(Qaik_rall_I, Qaik_rall_J, num_points=numpoints)
     print(f"==>> interp.shape: \n{interp.shape}")

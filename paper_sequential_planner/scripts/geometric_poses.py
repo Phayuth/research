@@ -481,6 +481,7 @@ def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
     threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
     get_Qind_inthreshold = optimal_val >= threshold
     Qin_sim = Qaik_r_flat[get_Qind_inthreshold.flatten()]
+    selected_q = get_Qind_inthreshold.reshape(ntasks_rech, n_ik)
     selected_rate = np.sum(get_Qind_inthreshold) / get_Qind_inthreshold.size
     task_ids = np.where(get_Qind_inthreshold)[0] // n_ik
     qi_in_task = np.where(get_Qind_inthreshold)[0] % n_ik
@@ -489,6 +490,7 @@ def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
     print(f"==>> selected {len(Qin_sim)} / {len(Qaik_r_flat)} configurations")
     print(f"==>> selected_rate: {selected_rate}")
     fd_sim = {
+        "selected_q": selected_q[:, :, None],
         "Qin_sim": Qin_sim,
         "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
         "qi_in_task": qi_in_task,
@@ -506,6 +508,7 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
     get_Qind_inradius = dist.flatten() <= radius
     Qin_radius = Qaik_r_flat[get_Qind_inradius]
+    selected_q = get_Qind_inradius.reshape(ntasks_rech, n_ik)
     selected_rate = np.sum(get_Qind_inradius) / get_Qind_inradius.size
     task_ids = np.where(get_Qind_inradius)[0] // n_ik
     qi_in_task = np.where(get_Qind_inradius)[0] % n_ik
@@ -513,6 +516,7 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     print(f"==>> selected {len(Qin_radius)} / {len(Qaik_r_flat)} configurations")
     print(f"==>> selected_rate: {selected_rate}")
     fd_radius = {
+        "selected_q": selected_q[:, :, None],
         "Qin_radius": Qin_radius,
         "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
         "qi_in_task": qi_in_task,
