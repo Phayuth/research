@@ -8,39 +8,43 @@ np.set_printoptions(precision=2, suppress=True, linewidth=200)
 
 # informed sampling according to the paper
 def informed_sampling(xStart, xGoal, cMax):
+    dof = xStart.shape[0]
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
     cMin = np.linalg.norm(xGoal - xStart)
-    L = hyperellipsoid_informed_axis_length(cMax, cMin)
-    xBall = unit_ball_sampling()
+    L = hyperellipsoid_informed_axis_length(cMax, cMin, dof=dof)
+    xBall = unit_ball_sampling(dof=dof)
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand
 
 
 def informed_sampling_bulk(xStart, xGoal, cMax, numsample):
+    dof = xStart.shape[0]
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
     cMin = np.linalg.norm(xGoal - xStart)
-    L = hyperellipsoid_informed_axis_length(cMax, cMin)
-    xBall = unit_ball_sampling_bulk(xStart.shape[0], numsample)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin, dof=dof)
+    xBall = unit_ball_sampling_bulk(dof, numsample)
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand.T
 
 
 def informed_sampling_ellipse(xStart, xGoal, cMax):
+    dof = xStart.shape[0]
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
     cMin = np.linalg.norm(xGoal - xStart)
-    L = hyperellipsoid_informed_axis_length(cMax, cMin)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin, dof=dof)
     return xCenter, rotationAxisC, L, cMin
 
 
 def informed_surface_sampling_bulk(xStart, xGoal, cMax, numsample):
+    dof = xStart.shape[0]
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
     cMin = np.linalg.norm(xGoal - xStart)
-    L = hyperellipsoid_informed_axis_length(cMax, cMin)
-    xBall = unit_ball_surface_sampling_bulk(xStart.shape[0], numsample)
+    L = hyperellipsoid_informed_axis_length(cMax, cMin, dof=dof)
+    xBall = unit_ball_surface_sampling_bulk(dof, numsample)
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand.T
 
@@ -67,19 +71,21 @@ def hyperellipsoid_custom_axis_length(long_axis, short_axis, dof=2):  # L
 
 
 def custom_inside_sampling(xStart, xGoal, long_axis, short_axis, numsample):
-    L = hyperellipsoid_custom_axis_length(long_axis, short_axis)
+    dof = xStart.shape[0]
+    L = hyperellipsoid_custom_axis_length(long_axis, short_axis, dof=dof)
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
-    xBall = unit_ball_sampling_bulk(xStart.shape[0], numsample)
+    xBall = unit_ball_sampling_bulk(dof, numsample)
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand.T
 
 
 def custom_surface_sampling(xStart, xGoal, long_axis, short_axis, numsample):
-    L = hyperellipsoid_custom_axis_length(long_axis, short_axis)
+    dof = xStart.shape[0]
+    L = hyperellipsoid_custom_axis_length(long_axis, short_axis, dof=dof)
     xCenter = (xStart + xGoal) / 2
     rotationAxisC = rotation_to_world(xStart, xGoal)
-    xBall = unit_ball_surface_sampling_bulk(xStart.shape[0], numsample)
+    xBall = unit_ball_surface_sampling_bulk(dof, numsample)
     xRand = (rotationAxisC @ L @ xBall) + xCenter
     return xRand.T
 

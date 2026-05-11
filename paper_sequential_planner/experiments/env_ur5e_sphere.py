@@ -528,7 +528,7 @@ def pick_task_poses():
     return Hlist
 
 
-def batch_check():
+def view_pick_task_poses():
     robot_kin = RobotUR5eKin()
     scene = SceneUR5eSpherized()
 
@@ -537,6 +537,11 @@ def batch_check():
     ).to(device)
     Hlist = pick_task_poses()
     scene.view_scene(q, Hlist)
+
+
+def batch_check():
+    robot_kin = RobotUR5eKin()
+    scene = SceneUR5eSpherized()
 
     ntraj = 100000
     dof = 6
@@ -566,4 +571,5 @@ def batch_check():
 
 
 if __name__ == "__main__":
-    batch_check()
+    # batch_check()
+    view_pick_task_poses()

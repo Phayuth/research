@@ -722,9 +722,6 @@ def visualize():
     plt.show()
 
 
-import matplotlib.patches as patches
-
-
 def visualize_torus():
     fig, ax = plt.subplots()
 
@@ -735,23 +732,6 @@ def visualize_torus():
 
     t1nn = nn_union[t1]
     t1Qnn = Qaik_rall[t1nn]
-
-    QQ = np.concatenate([Qt1[4:8], Qt2[4:8]], axis=0)
-    q1min = QQ[:, 0].min()
-    q1max = QQ[:, 0].max()
-    q2min = QQ[:, 1].min()
-    q2max = QQ[:, 1].max()
-    rect = patches.Rectangle(
-        (q1min, q2min),
-        q1max - q1min,
-        q2max - q2min,
-        linewidth=1,
-        edgecolor="cyan",
-        facecolor="none",
-        alpha=1,
-        label="Bounding Box of IK Solutions",
-    )
-    ax.add_patch(rect)
 
     Qaltconfighome = find_alt_config2(qinit, limit2, filterOriginalq=True)
 

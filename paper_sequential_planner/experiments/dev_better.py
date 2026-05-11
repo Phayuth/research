@@ -291,9 +291,9 @@ npair_per_iter = Qfrom.shape[0] // iter_pair
 ninterp_points = 20
 iter_cc = 20
 
-for i in tqdm.tqdm(range(iter_pair)):
-    start = i * npair_per_iter
-    end = (i + 1) * npair_per_iter
+for pair_idx in tqdm.tqdm(range(iter_pair), desc="pair batches", position=0):
+    start = pair_idx * npair_per_iter
+    end = (pair_idx + 1) * npair_per_iter
     Qfrom_batch = Qfrom[start:end]
     Qto_batch = Qto[start:end]
     interp = interp_rack(Qfrom_batch, Qto_batch, num_points=ninterp_points)
@@ -301,13 +301,12 @@ for i in tqdm.tqdm(range(iter_pair)):
     # interp now has shape (n_pairs, num_points, dof)
     Q = interp.reshape(-1, interp.shape[2])
     Qtorch = torch.as_tensor(Q, device=device, dtype=torch.float32)
-    print(f"==>> Qtorch.shape: \n{Qtorch.shape}")
 
     col_data = torch.empty(Qtorch.shape[0], dtype=torch.bool).to(device)
     nq_per_cc = Qtorch.shape[0] // iter_cc
-    for i in tqdm.tqdm(range(iter_cc)):
-        start = i * nq_per_cc
-        end = (i + 1) * nq_per_cc
+    for cc_idx in tqdm.tqdm(range(iter_cc), desc="cc", position=1, leave=False):
+        start = cc_idx * nq_per_cc
+        end = (cc_idx + 1) * nq_per_cc
         Qtorch_batch = Qtorch[start:end]
         col_states = scene.collision_check(Qtorch_batch)
         col_data[start:end] = col_states
