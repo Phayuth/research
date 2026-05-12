@@ -285,6 +285,10 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
 print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
 print(f"==>> Qto.shape: \n{Qto.shape}")
 
+# Qcenter = (Qfrom + Qto) / 2.0
+# print(f"==>> Qcenter.shape: \n{Qcenter.shape}")
+
+
 # must compute number of batch, iteration based on pc memory
 iter_pair = 10
 npair_per_iter = Qfrom.shape[0] // iter_pair
