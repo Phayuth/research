@@ -17,72 +17,22 @@ rsrc = os.environ["RSRC_DIR"]
 robot = PlanarRR()
 scene = RobotScene(robot, None)
 
-# n = 2000
-# Qsamples = np.random.rand(n, 2) * 2 * np.pi - np.pi
-# col_states = np.array([scene.collision_checker(q) for q in Qsamples])
-# xcol = Qsamples[col_states]
-# xfre = Qsamples[~col_states]
+n = 2000
+Qsamples = np.random.rand(n, 2) * 2 * np.pi - np.pi
+col_states = np.array([scene.collision_checker(q) for q in Qsamples])
+xcol = Qsamples[col_states]
+xfre = Qsamples[~col_states]
 
+X = np.asarray(xfre, dtype=np.float32)
+k = 16
+knn = NearestNeighbors(n_neighbors=k, algorithm="auto", metric="euclidean")
+knn.fit(X)
+dist, nbr = knn.kneighbors(X)
+N = X.shape[0]
 
-# X = np.asarray(xfre, dtype=np.float32)
-
-# k = 16
-# knn = NearestNeighbors(n_neighbors=k, algorithm="auto", metric="euclidean")
-# knn.fit(X)
-# dist, nbr = knn.kneighbors(X)
-# N = X.shape[0]
-
-# indptr = [0]
-# indices = []
-# weights = []
-# for i in range(N):
-
-#     for j, d in zip(nbr[i], dist[i]):
-
-#         if i == j:
-#             continue
-
-#         indices.append(j)
-#         weights.append(float(d))
-
-#     indptr.append(len(indices))
-
-# indptr = np.asarray(indptr, dtype=np.int64)
-# indices = np.asarray(indices, dtype=np.int32)
-# weights = np.asarray(weights, dtype=np.float32)
-
-# with open("graph.txt", "w") as f:
-#     N = len(indptr) - 1
-#     for src in range(N):
-#         start = indptr[src]
-#         end = indptr[src + 1]
-#         for k in range(start, end):
-#             dst = indices[k]
-#             srci = int(src)
-#             dsti = int(dst)
-#             w = float(weights[k])
-#             w_int = max(1, int(w * (1 << 18)))
-#             f.write(f"{srci} {dsti} {w_int}\n")
-
-# df = cudf.read_csv(
-#     "graph.txt", sep=" ", header=None, names=["src", "dst", "weight"]
-# )
-
-raise
-src_array = []
-dst_array = []
-weight_array = []
-N = len(indptr) - 1
-for src in range(N):
-    start = indptr[src]
-    end = indptr[src + 1]
-    for k in range(start, end):
-        dst = indices[k]
-        w = weights[k]
-        src_array.append(src)
-        dst_array.append(dst)
-        weight_array.append(w)
-
+src_array = np.repeat(np.arange(N), k)
+dst_array = nbr.flatten()
+weight_array = dist.flatten()
 df = cudf.DataFrame(
     {
         "src": src_array,
@@ -90,16 +40,20 @@ df = cudf.DataFrame(
         "weight": weight_array,
     }
 )
-
 G = cugraph.Graph(directed=True)
 G.from_cudf_edgelist(df, source="src", destination="dst", edge_attr="weight")
-root = 0
-dist = cugraph.sssp(G, source=root)
-print(dist.head())
 
+qs = np.array([-3.0, 3.0])
+qe = np.array([3.0, -3.0])
+dist, nbr = knn.kneighbors(qs.reshape(1, -1))
+root = nbr[0][0]
+dist, nbr = knn.kneighbors(qe.reshape(1, -1))
+target = nbr[0][0]
+print(f"==>> root: {root}, target: {target}")
+
+dist = cugraph.sssp(G, source=root)
 pdf = dist.to_pandas()
 pred = dict(zip(pdf["vertex"], pdf["predecessor"]))
-target = 200
 path = []
 cur = target
 while cur != -1:
@@ -108,12 +62,47 @@ while cur != -1:
         break
     cur = pred[cur]
 path.reverse()
-print(path)
-
 qpath = xfre[path]
-print(f"==>> qpath: \n{qpath}")
-# qs = [0.0, 0.0]
-# qg = [np.pi / 2, np.pi / 2]
+
+pathid = [
+    3,
+    121,
+    592,
+    873,
+    157,
+    676,
+    1132,
+    828,
+    844,
+    383,
+    1374,
+    923,
+    703,
+    1111,
+    619,
+    1356,
+    1416,
+    1268,
+    1048,
+    218,
+    586,
+    727,
+    581,
+    612,
+    334,
+    911,
+    1183,
+    597,
+    1451,
+    733,
+    1441,
+    860,
+    161,
+    1237,
+    1532,
+]
+pathsss = xfre[pathid]
+
 cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 fig, ax = plt.subplots()
 ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
@@ -121,7 +110,8 @@ ax.plot(xfre[root, 0], xfre[root, 1], "go", markersize=10, label="Start")
 ax.plot(xfre[target, 0], xfre[target, 1], "bo", markersize=10, label="Goal")
 ax.plot(xfre[:, 0], xfre[:, 1], "k.", markersize=1, label="Free Points")
 ax.plot(xcol[:, 0], xcol[:, 1], "ko", markersize=1, label="Collision Points")
-ax.plot(qpath[:, 0], qpath[:, 1], "cx", markersize=5, label="Planned Path")
+ax.plot(qpath[:, 0], qpath[:, 1], "cx--", markersize=5, label="Planned Path")
+ax.plot(pathsss[:, 0], pathsss[:, 1], "mx--", markersize=5, label="Sample Path")
 # for i in range(N):
 #     for j in range(indptr[i], indptr[i + 1]):
 #         nbr_idx = indices[j]
@@ -139,3 +129,37 @@ ax.set_xlim(-np.pi, np.pi)
 ax.set_ylim(-np.pi, np.pi)
 ax.grid(True)
 plt.show()
+
+
+Qs = np.array(
+    [
+        [-3, 3],
+        [-3, 0],
+        [-3, -1],
+        [-3, -2],
+        [-3, -3],
+    ]
+)
+Qg = np.array(
+    [
+        [3, -3],
+        [3, 0],
+        [3, 1],
+        [3, 2],
+        [3, 3],
+    ]
+)
+
+roots = []
+targets = []
+for qs in Qs:
+    dist, nbr = knn.kneighbors(qs.reshape(1, -1))
+    root = nbr[0][0]
+    roots.append(root.item())
+for qg in Qg:
+    dist, nbr = knn.kneighbors(qg.reshape(1, -1))
+    target = nbr[0][0]
+    targets.append(target.item())
+
+print(f"==>> roots: {roots}")
+print(f"==>> targets: {targets}")
