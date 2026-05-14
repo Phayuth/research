@@ -163,3 +163,27 @@ for qg in Qg:
 
 print(f"==>> roots: {roots}")
 print(f"==>> targets: {targets}")
+
+from paper_sequential_planner.experiments.utilio import extract_paths
+
+tsv_file =  "paper_sequential_planner/experiments/combined_paths.tsv"
+paths = extract_paths(tsv_file)
+print(f"==>> paths: \n{paths}")
+
+fig, ax = plt.subplots()
+ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+ax.plot(xfre[:, 0], xfre[:, 1], "k.", markersize=1, label="Free Points")
+ax.plot(xcol[:, 0], xcol[:, 1], "ko", markersize=1, label="Collision Points")
+ax.plot(Qs[:, 0], Qs[:, 1], "go", markersize=10, label="Starts")
+ax.plot(Qg[:, 0], Qg[:, 1], "bo", markersize=10, label="Goals")
+for i in range(len(paths)):
+    path = paths[i]
+    if path is not None:
+        qpath = xfre[path]
+        ax.plot(qpath[:, 0], qpath[:, 1], "cx--", markersize=5, label=f"Planned Path {i}")
+ax.set_aspect("equal", "box")
+ax.set_xlim(-np.pi, np.pi)
+ax.set_ylim(-np.pi, np.pi)
+ax.grid(True)
+ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.show()

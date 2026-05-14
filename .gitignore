@@ -89,3 +89,4 @@ build/
 *.csv
 *.json
 *.graphml
+*.tsv
