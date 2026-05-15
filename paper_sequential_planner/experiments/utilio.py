@@ -27,6 +27,14 @@ def extract_paths(file_path):
     return paths
 
 
+def write_gtsp(paths, output_file):
+    pass
+
+
+def read_gtsp(input_file):
+    pass
+
+
 if __name__ == "__main__":
     tsv_file = "combined_paths.tsv"
     extract_paths(tsv_file)

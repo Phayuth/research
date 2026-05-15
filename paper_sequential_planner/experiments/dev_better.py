@@ -29,6 +29,8 @@ from paper_sequential_planner.experiments.env_ur5e_sphere import (
     device,
 )
 
+# from utilio import None
+
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
@@ -206,9 +208,8 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
     CspaceDistT1T2 = nan_euclidean_distances(Qt_from, Qt_to)
     cspace_eudist[idx] = CspaceDistT1T2
 
-cspace_eudist_state = cspace_eudist <= cmax_d  # True/False
-cspace_eudist_val = np.where(cspace_eudist_state, cspace_eudist, np.inf)
-# how many edges are valid per task pair
+cspace_eudist_state = cspace_eudist <= cmax_d  # True/False mask dist over cmax_d
+# Print debug ----------- how many edges are valid per task pair
 num_valid_edges_per_pair = np.sum(cspace_eudist_state, axis=(1, 2))
 print(f"==>> num_valid_edges_per_pair: \n{num_valid_edges_per_pair}")
 
@@ -221,19 +222,23 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
     Q_c_ij = np.outer(Q_c_i, Q_c_j)  # (num_sols, num_sols)
     cspace_eudist_val_selected[idx] = cspace_eudist_state_ij & Q_c_ij
 
-# check how many edges are left after both filters
+# Print debug ----------- check how many edges are left after both filters
 num_valid_edges_per_pair_filter = np.sum(cspace_eudist_val_selected, axis=(1, 2))
 print(f"==>> num_valid_edges_per_pair_filter: \n{num_valid_edges_per_pair_filter}")
+
+# USE this variable for all the downstream processing
+# cspace_eudist_val_selected
+print("".center(50, "-"))
+print(cspace_eudist_val_selected)
+
 
 
 def interp_rack(Q1, Q2, num_points):
     """
     Pairwise linear interpolation between corresponding rows of two sets of configurations.
-
     Q1: (n, dof)
     Q2: (n, dof)
     num_points: number of interpolation points (including endpoints)
-
     return: (n, num_points, dof)
     """
     n, dof = Q1.shape
@@ -282,8 +287,11 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
         nn_count_track.append(nnc)
 
 
+raise
 print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
 print(f"==>> Qto.shape: \n{Qto.shape}")
+print(f"==>> nn_id_track: \n{nn_id_track}")
+print(f"==>> nn_count_track: \n{nn_count_track}")
 
 # Qcenter = (Qfrom + Qto) / 2.0
 # print(f"==>> Qcenter.shape: \n{Qcenter.shape}")
@@ -317,3 +325,13 @@ for pair_idx in tqdm.tqdm(range(iter_pair), desc="pair batches", position=0):
         collision_rate = col_data.sum().item() / Qtorch.shape[0]
     # print(f"==>> Dataset collision rate: {collision_rate * 100:.2f}%")
     # break
+
+
+# now assume we have all the valid path and the cost after searching.
+# we must remap them back to the task indices
+valid_after_search = np.array([True] * Qfrom.shape[0], dtype=bool)
+cost_after_search = np.linalg.norm(Qto - Qfrom, axis=1)
+
+cspace_eudist_val = np.where(cspace_eudist_state, cspace_eudist, np.inf)
+
+# write to GTSP format

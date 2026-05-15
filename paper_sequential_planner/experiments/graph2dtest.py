@@ -1,8 +1,7 @@
 import os
 import numpy as np
-from ompl import base as ob
-from ompl import geometric as og
-from ompl import util as ou
+import tqdm
+import torch
 from env_planarrr import PlanarRR, RobotScene
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -23,13 +22,20 @@ col_states = np.array([scene.collision_checker(q) for q in Qsamples])
 xcol = Qsamples[col_states]
 xfre = Qsamples[~col_states]
 
-X = np.asarray(xfre, dtype=np.float32)
-k = 16
-knn = NearestNeighbors(n_neighbors=k, algorithm="auto", metric="euclidean")
-knn.fit(X)
-dist, nbr = knn.kneighbors(X)
-N = X.shape[0]
 
+def sklearn_knn(xfre):
+    X = np.asarray(xfre, dtype=np.float32)
+    k = 16
+    knn = NearestNeighbors(n_neighbors=k, algorithm="auto", metric="euclidean")
+    knn.fit(X)
+    dist, nbr = knn.kneighbors(X)
+    print(f"==>> dist: \n{dist}")
+    print(f"==>> nbr: \n{nbr}")
+    N = X.shape[0]
+    return knn, dist, nbr, N, k
+
+
+knn, dist, nbr, N, k = sklearn_knn(xfre)
 src_array = np.repeat(np.arange(N), k)
 dst_array = nbr.flatten()
 weight_array = dist.flatten()
@@ -64,45 +70,6 @@ while cur != -1:
 path.reverse()
 qpath = xfre[path]
 
-pathid = [
-    3,
-    121,
-    592,
-    873,
-    157,
-    676,
-    1132,
-    828,
-    844,
-    383,
-    1374,
-    923,
-    703,
-    1111,
-    619,
-    1356,
-    1416,
-    1268,
-    1048,
-    218,
-    586,
-    727,
-    581,
-    612,
-    334,
-    911,
-    1183,
-    597,
-    1451,
-    733,
-    1441,
-    860,
-    161,
-    1237,
-    1532,
-]
-pathsss = xfre[pathid]
-
 cspace_obs = np.load(os.path.join(rsrc, "cspace_obstacles.npy"))
 fig, ax = plt.subplots()
 ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
@@ -111,18 +78,16 @@ ax.plot(xfre[target, 0], xfre[target, 1], "bo", markersize=10, label="Goal")
 ax.plot(xfre[:, 0], xfre[:, 1], "k.", markersize=1, label="Free Points")
 ax.plot(xcol[:, 0], xcol[:, 1], "ko", markersize=1, label="Collision Points")
 ax.plot(qpath[:, 0], qpath[:, 1], "cx--", markersize=5, label="Planned Path")
-ax.plot(pathsss[:, 0], pathsss[:, 1], "mx--", markersize=5, label="Sample Path")
-# for i in range(N):
-#     for j in range(indptr[i], indptr[i + 1]):
-#         nbr_idx = indices[j]
-#         w = weights[j]
-#         ax.plot(
-#             [X[i, 0], X[nbr_idx, 0]],
-#             [X[i, 1], X[nbr_idx, 1]],
-#             "c-",
-#             linewidth=0.5,
-#             alpha=0.5,
-#         )
+# for i in range(src_array.shape[0]):
+#     src = src_array[i]
+#     dst = dst_array[i]
+#     weight = weight_array[i]
+#     ax.plot(
+#         [xfre[src, 0], xfre[dst, 0]],
+#         [xfre[src, 1], xfre[dst, 1]],
+#         "k-",
+#         alpha=0.01,
+#     )
 ax.legend()
 ax.set_aspect("equal", "box")
 ax.set_xlim(-np.pi, np.pi)
@@ -164,26 +129,47 @@ for qg in Qg:
 print(f"==>> roots: {roots}")
 print(f"==>> targets: {targets}")
 
-from paper_sequential_planner.experiments.utilio import extract_paths
+# from paper_sequential_planner.experiments.utilio import extract_paths
 
-tsv_file =  "paper_sequential_planner/experiments/combined_paths.tsv"
-paths = extract_paths(tsv_file)
-print(f"==>> paths: \n{paths}")
+# tsv_file = "paper_sequential_planner/experiments/combined_paths.tsv"
+# paths = extract_paths(tsv_file)
+# print(f"==>> paths: \n{paths}")
 
-fig, ax = plt.subplots()
-ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
-ax.plot(xfre[:, 0], xfre[:, 1], "k.", markersize=1, label="Free Points")
-ax.plot(xcol[:, 0], xcol[:, 1], "ko", markersize=1, label="Collision Points")
-ax.plot(Qs[:, 0], Qs[:, 1], "go", markersize=10, label="Starts")
-ax.plot(Qg[:, 0], Qg[:, 1], "bo", markersize=10, label="Goals")
-for i in range(len(paths)):
-    path = paths[i]
-    if path is not None:
-        qpath = xfre[path]
-        ax.plot(qpath[:, 0], qpath[:, 1], "cx--", markersize=5, label=f"Planned Path {i}")
-ax.set_aspect("equal", "box")
-ax.set_xlim(-np.pi, np.pi)
-ax.set_ylim(-np.pi, np.pi)
-ax.grid(True)
-ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
-plt.show()
+# fig, ax = plt.subplots()
+# ax.plot(cspace_obs[:, 0], cspace_obs[:, 1], "ro", markersize=1)
+# ax.plot(xfre[:, 0], xfre[:, 1], "k.", markersize=1, label="Free Points")
+# ax.plot(xcol[:, 0], xcol[:, 1], "ko", markersize=1, label="Collision Points")
+# ax.plot(Qs[:, 0], Qs[:, 1], "go", markersize=10, label="Starts")
+# ax.plot(Qg[:, 0], Qg[:, 1], "bo", markersize=10, label="Goals")
+# for i in range(len(paths)):
+#     path = paths[i]
+#     if path is not None:
+#         qpath = xfre[path]
+#         ax.plot(
+#             qpath[:, 0],
+#             qpath[:, 1],
+#             "cx--",
+#             markersize=5,
+#             label=f"Planned Path {i}",
+#         )
+# ax.set_aspect("equal", "box")
+# ax.set_xlim(-np.pi, np.pi)
+# ax.set_ylim(-np.pi, np.pi)
+# ax.grid(True)
+# ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+# plt.show()
+
+
+import faiss
+dof = 2
+res = faiss.StandardGpuResources()
+index_flat = faiss.IndexFlatL2(dof)
+gpu_index_flat = faiss.index_cpu_to_gpu(res, 0, index_flat)
+gpu_index_flat.add(xfre.astype(np.float32))
+
+k = 16
+D, I = gpu_index_flat.search(xfre.astype(np.float32), k)
+print(f"==>> D: \n{D}")
+print(f"==>> I: \n{I}")
+
+
