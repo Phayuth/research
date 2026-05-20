@@ -195,8 +195,10 @@ print(f"==>> selected_q shape: \n{selected_q.shape}")
 Q_c = np.where(Qikstate_reach == 1, True, False) & selected_q
 qinit_state_selected = np.where(qinit_state_ == 1, True, False)
 Q_c_init = np.vstack((qinit_state_selected, Q_c))
+print(f"==>> Q_c_init.shape: \n{Q_c_init.shape}")
+print(f"==>> Q_c_init: \n{Q_c_init}")
 num_selected_per_task = np.sum(Q_c_init, axis=1)
-print(f"==>> num_selected_per_task: \n{num_selected_per_task}")
+print(f"==>> num_selected_per_task: \n{num_selected_per_task.T}")
 
 # eliminate edges that are too long in cspace
 # ! careful with Qik_reach_init, I don't the unreachable to nan yet
@@ -225,12 +227,64 @@ for idx, (i, j) in enumerate(task_to_nn_unique):
 # Print debug ----------- check how many edges are left after both filters
 num_valid_edges_per_pair_filter = np.sum(cspace_eudist_val_selected, axis=(1, 2))
 print(f"==>> num_valid_edges_per_pair_filter: \n{num_valid_edges_per_pair_filter}")
+num_valid_edges_per_pair_filter_total = np.sum(num_valid_edges_per_pair_filter)
+print(
+    f"==>> total number of valid edges after filter: \n{num_valid_edges_per_pair_filter_total}"
+)
 
 # USE this variable for all the downstream processing
 # cspace_eudist_val_selected
-print("".center(50, "-"))
-print(cspace_eudist_val_selected)
+# print("".center(50, "-"))
+# print(cspace_eudist_val_selected)
 
+
+Q_c_init_exist_after_edges = np.full_like(Q_c_init, False, dtype=bool)
+for idx, (i, j) in enumerate(task_to_nn_unique):
+    cspace_eudist_val_selected_ij = cspace_eudist_val_selected[idx]
+    q_from = np.any(cspace_eudist_val_selected_ij, axis=1)[..., np.newaxis]
+    q_to = np.any(cspace_eudist_val_selected_ij, axis=0)[..., np.newaxis]
+    Q_c_init_exist_after_edges[i] = np.logical_or(
+        Q_c_init_exist_after_edges[i], q_from
+    )
+    Q_c_init_exist_after_edges[j] = np.logical_or(
+        Q_c_init_exist_after_edges[j], q_to
+    )
+print(
+    f"==>> Q_c_init_exist_after_edges.shape: \n{Q_c_init_exist_after_edges.shape}"
+)
+
+for taski in range(Q_c_init.shape[0]):
+    qs = Q_c_init_exist_after_edges[taski]
+    num_qs = np.sum(qs)
+
+total_q_selected = np.sum(Q_c_init_exist_after_edges)
+print(f"Total number of configurations selected after: {total_q_selected}")
+
+ntasksss = Q_c_init_exist_after_edges.shape[0]
+print(f"==>> ntasksss: \n{ntasksss}")
+nodesid = np.arange(total_q_selected) + 1  # GTSP node id start from 1
+print(f"==>> nodesid: \n{nodesid}")
+
+
+# map valid nodes id to linear id for each task, this is for GTSP_SET_SECTION
+
+
+
+def generate_gtsp_set_section():
+    # Generate GTSP_SET_SECTION
+    print("GTSP_SET_SECTION")
+    node_idx = 0
+    for task_id, num_nodes in enumerate(num_selected_per_task, start=1):
+        # Get the nodes for this task
+        task_nodes = nodesid[node_idx : node_idx + num_nodes.item()]
+        # Format: task_id node1 node2 ... nodeN -1
+        nodes_str = " ".join(map(str, task_nodes))
+        print(f"{task_id} {nodes_str} -1")
+        node_idx += num_nodes.item()
+    print("END")
+
+
+raise
 
 
 def interp_rack(Q1, Q2, num_points):
