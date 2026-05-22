@@ -506,22 +506,14 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     ntasks_rech, n_ik, dof = Qaik_r.shape
     Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
     dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
-    get_Qind_inradius = dist.flatten() <= radius
-    Qin_radius = Qaik_r_flat[get_Qind_inradius]
-    selected_q = get_Qind_inradius.reshape(ntasks_rech, n_ik)
-    selected_rate = np.sum(get_Qind_inradius) / get_Qind_inradius.size
-    task_ids = np.where(get_Qind_inradius)[0] // n_ik
-    qi_in_task = np.where(get_Qind_inradius)[0] % n_ik
+    q_valid = dist.flatten() <= radius
+    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
 
-    print(f"==>> selected {len(Qin_radius)} / {len(Qaik_r_flat)} configurations")
+    num_q_valid = np.sum(q_valid)
+    selected_rate = num_q_valid / q_valid.size
+    print(f"==>> selected {num_q_valid} / {len(Qaik_r_flat)} configurations")
     print(f"==>> selected_rate: {selected_rate}")
-    fd_radius = {
-        "selected_q": selected_q[:, :, None],
-        "Qin_radius": Qin_radius,
-        "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
-        "qi_in_task": qi_in_task,
-    }
-    return fd_radius
+    return q_valid_shape[:, :, None]
 
 
 def filter_cspace_edges():

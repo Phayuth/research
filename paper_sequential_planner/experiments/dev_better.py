@@ -178,25 +178,15 @@ tmult = 0.08  # threshold multiplier for candidate selection in cspace
 
 
 # eliminate nodes that are too far from qinit in cspace
-fr = filter_cspace_candidate_radius_to_qinit(Qik_reach, qinit, radius=r_max)
-selected_q, Qin_radius, task_ids_radius, qi_in_task_radius = (
-    fr["selected_q"],
-    fr["Qin_radius"],
-    fr["task_ids"],
-    fr["qi_in_task"],
-)
-print(f"==>> selected_q shape: \n{selected_q.shape}")
-# print(f"==>> Qin_radius: \n{Qin_radius}")
-# print(f"==>> task_ids_radius: \n{task_ids_radius}")
-# print(f"==>> qi_in_task_radius: \n{qi_in_task_radius}")
+q_in_R = filter_cspace_candidate_radius_to_qinit(Qik_reach, qinit, radius=r_max)
+print(f"==>> q_in_R shape: \n{q_in_R.shape}")
 
 # check the reachable filter and the cspace radius filter
-# this is not include qinit
-Q_c = np.where(Qikstate_reach == 1, True, False) & selected_q
+Q_c = np.where(Qikstate_reach == 1, True, False) & q_in_R
 qinit_state_selected = np.where(qinit_state_ == 1, True, False)
 Q_c_init = np.vstack((qinit_state_selected, Q_c))
 print(f"==>> Q_c_init.shape: \n{Q_c_init.shape}")
-print(f"==>> Q_c_init: \n{Q_c_init}")
+
 num_selected_per_task = np.sum(Q_c_init, axis=1)
 print(f"==>> num_selected_per_task: \n{num_selected_per_task.T}")
 
@@ -260,29 +250,169 @@ for taski in range(Q_c_init.shape[0]):
 total_q_selected = np.sum(Q_c_init_exist_after_edges)
 print(f"Total number of configurations selected after: {total_q_selected}")
 
+Q_c_init_exist_after_edges_flat = Q_c_init_exist_after_edges.flatten()
+nodesid_true = np.where(Q_c_init_exist_after_edges_flat)[0]
+print(f"==>> nodesid_true.shape: \n{nodesid_true.shape}")
+print(f"==>> nodesid_true: \n{nodesid_true}")
+
 ntasksss = Q_c_init_exist_after_edges.shape[0]
 print(f"==>> ntasksss: \n{ntasksss}")
 nodesid = np.arange(total_q_selected) + 1  # GTSP node id start from 1
+print(f"==>> nodesid.shape: \n{nodesid.shape}")
 print(f"==>> nodesid: \n{nodesid}")
 
 
-# map valid nodes id to linear id for each task, this is for GTSP_SET_SECTION
+def generate_gtsp_header():
+    lines = []
+    lines.append("NAME: ur5e_sphere")
+    lines.append("TYPE: GTSP")
+    lines.append(f"DIMENSION: {total_q_selected}")
+    lines.append("GTSP_SETS: {}".format(Q_c_init_exist_after_edges.shape[0]))
+    lines.append("EDGE_WEIGHT_TYPE: EXPLICIT")
+    lines.append("EDGE_WEIGHT_FORMAT: FULL_MATRIX")
+    return "\n".join(lines)
 
+
+def generate_gtsp_edge_weight_section():
+    # Extract task and solution IDs for each flat node
+    node_tasks = nodesid_true // num_sols
+    node_sols = nodesid_true % num_sols
+    n_nodes = len(nodesid_true)
+
+    # Build lookup table for task pair indices: task_pair_lookup[i,j] -> task_pair_idx
+    task_to_nn_unique_arr = np.array(task_to_nn_unique)
+    num_tasks = task_to_nn_unique_arr.max() + 1
+    task_pair_lookup = np.full((num_tasks, num_tasks), -1, dtype=np.int32)
+    for idx, (i, j) in enumerate(task_to_nn_unique_arr):
+        task_pair_lookup[i, j] = idx
+        task_pair_lookup[j, i] = idx
+
+    # Create meshgrid for all node pairs
+    i_idx, j_idx = np.meshgrid(
+        np.arange(n_nodes), np.arange(n_nodes), indexing="ij"
+    )
+    i_idx_flat = i_idx.ravel()
+    j_idx_flat = j_idx.ravel()
+
+    # Get task/sol for each node in all pairs
+    task_i = node_tasks[i_idx_flat]
+    sol_i = node_sols[i_idx_flat]
+    task_j = node_tasks[j_idx_flat]
+    sol_j = node_sols[j_idx_flat]
+
+    # Initialize distance matrix
+    gtsp_dist_matrix = np.full((n_nodes, n_nodes), 1000, dtype=np.float64)
+    np.fill_diagonal(gtsp_dist_matrix, 0)  # Set diagonal to 0
+
+    # Find task pair indices using lookup table
+    task_pair_idx = task_pair_lookup[task_i, task_j]
+
+    # Valid pairs: same task pair exists and tasks are different
+    valid_pairs = (task_pair_idx >= 0) & (task_i != task_j)
+
+    if np.any(valid_pairs):
+        task_pair_idx_valid = task_pair_idx[valid_pairs]
+        i_idx_valid = i_idx_flat[valid_pairs]
+        j_idx_valid = j_idx_flat[valid_pairs]
+        task_i_valid = task_i[valid_pairs]
+        sol_i_valid = sol_i[valid_pairs]
+        task_j_valid = task_j[valid_pairs]
+        sol_j_valid = sol_j[valid_pairs]
+
+        # For each valid pair, check if edge is valid in cspace_eudist_val_selected
+        for idx in range(len(task_pair_idx_valid)):
+            tp_idx = task_pair_idx_valid[idx]
+            ti = task_i_valid[idx]
+            tj = task_j_valid[idx]
+            si = sol_i_valid[idx]
+            sj = sol_j_valid[idx]
+            i_pos = i_idx_valid[idx]
+            j_pos = j_idx_valid[idx]
+
+            if ti < tj:
+                is_valid = cspace_eudist_val_selected[tp_idx, si, sj]
+                if is_valid:
+                    gtsp_dist_matrix[i_pos, j_pos] = cspace_eudist[tp_idx, si, sj]
+            else:
+                is_valid = cspace_eudist_val_selected[tp_idx, sj, si]
+                if is_valid:
+                    gtsp_dist_matrix[i_pos, j_pos] = cspace_eudist[tp_idx, sj, si]
+
+    gtsp_dist_matrix_int = (gtsp_dist_matrix * 1000).astype(int)
+
+    # Generate GTSP_EDGE_WEIGHT_SECTION
+    lines = ["EDGE_WEIGHT_SECTION"]
+    for i in range(n_nodes):
+        row = gtsp_dist_matrix_int[i]
+        row_str = " ".join(str(int(x)) for x in row)
+        lines.append(row_str)
+
+    return "\n".join(lines)
 
 
 def generate_gtsp_set_section():
-    # Generate GTSP_SET_SECTION
-    print("GTSP_SET_SECTION")
+    lines = ["GTSP_SET_SECTION"]
     node_idx = 0
     for task_id, num_nodes in enumerate(num_selected_per_task, start=1):
         # Get the nodes for this task
         task_nodes = nodesid[node_idx : node_idx + num_nodes.item()]
         # Format: task_id node1 node2 ... nodeN -1
         nodes_str = " ".join(map(str, task_nodes))
-        print(f"{task_id} {nodes_str} -1")
+        lines.append(f"{task_id} {nodes_str} -1")
         node_idx += num_nodes.item()
-    print("END")
+    lines.append("EOF")
+    return "\n".join(lines)
 
+
+def write_gtsp_file(filename="output.gtsp"):
+    header = generate_gtsp_header()
+    edge_section = generate_gtsp_edge_weight_section()
+    set_section = generate_gtsp_set_section()
+
+    # Concatenate all sections
+    gtsp_content = f"{header}\n\n{edge_section}\n\n{set_section}"
+
+    # Write to file
+    with open(filename, "w") as f:
+        f.write(gtsp_content)
+
+    print(f"GTSP file written to {filename}")
+
+
+# write_gtsp_file("ur5e_sphere_gtsp.gtsp")
+tour = [
+    302,
+    1,
+    367,
+    341,
+    317,
+    29,
+    45,
+    63,
+    114,
+    106,
+    23,
+    89,
+    102,
+    221,
+    280,
+    268,
+    191,
+    164,
+    255,
+    244,
+    135,
+    405,
+    398,
+    392,
+    384,
+]
+
+# remap the tour flatten node id back to its original id
+tour_indices = np.searchsorted(nodesid, tour)
+print(f"==>> tour_indices: \n{tour_indices}")
+tour_indices_og = nodesid_true[tour_indices]
+print(f"==>> tour_indices_og: \n{tour_indices_og}")
 
 raise
 
