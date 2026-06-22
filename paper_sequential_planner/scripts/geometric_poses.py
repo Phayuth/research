@@ -193,32 +193,32 @@ def task_space_correlation(tspace_dist, nnr=0.15, nnk=5):
 def task_space_correlation_map(tspace_coorrelation):
     nn_union = tspace_coorrelation["nn_union"]
 
-    task_to_nn_mapping = {}
+    task_to_nn_dict = {}
     for i in range(len(nn_union)):
         for j in nn_union[i]:
-            task_to_nn_mapping[i] = task_to_nn_mapping.get(i, []) + [j]
+            task_to_nn_dict[i] = task_to_nn_dict.get(i, []) + [j]
 
     # unique undirected edges in canonical order: (i, j) with i < j
-    task_to_nn_unique = set()
+    task_to_nn_pair = set()
     for i in range(len(nn_union)):
         for j in nn_union[i]:
             if i == j:
                 continue
             a, b = (i, j) if i < j else (j, i)
-            task_to_nn_unique.add((a, b))
+            task_to_nn_pair.add((a, b))
 
-    task_to_nn_unique = sorted(task_to_nn_unique)
-    task_to_nn_unique_len = len(task_to_nn_unique)
+    task_to_nn_pair = sorted(task_to_nn_pair)
+    task_to_nn_pair_len = len(task_to_nn_pair) # number of unique undirected pairs
 
     tspace_mapping = {
-        "task_to_nn_mapping": task_to_nn_mapping,
-        "task_to_nn_unique": task_to_nn_unique,
-        "task_to_nn_unique_len": task_to_nn_unique_len,
+        "task_to_nn_dict": task_to_nn_dict,
+        "task_to_nn_pair": task_to_nn_pair,
+        "task_to_nn_pair_len": task_to_nn_pair_len,
     }
     return tspace_mapping
 
 
-def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_unique):
+def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_pair):
     """
     I is task [from] id
     J is task [to] id
@@ -227,11 +227,11 @@ def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_unique):
     """
     if j < i:
         a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_unique.index((a, b))
+        idx = task_to_nn_pair.index((a, b))
         return cspace_eudist[idx].T  # transpose to swap T1 and T2
     else:
         a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_unique.index((a, b))
+        idx = task_to_nn_pair.index((a, b))
         return cspace_eudist[idx]
 
 
@@ -513,8 +513,11 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     selected_rate = num_q_valid / q_valid.size
     print(f"==>> selected {num_q_valid} / {len(Qaik_r_flat)} configurations")
     print(f"==>> selected_rate: {selected_rate}")
+    print(f"==>> eliminated_rate: {1 - selected_rate}")
     return q_valid_shape[:, :, None]
 
+def filter_cspace_candidate_nn2c(Qaik_r, qinit):
+    pass
 
 def filter_cspace_edges():
     pass
