@@ -208,7 +208,7 @@ def task_space_correlation_map(tspace_coorrelation):
             task_to_nn_pair.add((a, b))
 
     task_to_nn_pair = sorted(task_to_nn_pair)
-    task_to_nn_pair_len = len(task_to_nn_pair) # number of unique undirected pairs
+    task_to_nn_pair_len = len(task_to_nn_pair)  # number of unique undirected pairs
 
     tspace_mapping = {
         "task_to_nn_dict": task_to_nn_dict,
@@ -508,16 +508,19 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
     dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
     q_valid = dist.flatten() <= radius
     q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
+    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
 
-    num_q_valid = np.sum(q_valid)
-    selected_rate = num_q_valid / q_valid.size
-    print(f"==>> selected {num_q_valid} / {len(Qaik_r_flat)} configurations")
-    print(f"==>> selected_rate: {selected_rate}")
-    print(f"==>> eliminated_rate: {1 - selected_rate}")
-    return q_valid_shape[:, :, None]
+    nQredpt = np.sum(q_valid_shape, axis=1)
+    n_selected = np.sum(nQredpt)
+    n_total = np.prod(q_valid_shape.shape)
+    print(f"==>> selected {n_selected} / {n_total} configurations")
+    print(f"==>> selected_rate: {n_selected / n_total}")
+    return q_valid_shape
+
 
 def filter_cspace_candidate_nn2c(Qaik_r, qinit):
     pass
+
 
 def filter_cspace_edges():
     pass

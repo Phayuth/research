@@ -29,7 +29,10 @@ from paper_sequential_planner.experiments.env_ur5e_sphere import (
     device,
 )
 
-from paper_sequential_planner.experiments.utilio import write_gtsp_file
+from paper_sequential_planner.experiments.utilio import (
+    write_gtsp_file,
+    read_gtsp_file,
+)
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -178,7 +181,7 @@ r_max = 2 * np.pi  # max radius for candidate selection in cspace
 tmult = 0.08  # threshold multiplier for candidate selection in cspace
 
 
-# eliminate nodes that are too far from qinit in cspace
+# check the radius filter with the init
 Qreduced = filter_cspace_candidate_radius_to_qinit(Qik_reach, qinit, radius=r_max)
 print(f"==>> Qreduced shape: \n{Qreduced.shape}")
 
@@ -188,7 +191,10 @@ qinit_red_ = np.where(qinit_state_ == 1, True, False)
 Qreduced_init = np.vstack((qinit_red_, Qred_))
 nQredpt = np.sum(Qreduced_init, axis=1)
 print(f"==>> nQredpt: \n{nQredpt.T}")
+nQred = np.sum(nQredpt)
+print(f"==>> nQred: \n{nQred}")
 
+# This is the straight distance eulidean distance
 # determine cspace euclidean distance between all the valid edges in taskspace
 Ecspace_eudist = np.empty((task_to_nn_pair_len, num_sols, num_sols))
 for idx, (i, j) in enumerate(task_to_nn_pair):
@@ -200,215 +206,53 @@ for idx, (i, j) in enumerate(task_to_nn_pair):
 # ! careful with Qik_reach_init, I don't check the unreachable to nan yet
 # ! must ensure unreachable with Qikstate_react_init
 Ecspace_eudist_state = Ecspace_eudist <= cmax_d  # True/False mask dist over cmax_d
-nEpt = np.sum(Ecspace_eudist_state, axis=(1, 2))
-print(f"==>> nEpt: \n{nEpt}")
+# nEpt = np.sum(Ecspace_eudist_state, axis=(1, 2))
+# print(f"==>> nEpt: \n{nEpt}")
 
 # eliminate edges more: the one that its node is not selected by the radius filter
-Ecspace_eudist_red = np.empty_like(Ecspace_eudist_state, dtype=bool)
+Ecspace_eudist_state_red = np.empty_like(Ecspace_eudist_state, dtype=bool)
 for idx, (i, j) in enumerate(task_to_nn_pair):
-    Ecspace_eudist_state_ij = Ecspace_eudist_state[idx]
-    Qreduced_i = Qreduced_init[i]
-    Qreduced_j = Qreduced_init[j]
-    Qreduced_ij = np.outer(Qreduced_i, Qreduced_j)  # (num_sols, num_sols)
-    Ecspace_eudist_red[idx] = Ecspace_eudist_state_ij & Qreduced_ij
+    Qreduced_ij = np.outer(Qreduced_init[i], Qreduced_init[j])  # numsols, numsols
+    Ecspace_eudist_state_red[idx] = Ecspace_eudist_state[idx] & Qreduced_ij
+print(f"==>> Ecspace_eudist_state_red.shape: \n{Ecspace_eudist_state_red.shape}")
 
-nEvalpt = np.sum(Ecspace_eudist_red, axis=(1, 2))
-print(f"==>> nEvalpt: \n{nEvalpt}")
+nEvalpt = np.sum(Ecspace_eudist_state_red, axis=(1, 2))
 nEval = np.sum(nEvalpt)
+print(f"==>> nEvalpt: \n{nEvalpt}")
 print(f"==>> nEval: \n{nEval}")
 
+# edge collision-free estimation
+Ecspace_colfree_dist = np.where(Ecspace_eudist_state_red, Ecspace_eudist, np.inf)
 
 # 2nd round of Q filtered after the edge elimination
 Qreduced_final = np.full_like(Qreduced_init, False, dtype=bool)
 for idx, (i, j) in enumerate(task_to_nn_pair):
-    Ecspace_eudist_red_ij = Ecspace_eudist_red[idx]
-    q_from = np.any(Ecspace_eudist_red_ij, axis=1)[..., np.newaxis]
-    q_to = np.any(Ecspace_eudist_red_ij, axis=0)[..., np.newaxis]
+    Ecspace_eudist_state_red_ij = Ecspace_eudist_state_red[idx]
+    q_from = np.any(Ecspace_eudist_state_red_ij, axis=1)[..., np.newaxis]
+    q_to = np.any(Ecspace_eudist_state_red_ij, axis=0)[..., np.newaxis]
     Qreduced_final[i] = np.logical_or(Qreduced_final[i], q_from)
     Qreduced_final[j] = np.logical_or(Qreduced_final[j], q_to)
 print(f"==>> Qreduced_final.shape: \n{Qreduced_final.shape}")
 
-nQredfinalpt = np.sum(Qreduced_final, axis=1)
-print(f"==>> nQredfinalpt: \n{nQredfinalpt.T}")
-nQredfinal = np.sum(nQredfinalpt)
-print(f"==>> nQredfinal: \n{nQredfinal}")
 
+path = os.path.join(rsrc, "gtsp")
+pathprob = os.path.join(rsrc, "gtsp", "ur5e_sphere_gtsp.gtsp")
+pathsol = os.path.join(rsrc, "gtsp", "ur5e_sols")
 
-# mapping the flatten node id
-# nodeid_og is the original node id
-# nodeid_cont is the continuous node id for gtsp solver
-Qreduced_final_flat = Qreduced_final.flatten()
-nodesid_og = np.where(Qreduced_final_flat)[0]  # take only the True nodes
-nodesid_cont = np.arange(nQredfinal) + 1  # GTSP node id start from 1
-print(f"==>> nodesid_og.shape: \n{nodesid_og.shape}")
-print(f"==>> nodesid_og: \n{nodesid_og}")
-print(f"==>> nodesid_cont.shape: \n{nodesid_cont.shape}")
-print(f"==>> nodesid_cont: \n{nodesid_cont}")
-
-
-# def generate_gtsp_header(name, dimension, gtsp_sets):
-#     """
-#     DIMENSION is the total sum of every nodes in every cluster (solutions)
-#     GTSP_SETS is the total number of clusters (tasks)
-#     """
-#     lines = []
-#     lines.append(f"NAME: {name}")
-#     lines.append("TYPE: GTSP")
-#     lines.append(f"DIMENSION: {dimension}")
-#     lines.append(f"GTSP_SETS: {gtsp_sets}")
-#     lines.append("EDGE_WEIGHT_TYPE: EXPLICIT")
-#     lines.append("EDGE_WEIGHT_FORMAT: FULL_MATRIX")
-#     return "\n".join(lines)
-
-
-# def generate_gtsp_edge_weight_section():
-#     # Extract task and solution IDs for each flat node
-#     node_tasks = nodesid_og // num_sols
-#     node_sols = nodesid_og % num_sols
-#     n_nodes = len(nodesid_og)
-
-#     # Build lookup table for task pair indices: task_pair_lookup[i,j] -> task_pair_idx
-#     task_to_nn_pair_arr = np.array(task_to_nn_pair)
-#     num_tasks = task_to_nn_pair_arr.max() + 1
-#     task_pair_lookup = np.full((num_tasks, num_tasks), -1, dtype=np.int32)
-#     for idx, (i, j) in enumerate(task_to_nn_pair_arr):
-#         task_pair_lookup[i, j] = idx
-#         task_pair_lookup[j, i] = idx
-
-#     # Create meshgrid for all node pairs
-#     i_idx, j_idx = np.meshgrid(
-#         np.arange(n_nodes), np.arange(n_nodes), indexing="ij"
-#     )
-#     i_idx_flat = i_idx.ravel()
-#     j_idx_flat = j_idx.ravel()
-
-#     # Get task/sol for each node in all pairs
-#     task_i = node_tasks[i_idx_flat]
-#     sol_i = node_sols[i_idx_flat]
-#     task_j = node_tasks[j_idx_flat]
-#     sol_j = node_sols[j_idx_flat]
-
-#     # Initialize distance matrix
-#     gtsp_dist_matrix = np.full((n_nodes, n_nodes), 1000, dtype=np.float64)
-#     np.fill_diagonal(gtsp_dist_matrix, 0)  # Set diagonal to 0
-
-#     # Find task pair indices using lookup table
-#     task_pair_idx = task_pair_lookup[task_i, task_j]
-
-#     # Valid pairs: same task pair exists and tasks are different
-#     valid_pairs = (task_pair_idx >= 0) & (task_i != task_j)
-
-#     if np.any(valid_pairs):
-#         task_pair_idx_valid = task_pair_idx[valid_pairs]
-#         i_idx_valid = i_idx_flat[valid_pairs]
-#         j_idx_valid = j_idx_flat[valid_pairs]
-#         task_i_valid = task_i[valid_pairs]
-#         sol_i_valid = sol_i[valid_pairs]
-#         task_j_valid = task_j[valid_pairs]
-#         sol_j_valid = sol_j[valid_pairs]
-
-#         # For each valid pair, check if edge is valid in cspace_eudist_val_selected
-#         for idx in range(len(task_pair_idx_valid)):
-#             tp_idx = task_pair_idx_valid[idx]
-#             ti = task_i_valid[idx]
-#             tj = task_j_valid[idx]
-#             si = sol_i_valid[idx]
-#             sj = sol_j_valid[idx]
-#             i_pos = i_idx_valid[idx]
-#             j_pos = j_idx_valid[idx]
-
-#             if ti < tj:
-#                 is_valid = Ecspace_eudist_red[tp_idx, si, sj]
-#                 if is_valid:
-#                     gtsp_dist_matrix[i_pos, j_pos] = Ecspace_eudist[tp_idx, si, sj]
-#             else:
-#                 is_valid = Ecspace_eudist_red[tp_idx, sj, si]
-#                 if is_valid:
-#                     gtsp_dist_matrix[i_pos, j_pos] = Ecspace_eudist[tp_idx, sj, si]
-
-#     gtsp_dist_matrix_int = (gtsp_dist_matrix * 1000).astype(int)
-
-#     # Generate GTSP_EDGE_WEIGHT_SECTION
-#     lines = ["EDGE_WEIGHT_SECTION"]
-#     for i in range(n_nodes):
-#         row = gtsp_dist_matrix_int[i]
-#         row_str = " ".join(str(int(x)) for x in row)
-#         lines.append(row_str)
-
-#     return "\n".join(lines)
-
-
-# def generate_gtsp_set_section():
-#     lines = ["GTSP_SET_SECTION"]
-#     node_idx = 0
-#     for task_id, num_nodes in enumerate(nQredfinalpt, start=1):
-#         # Get the nodes for this task
-#         task_nodes = nodesid_cont[node_idx : node_idx + num_nodes.item()]
-#         # Format: task_id node1 node2 ... nodeN -1
-#         nodes_str = " ".join(map(str, task_nodes))
-#         lines.append(f"{task_id} {nodes_str} -1")
-#         node_idx += num_nodes.item()
-#     lines.append("EOF")
-#     return "\n".join(lines)
-
-
-# def write_gtsp_file(filename="output.gtsp"):
-#     header = generate_gtsp_header()
-#     edge_section = generate_gtsp_edge_weight_section()
-#     set_section = generate_gtsp_set_section()
-
-#     # Concatenate all sections
-#     gtsp_content = f"{header}\n\n{edge_section}\n\n{set_section}"
-
-#     # Write to file
-#     with open(filename, "w") as f:
-#         f.write(gtsp_content)
-
-#     print(f"GTSP file written to {filename}")
-
-write_gtsp_file(
-    filename="ur5e_sphere_gtsp.gtsp",
+nodesid_og, nodesid_cont = write_gtsp_file(
+    filename=pathprob,
     name="ur5e_sphere_gtsp",
     task_to_nn_pair=task_to_nn_pair,
-    Ecspace_eudist=Ecspace_eudist,
-    Ecspace_eudist_red=Ecspace_eudist_red,
-    Ecspace_colfree=None,
+    Ecspace_eudist_state=Ecspace_eudist_state,
+    Ecspace_colfree_dist=Ecspace_colfree_dist,
     Qreduced_final=Qreduced_final,
 )
-# write_gtsp_file("ur5e_sphere_gtsp.gtsp")
-tour = [
-    302,
-    1,
-    367,
-    341,
-    317,
-    29,
-    45,
-    63,
-    114,
-    106,
-    23,
-    89,
-    102,
-    221,
-    280,
-    268,
-    191,
-    164,
-    255,
-    244,
-    135,
-    405,
-    398,
-    392,
-    384,
-]
 
-# remap the tour flatten node id back to its original id
-tour_indices = np.searchsorted(nodesid_cont, tour)
-print(f"==>> tour_indices: \n{tour_indices}")
-tour_indices_og = nodesid_og[tour_indices]
+# calling GTSP solver externally, and read the solution back
+
+tour_indices_og = read_gtsp_file(pathsol, nodesid_og, nodesid_cont)
 print(f"==>> tour_indices_og: \n{tour_indices_og}")
+
 
 raise
 

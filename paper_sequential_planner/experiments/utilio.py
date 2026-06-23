@@ -48,7 +48,11 @@ def generate_gtsp_header(name, dimension, gtsp_sets):
 
 
 def generate_gtsp_edge_weight_section(
-    nodesid_og, num_sols, task_to_nn_pair, Ecspace_eudist, Ecspace_eudist_red
+    nodesid_og,
+    num_sols,
+    task_to_nn_pair,
+    Ecspace_eudist_state,
+    Ecspace_colfree_dist,
 ):
     # Extract task and solution IDs for each flat node
     node_tasks = nodesid_og // num_sols
@@ -106,13 +110,17 @@ def generate_gtsp_edge_weight_section(
             j_pos = j_idx_valid[idx]
 
             if ti < tj:
-                is_valid = Ecspace_eudist_red[tp_idx, si, sj]
+                is_valid = Ecspace_eudist_state[tp_idx, si, sj]
                 if is_valid:
-                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_eudist[tp_idx, si, sj]
+                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_colfree_dist[
+                        tp_idx, si, sj
+                    ]
             else:
-                is_valid = Ecspace_eudist_red[tp_idx, sj, si]
+                is_valid = Ecspace_eudist_state[tp_idx, sj, si]
                 if is_valid:
-                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_eudist[tp_idx, sj, si]
+                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_colfree_dist[
+                        tp_idx, sj, si
+                    ]
 
     gtsp_dist_matrix_int = (gtsp_dist_matrix * 1000).astype(int)
 
@@ -144,24 +152,19 @@ def write_gtsp_file(
     filename="output.gtsp",
     name="GTSP_Instance",
     task_to_nn_pair=None,
-    Ecspace_eudist=None,
-    Ecspace_eudist_red=None,
-    Ecspace_colfree=None,
-    Qreduced_final=None
+    Ecspace_eudist_state=None,
+    Ecspace_colfree_dist=None,
+    Qreduced_final=None,
 ):
-    print(f"Writing GTSP file to {filename}...")
+    print(f"-->>Writing GTSP file to {filename}...")
 
-    Ecspace_eudist = None  # Placeholder for the actual Ecspace_eudist data
-    Ecspace_eudist_red = None  # Placeholder for the actual Ecspace_eudist
-    Ecspace_colfree = None  # Placeholder for the actual Ecspace_colfree data
-
-    Qreduced_final = None
+    # determine the number of dimensions and gtsp sets
     nQredfinalpt = np.sum(Qreduced_final, axis=1)
     print(f"==>> nQredfinalpt: \n{nQredfinalpt.T}")
     nQredfinal = np.sum(nQredfinalpt)
     print(f"==>> nQredfinal: \n{nQredfinal}")
 
-    ntasks, num_sols, dof = Ecspace_eudist.shape
+    ntasks, num_sols, dof = Qreduced_final.shape
     dimension = nQredfinal
     gtsp_sets = ntasks
 
@@ -171,10 +174,6 @@ def write_gtsp_file(
     Qreduced_final_flat = Qreduced_final.flatten()
     nodesid_og = np.where(Qreduced_final_flat)[0]  # take only the True nodes
     nodesid_cont = np.arange(nQredfinal) + 1  # GTSP node id start from 1
-    print(f"==>> nodesid_og.shape: \n{nodesid_og.shape}")
-    print(f"==>> nodesid_og: \n{nodesid_og}")
-    print(f"==>> nodesid_cont.shape: \n{nodesid_cont.shape}")
-    print(f"==>> nodesid_cont: \n{nodesid_cont}")
 
     header = generate_gtsp_header(
         name,
@@ -185,8 +184,8 @@ def write_gtsp_file(
         nodesid_og,
         num_sols,
         task_to_nn_pair,
-        Ecspace_eudist,
-        Ecspace_eudist_red,
+        Ecspace_eudist_state,
+        Ecspace_colfree_dist,
     )
     set_section = generate_gtsp_set_section(nQredfinalpt, nodesid_cont)
 
@@ -194,13 +193,39 @@ def write_gtsp_file(
 
     with open(filename, "w") as f:
         f.write(gtsp_content)
-    print(f"GTSP file written to {filename}")
+
+    print(f"-->>GTSP file written to {filename}")
+
+    # Qreduced_final_flat = Qreduced_final.flatten()
+    # Qik_reach_init_flat = Qik_reach_init.reshape(
+    #     -1, Qik_reach_init.shape[2]
+    # )  # (ntasks*num_sols, dof)
+    # print(f"==>> Qik_reach_init_flat.shape: \n{Qik_reach_init_flat.shape}")
+    # Q = Qik_reach_init_flat[Qreduced_final_flat]
+    # print(f"==>> Q.shape: \n{Q.shape}")
+    # Edist = nan_euclidean_distances(Q, Q)
+    # Edistint = (Edist * 1000).astype(int)
+    # np.fill_diagonal(Edist, 0)
+    # print(f"==>> Edistint.shape: \n{Edistint.shape}")
+
+    return nodesid_og, nodesid_cont
 
 
-def read_gtsp_file(input_file):
-    pass
+def read_gtsp_file(input_file, nodesid_og, nodesid_cont):
+    with open(input_file, "r") as f:
+        for line in f:
+            if line.startswith("Tour") and not line.startswith("Tour Cost"):
+                tour_str = line.split(":", 1)[1].strip()
+                tour = eval(tour_str)
+                break
+
+    # remap the tour flatten node id back to its original id
+    tour_indices = np.searchsorted(nodesid_cont, tour)
+    tour_indices_og = nodesid_og[tour_indices]
+    # print(f"==>> tour_indices: \n{tour_indices}")
+    # print(f"==>> tour_indices_og: \n{tour_indices_og}")
+    return tour_indices_og
 
 
 if __name__ == "__main__":
-    tsv_file = "combined_paths.tsv"
-    extract_paths(tsv_file)
+    extract_paths("combined_paths.tsv")
