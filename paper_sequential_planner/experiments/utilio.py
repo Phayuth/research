@@ -1,5 +1,36 @@
 import csv
 import numpy as np
+import subprocess
+import os
+
+np.random.seed(42)
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
+rsrc = os.environ["RSRC_DIR"]
+
+
+def check_number_Q(Q):
+    """
+    Q must be state True/False
+    """
+    nQvalpt = np.sum(Q, axis=1)
+    nQvalAll = np.sum(nQvalpt)
+    print("------------------------------------------------------------")
+    print(f"There are {nQvalAll} valid nodes in total.")
+    print(f"Q is in shape {Q.shape}, nQval per task : \n{nQvalpt.T}")
+    print("------------------------------------------------------------")
+
+
+def check_number_E(E):
+    """
+    E must be state True/False
+    """
+    nEpair = E.shape[0]
+    nEvalpt = np.sum(E, axis=(1, 2))
+    nEvalAll = np.sum(nEvalpt)
+    print("------------------------------------------------------------")
+    print(f"There are {nEpair} pairs with {nEvalAll} valid edges in total.")
+    print(f"E is in shape {E.shape}, nEval per pair : \n{nEvalpt}")
+    print("------------------------------------------------------------")
 
 
 def extract_paths(file_path):
@@ -26,10 +57,6 @@ def extract_paths(file_path):
                     )
                     paths.append(None)
     return paths
-
-
-def debug_print_gtsp_():
-    pass
 
 
 def generate_gtsp_header(name, dimension, gtsp_sets):
@@ -156,14 +183,11 @@ def write_gtsp_file(
     Ecspace_colfree_dist=None,
     Qreduced_final=None,
 ):
-    print(f"-->>Writing GTSP file to {filename}...")
+    print(f"==>> Writing GTSP file to {filename} !")
 
     # determine the number of dimensions and gtsp sets
     nQredfinalpt = np.sum(Qreduced_final, axis=1)
-    print(f"==>> nQredfinalpt: \n{nQredfinalpt.T}")
-    nQredfinal = np.sum(nQredfinalpt)
-    print(f"==>> nQredfinal: \n{nQredfinal}")
-
+    nQredfinal = np.sum(Qreduced_final)
     ntasks, num_sols, dof = Qreduced_final.shape
     dimension = nQredfinal
     gtsp_sets = ntasks
@@ -194,21 +218,8 @@ def write_gtsp_file(
     with open(filename, "w") as f:
         f.write(gtsp_content)
 
-    print(f"-->>GTSP file written to {filename}")
-
-    # Qreduced_final_flat = Qreduced_final.flatten()
-    # Qik_reach_init_flat = Qik_reach_init.reshape(
-    #     -1, Qik_reach_init.shape[2]
-    # )  # (ntasks*num_sols, dof)
-    # print(f"==>> Qik_reach_init_flat.shape: \n{Qik_reach_init_flat.shape}")
-    # Q = Qik_reach_init_flat[Qreduced_final_flat]
-    # print(f"==>> Q.shape: \n{Q.shape}")
-    # Edist = nan_euclidean_distances(Q, Q)
-    # Edistint = (Edist * 1000).astype(int)
-    # np.fill_diagonal(Edist, 0)
-    # print(f"==>> Edistint.shape: \n{Edistint.shape}")
-
-    return nodesid_og, nodesid_cont
+    print(f"==>> GTSP file written to {filename} !")
+    return Qreduced_final_flat, nodesid_og, nodesid_cont
 
 
 def read_gtsp_file(input_file, nodesid_og, nodesid_cont):
@@ -225,6 +236,85 @@ def read_gtsp_file(input_file, nodesid_og, nodesid_cont):
     # print(f"==>> tour_indices: \n{tour_indices}")
     # print(f"==>> tour_indices_og: \n{tour_indices_og}")
     return tour_indices_og
+
+
+def call_gtsp_glns_solver(
+    solver_dir,
+    input_file,
+    output_file=None,
+    args=None,
+    check=True,
+    verbose=True,
+):
+    """
+    Generic caller for external command-line solvers.
+
+    Args:
+        solver_dir: Directory containing the solver executable
+        input_file: Path to input file
+        output_file: Path to output file (optional)
+        args: Dict of additional arguments (e.g., {'mode': 'fast', 'max_time': 60})
+        check: Raise exception on non-zero exit code (default: True)
+        verbose: Print output messages (default: True)
+
+    Returns:
+        CompletedProcess object containing returncode, stdout, stderr
+
+    option
+        -max_time=[Int]				 (default set by mode)
+        -trials=[Int]				 (default set by mode)
+        -restarts=[Int]              (default set by mode)
+        -mode=[default, fast, slow]  (default is default)
+        -verbose=[0, 1, 2, 3]        (default is 3. 0 is no output, 3 is most verbose)
+        -output=[filename]           (default is None)
+        -epsilon=[Float in [0,1]]	 (default is 0.5)
+        -reopt=[Float in [0,1]]      (default is set by mode)
+
+    terminal command example:
+    ./GLNScmd.jl ur5e_sphere_gtsp.gtsp -output=ur5e_sols
+    """
+
+    # Build command list
+    solver_cmd = "GLNScmd.jl"
+    solver_path = os.path.join(solver_dir, solver_cmd)
+    command = [solver_path, input_file]
+
+    # Add output file if provided
+    if output_file:
+        command.append(f"-output={output_file}")
+
+    # Add additional arguments
+    if args:
+        for key, val in args.items():
+            command.append(f"-{key}={val}")
+
+    try:
+        if verbose:
+            print(f"Executing: {' '.join(command)}")
+
+        result = subprocess.run(
+            command, check=check, capture_output=True, text=True
+        )
+
+        if verbose:
+            if result.stdout:
+                print(f"Output:\n{result.stdout}")
+            print(f"Solver executed successfully (exit code: {result.returncode})")
+
+        return result
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing solver: {e}")
+        if e.stdout:
+            print(f"stdout: {e.stdout}")
+        if e.stderr:
+            print(f"stderr: {e.stderr}")
+        raise
+
+
+def write_tour_path(path, tour=None):
+    np.savetxt(path, tour, delimiter=",", fmt="%.6f")
+    print(f"==>> Tour path written to {path} !")
 
 
 if __name__ == "__main__":
