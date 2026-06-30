@@ -78,8 +78,7 @@ def generate_gtsp_edge_weight_section(
     nodesid_og,
     num_sols,
     task_to_nn_pair,
-    Ecspace_eudist_state,
-    Ecspace_colfree_dist,
+    Ecost,
 ):
     # Extract task and solution IDs for each flat node
     node_tasks = nodesid_og // num_sols
@@ -137,17 +136,9 @@ def generate_gtsp_edge_weight_section(
             j_pos = j_idx_valid[idx]
 
             if ti < tj:
-                is_valid = Ecspace_eudist_state[tp_idx, si, sj]
-                if is_valid:
-                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_colfree_dist[
-                        tp_idx, si, sj
-                    ]
+                gtsp_dist_matrix[i_pos, j_pos] = Ecost[tp_idx, si, sj]
             else:
-                is_valid = Ecspace_eudist_state[tp_idx, sj, si]
-                if is_valid:
-                    gtsp_dist_matrix[i_pos, j_pos] = Ecspace_colfree_dist[
-                        tp_idx, sj, si
-                    ]
+                gtsp_dist_matrix[i_pos, j_pos] = Ecost[tp_idx, sj, si]
 
     gtsp_dist_matrix_int = (gtsp_dist_matrix * 1000).astype(int)
 
@@ -179,23 +170,22 @@ def write_gtsp_file(
     filename="output.gtsp",
     name="GTSP_Instance",
     task_to_nn_pair=None,
-    Ecspace_eudist_state=None,
-    Ecspace_colfree_dist=None,
-    Qreduced_final=None,
+    Ecost=None,
+    Q=None,
 ):
     print(f"==>> Writing GTSP file to {filename} !")
 
     # determine the number of dimensions and gtsp sets
-    nQredfinalpt = np.sum(Qreduced_final, axis=1)
-    nQredfinal = np.sum(Qreduced_final)
-    ntasks, num_sols, dof = Qreduced_final.shape
+    nQredfinalpt = np.sum(Q, axis=1)
+    nQredfinal = np.sum(Q)
+    ntasks, num_sols, dof = Q.shape
     dimension = nQredfinal
     gtsp_sets = ntasks
 
     # mapping the flatten node id
     # nodeid_og is the original node id
     # nodeid_cont is the continuous node id for gtsp solver
-    Qreduced_final_flat = Qreduced_final.flatten()
+    Qreduced_final_flat = Q.flatten()
     nodesid_og = np.where(Qreduced_final_flat)[0]  # take only the True nodes
     nodesid_cont = np.arange(nQredfinal) + 1  # GTSP node id start from 1
 
@@ -208,8 +198,7 @@ def write_gtsp_file(
         nodesid_og,
         num_sols,
         task_to_nn_pair,
-        Ecspace_eudist_state,
-        Ecspace_colfree_dist,
+        Ecost,
     )
     set_section = generate_gtsp_set_section(nQredfinalpt, nodesid_cont)
 

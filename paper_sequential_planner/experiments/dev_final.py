@@ -16,7 +16,6 @@ from paper_sequential_planner.scripts.geometric_poses import (
     task_space_correlation,
     task_space_correlation_map,
     filter_cspace_candidate_similar_to_qinit,
-    filter_cspace_candidate_radius_to_qinit,
     query_data_from_tspace_map,
 )
 from paper_sequential_planner.experiments.env_ur5e_sphere import (
@@ -158,9 +157,7 @@ qinit_state_[0, 0] = 1
 Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 
-# ----------------- All method must start from here -------------------------------
-# * 1st STAGE candidate selection
-# taskspace neighborhood analysis
+# taskspace distance
 tspace_dist = se3_error_pairwise_distance(Xlist_to_Hlist(X_reach_init))
 tspace_coorrelation = task_space_correlation(tspace_dist)
 tspace_mapping = task_space_correlation_map(tspace_coorrelation)
@@ -172,73 +169,86 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
 print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
 
-# constants for GTSP
-epslGH = 1.0
-eta_collision = 0.1  # resolution of collision checking
-cmax_d = 2 * np.pi  # max distance in cspace
-r_max = 2 * np.pi  # max radius for candidate selection in cspace
-tmult = 0.08  # threshold multiplier for candidate selection in cspace
-
-# 1st Q filter: check the radius filter with the init
-Qreduced = filter_cspace_candidate_radius_to_qinit(Qik_reach, qinit, radius=r_max)
-
-# 1st Q filter: check the reachable filter and the cspace radius filter
-Qred_ = np.where(Qikstate_reach == 1, True, False) & Qreduced
-qinit_red_ = np.where(qinit_state_ == 1, True, False)
-Qreduced_init = np.vstack((qinit_red_, Qred_))
-check_number_Q(Qreduced_init)
-
-# This is the straight distance eulidean distance
-# determine cspace euclidean distance between all the valid edges in taskspace
+# cspace distance
 Ecspace_eudist = np.empty((task_to_nn_pair_len, num_sols, num_sols))
 for idx, (i, j) in enumerate(task_to_nn_pair):
     Qfrom = Qik_reach_init[i]  # (num_sols, dof)
     Qto = Qik_reach_init[j]  # (num_sols, dof)
     Ecspace_eudist[idx] = nan_euclidean_distances(Qfrom, Qto)
 
-# 1st E filter: check the distance filter with the cmax_d
-Ecspace_eudist_state = Ecspace_eudist <= cmax_d  # True/False mask dist over cmax_d
 
-# 2nd E filter: extra E filter using Q filter
-Ecspace_eudist_state_red = np.empty_like(Ecspace_eudist_state, dtype=bool)
-for idx, (i, j) in enumerate(task_to_nn_pair):
-    Qreduced_ij = np.outer(Qreduced_init[i], Qreduced_init[j])  # numsols, numsols
-    Ecspace_eudist_state_red[idx] = Ecspace_eudist_state[idx] & Qreduced_ij
-check_number_E(Ecspace_eudist_state_red)
+def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit):
+    """
+    Filter candidate configurations that are too far from initial configuration
+    using a simple radius threshold in cspace.
+    """
+    radius = 2 * np.pi  # max radius for candidate selection in cspace
+    ntasks_rech, n_ik, dof = Qaik_r.shape
+    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
+    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
+    q_valid = dist.flatten() <= radius
+    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
+    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
 
-
-# 2nd Q filter: extra Q filter using E filter
-Qreduced_final = np.full_like(Qreduced_init, False, dtype=bool)
-for idx, (i, j) in enumerate(task_to_nn_pair):
-    Ecspace_eudist_state_red_ij = Ecspace_eudist_state_red[idx]
-    q_from = np.any(Ecspace_eudist_state_red_ij, axis=1)[..., np.newaxis]
-    q_to = np.any(Ecspace_eudist_state_red_ij, axis=0)[..., np.newaxis]
-    Qreduced_final[i] = np.logical_or(Qreduced_final[i], q_from)
-    Qreduced_final[j] = np.logical_or(Qreduced_final[j], q_to)
-
-
-# * 2nd STAGE edge collision-free estimation
-# * This stage we need both Q and E state to determine which edges to be checked
-Ecspace_colfree_dist = np.where(Ecspace_eudist_state_red, Ecspace_eudist, np.inf)
+    nQredpt = np.sum(q_valid_shape, axis=1)
+    n_selected = np.sum(nQredpt)
+    n_total = np.prod(q_valid_shape.shape)
+    print(f"==>> selected {n_selected} / {n_total} configurations")
+    print(f"==>> selected_rate: {n_selected / n_total}")
+    return q_valid_shape
 
 
+# Q filter : Radius filter
+Q1red_r = filter_cspace_candidate_radius_to_qinit(Qik_reach_init, qinit)
+check_number_Q(Q1red_r)
 
-Ereduced_final = np.where(Ecspace_eudist_state_red, Ecspace_colfree_dist, 100000)
+# Merge all Q filter
+Qreduced = np.where(Qikstate_reach_init == 1, True, False) & Q1red_r
+check_number_Q(Qreduced)
 
 
-raise
+def collision_free_distance_estimation(E, Q, tpair):
+    """
+    Input:
+    E: edges euclidean distance
+    Q: nodes validity
+    tpair: pairs of tasks tuple
+
+    Output:
+    Ecf: edges collision-free distance
+    """
+    cmax_d = 2 * np.pi
+    Estate = E <= cmax_d  # True/False mask dist over cmax_d
+    # if Q is not valid, then E is also invalid
+    for idx, (i, j) in enumerate(tpair):
+        QIJ = np.outer(Q[i], Q[j])  # (num_sols, num_sols)
+        Estate[idx] = Estate[idx] & QIJ  # update E state
+
+    check_number_E(Estate)
+    # from the E state, we estimation the collision-free distance
+    # If Estate is True then we have distance valid
+    # If Estate is False then we have distance as np.inf
+    # For now we use fake cost
+    Ecf = np.where(Estate, E, np.inf) + np.random.random(E.shape) * 1e-6
+    return Ecf
+
+
+Ecf = collision_free_distance_estimation(Ecspace_eudist, Qreduced, task_to_nn_pair)
+
+
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
 path = os.path.join(rsrc, "gtsp")
-pathprob = os.path.join(rsrc, "gtsp", "ur5e_sphere_gtsp.gtsp")
-pathsol = os.path.join(rsrc, "gtsp", "ur5e_sols")
+pathprob = os.path.join(rsrc, "gtsp", "new_ur5e_sphere_gtsp.gtsp")
+pathsol = os.path.join(rsrc, "gtsp", "new_ur5e_sols")
+
+Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
 Qreduced_final_flat, nodesid_og, nodesid_cont = write_gtsp_file(
     filename=pathprob,
     name="ur5e_sphere_gtsp",
     task_to_nn_pair=task_to_nn_pair,
-    Ecspace_eudist_state=Ecspace_eudist_state,
-    Ecspace_colfree_dist=Ecspace_colfree_dist,
-    Qreduced_final=Qreduced_final,
+    Ecost=Ecost,
+    Q=Qreduced,
 )
 # result = call_gtsp_glns_solver(
 #     solver_dir=path,  # Where GLNScmd.jl lives
@@ -248,8 +258,59 @@ Qreduced_final_flat, nodesid_og, nodesid_cont = write_gtsp_file(
 # )
 tour_flatten = read_gtsp_file(pathsol, nodesid_og, nodesid_cont)
 print(f"==>> tour_flatten: \n{tour_flatten}")
-
 Qik_reach_init_flat = Qik_reach_init.reshape(-1, dof)
 qtour = Qik_reach_init_flat[tour_flatten]
 print(f"==>> qtour: \n{qtour}")
 
+raise
+# * 4th STAGE path reconstruction and refinement
+def interp(Q1, Q2, num_points):
+    """
+    Pairwise linear interpolation between corresponding rows of two sets of configurations.
+    Q1: (n, dof)
+    Q2: (n, dof)
+    num_points: number of interpolation points (including endpoints)
+    return: (n, n, num_points, dof)
+    """
+    # Reshape for broadcasting: (n, 1, 1, dof) and (1, n, 1, dof)
+    Q1_exp = Q1[:, np.newaxis, np.newaxis, :]
+    Q2_exp = Q2[np.newaxis, :, np.newaxis, :]
+    # Interpolation parameter: (1, 1, num_points, 1)
+    t = np.linspace(0, 1, num_points)[np.newaxis, np.newaxis, :, np.newaxis]
+    # Linear interpolation with full broadcasting
+    result = Q1_exp + (Q2_exp - Q1_exp) * t  # (n, n, num_points, dof)
+    # Propagate NaN: if Q1 or Q2 has NaN, result is NaN
+    result = np.where(np.isnan(Q1_exp) | np.isnan(Q2_exp), np.nan, result)
+    return result
+
+
+def center(Q1, Q2):
+    """
+    Compute the center configuration between two sets of configurations.
+    Q1: (n, dof)
+    Q2: (n, dof)
+    return: (n, dof)
+    """
+    # Compute the center while handling NaN values
+    Qcenter = np.where(np.isnan(Q1) | np.isnan(Q2), np.nan, (Q1 + Q2) / 2.0)
+    return Qcenter
+
+
+t1 = 1
+t2 = 2
+idx = task_to_nn_pair.index((t1, t2))
+print(f"==>> idx: \n{idx}")
+Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
+print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
+print(f"==>> Qfrom: \n{Qfrom}")
+Qto = Qik_reach_init[t2]  # (num_sols, dof)
+print(f"==>> Qto.shape: \n{Qto.shape}")
+print(f"==>> Qto: \n{Qto}")
+Qinterp = interp(Qfrom, Qto, num_points=20)
+print(f"==>> Qinterp.shape: \n{Qinterp.shape}")
+
+
+raise
+# write tour path to file
+pathtour = os.path.join(rsrc, "gtsp", "ur5e_tour_path.txt")
+write_tour_path(pathtour, qtour)

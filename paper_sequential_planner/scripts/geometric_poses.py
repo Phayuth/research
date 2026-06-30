@@ -498,26 +498,6 @@ def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
     return fd_sim
 
 
-def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit, radius=2 * np.pi):
-    """
-    Filter candidate configurations that are too far from initial configuration
-    using a simple radius threshold in cspace.
-    """
-    ntasks_rech, n_ik, dof = Qaik_r.shape
-    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
-    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
-    q_valid = dist.flatten() <= radius
-    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
-    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
-
-    nQredpt = np.sum(q_valid_shape, axis=1)
-    n_selected = np.sum(nQredpt)
-    n_total = np.prod(q_valid_shape.shape)
-    print(f"==>> selected {n_selected} / {n_total} configurations")
-    print(f"==>> selected_rate: {n_selected / n_total}")
-    return q_valid_shape
-
-
 def filter_cspace_candidate_nn2c(Qaik_r, qinit):
     pass
 
