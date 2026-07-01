@@ -461,51 +461,6 @@ def task_to_task_configuration_interp(Qaik_rall, nintp=10):
     return interp
 
 
-def filter_cspace_candidate_similar_to_qinit(Qaik_r, qinit, thresh_mult=0.08):
-    """
-    From paper CASE2022
-    An Efficient Approach for solving RTSP Considering Spatial Constraint
-
-    Filter candidate configurations that are too far from initial configuration
-    Weighted euclidean distance to initial config. now i dont have the weight.
-    thresh_mult is a hyperparam to control how aggressive the filtering is,
-    between 0 and 1 of min to max ratio value.
-    """
-    ntasks_rech, n_ik, dof = Qaik_r.shape
-    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
-    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
-    sim_val = 1.0 / (dist + 0.001)  # add small value to avoid div by zero
-    optimal_val = sim_val / np.nansum(sim_val)  # use nansum to ignore nan
-    optimal_val_min = np.nanmin(optimal_val)
-    optimal_val_max = np.nanmax(optimal_val)
-    threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
-    get_Qind_inthreshold = optimal_val >= threshold
-    Qin_sim = Qaik_r_flat[get_Qind_inthreshold.flatten()]
-    selected_q = get_Qind_inthreshold.reshape(ntasks_rech, n_ik)
-    selected_rate = np.sum(get_Qind_inthreshold) / get_Qind_inthreshold.size
-    task_ids = np.where(get_Qind_inthreshold)[0] // n_ik
-    qi_in_task = np.where(get_Qind_inthreshold)[0] % n_ik
-
-    print(f"min: {optimal_val_min}, max: {optimal_val_max}, thresh: {threshold}")
-    print(f"==>> selected {len(Qin_sim)} / {len(Qaik_r_flat)} configurations")
-    print(f"==>> selected_rate: {selected_rate}")
-    fd_sim = {
-        "selected_q": selected_q[:, :, None],
-        "Qin_sim": Qin_sim,
-        "task_ids": task_ids + 1,  # task 0 is qstart, add 1 to start with first H
-        "qi_in_task": qi_in_task,
-    }
-    return fd_sim
-
-
-def filter_cspace_candidate_nn2c(Qaik_r, qinit):
-    pass
-
-
-def filter_cspace_edges():
-    pass
-
-
 # *generate synthetic poses ----------------------------------------------
 def poses_a():
     y = np.linspace(-0.5, 0.5, 5)
@@ -592,33 +547,6 @@ def poses_c():
     return Hlist
 
 
-def poses_d():
-    def _gen_linear_H(s, e, quat, num_tasks=10):
-        t = np.linspace(s, e, num_tasks)
-        Hlist = [np.eye(4) for _ in range(num_tasks)]
-        for i in range(num_tasks):
-            Hlist[i][:3, 3] = t[i]
-            Hlist[i][:3, :3] = R.from_quat(quat).as_matrix()
-        return Hlist
-
-    size = 4
-    params = {
-        0: ([-0.4, 0.6, 0.5], [0.4, 0.6, 0.5], [-0.707106, 0.0, 0.0, 0.707106]),
-        1: ([-0.4, 0.6, 0.2], [0.4, 0.6, 0.2], [-0.707106, 0.0, 0.0, 0.707106]),
-        2: ([-0.6, -0.4, 0.5], [-0.6, 0.4, 0.5], [-0.5, -0.5, 0.5, 0.5]),
-        3: ([-0.6, -0.4, 0.2], [-0.6, 0.4, 0.2], [-0.5, -0.5, 0.5, 0.5]),
-        4: ([0.4, -0.6, 0.5], [-0.4, -0.6, 0.5], [0.0, -0.707106, 0.707106, 0.0]),
-        5: ([0.4, -0.6, 0.2], [-0.4, -0.6, 0.2], [0.0, -0.707106, 0.707106, 0.0]),
-    }
-    HH = []
-    for k in params:
-        s, e, quat = params[k]
-        quat_noise = quat + np.random.normal(0, 0.05, size=4)
-        HH += _gen_linear_H(s, e, quat_noise, num_tasks=size)
-    Hlist = np.array(HH)
-    return Hlist
-
-
 def poses_epGH():
     """Generates discrete set of poses to form the task space.
 
@@ -697,10 +625,9 @@ if __name__ == "__main__":
     import trimesh
 
     # Hlist = poses_a()
-    Hlist = poses_b()
+    # Hlist = poses_b()
     # Hlist = poses_c()
-    # Hlist = poses_d()
-    # Hlist = poses_epGH()
+    Hlist = poses_epGH()
     print(f"==>> Hlist.shape: \n{Hlist.shape}")
 
     scene = trimesh.Scene()

@@ -6,22 +6,20 @@ import torch
 from paper_sequential_planner.scripts.geometric_torus import (
     find_alt_config2,
 )
-from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
+from sklearn.metrics.pairwise import nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_poses import (
-    poses_d,
     H_to_X,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
     se3_error_pairwise_distance,
     task_space_correlation,
     task_space_correlation_map,
-    filter_cspace_candidate_similar_to_qinit,
     query_data_from_tspace_map,
 )
 from paper_sequential_planner.experiments.env_ur5e_sphere import (
     RobotUR5eKin,
     SceneUR5eSpherized,
-    device,
+    pick_task_poses,
 )
 
 from paper_sequential_planner.experiments.utilio import (
@@ -136,14 +134,14 @@ def wspace_ik_validity_extended(Qaik, robscene):
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, 0, -np.pi / 2, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
-H = poses_d()
+H = pick_task_poses()
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
 Qik = wspace_ik_extended(robkin, X)
 Qikstate = wspace_ik_validity_extended(Qik, scene)
 
 # filter out the unreachable tasks
-Xunreach = np.all(Qikstate == -1, axis=1).flatten()
+Xunreach = np.all(Qikstate != 1, axis=1).flatten()
 X_reach = X[~Xunreach]
 Qik_reach = Qik[~Xunreach]
 Qikstate_reach = Qikstate[~Xunreach]
@@ -158,7 +156,7 @@ Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 
 # taskspace distance
-tspace_dist = se3_error_pairwise_distance(Xlist_to_Hlist(X_reach_init))
+tspace_dist = se3_error_pairwise_distance(Xlist_to_Hlist(X_reach_init), w_rot=1.0)
 tspace_coorrelation = task_space_correlation(tspace_dist)
 tspace_mapping = task_space_correlation_map(tspace_coorrelation)
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
@@ -166,6 +164,7 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_pair"],
     tspace_mapping["task_to_nn_pair_len"],
 )
+print(f"==>> tspace_dist: \n{tspace_dist}")
 print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
 
@@ -176,17 +175,29 @@ for idx, (i, j) in enumerate(task_to_nn_pair):
     Qto = Qik_reach_init[j]  # (num_sols, dof)
     Ecspace_eudist[idx] = nan_euclidean_distances(Qfrom, Qto)
 
+# def euclidean_fn(x, y, weights=None):
+#   if weights is None:
+#     distance = math.sqrt(np.sum((x-y)**2))
+#   else:
+#     distance = math.sqrt(np.sum(weights*(x-y)**2))
+#   return distance
+# def max_joint_diff_fn(x, y, weights=None):
+#   if weights is None:
+#     distance = max(np.abs(x-y))
+#   else:
+#     distance = max(weights*np.abs(x-y))
+#   return distance
 
-def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit):
+
+def Qfilter_R(Q, qinit, r):
     """
     Filter candidate configurations that are too far from initial configuration
-    using a simple radius threshold in cspace.
+    using a simple radius threshold in cspace distance.
     """
-    radius = 2 * np.pi  # max radius for candidate selection in cspace
-    ntasks_rech, n_ik, dof = Qaik_r.shape
-    Qaik_r_flat = Qaik_r.reshape(ntasks_rech * n_ik, dof)
-    dist = nan_euclidean_distances(Qaik_r_flat, qinit.reshape(1, -1))
-    q_valid = dist.flatten() <= radius
+    ntasks_rech, n_ik, dof = Q.shape
+    Q_flat = Q.reshape(ntasks_rech * n_ik, dof)
+    dist = nan_euclidean_distances(Q_flat, qinit.reshape(1, -1))
+    q_valid = dist.flatten() <= r
     q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
     q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
 
@@ -198,16 +209,56 @@ def filter_cspace_candidate_radius_to_qinit(Qaik_r, qinit):
     return q_valid_shape
 
 
+def Qfilter_similarity(Q, q, thresh):
+    """
+    CASE2022 An Efficient Approach for solving RTSP, Li
+
+    Filter candidate configurations that are too far from initial configuration
+    Weighted euclidean distance to initial config. Now i dont have the weight yet.
+    Bigger val mean closer to qinit mean very little Q selected.
+    Samaller val mean farther to qinit mean more Q selected.
+    """
+    qw = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+    ntasks_rech, n_ik, dof = Q.shape
+    Q_flat = Q.reshape(ntasks_rech * n_ik, dof)
+    dist = nan_euclidean_distances(Q_flat, q.reshape(1, -1))
+    del_sim = 1.0 / (dist + 0.001)  # avoid division by zero
+    phi_opt = del_sim / np.nansum(del_sim)  # normalize to sum to 1
+    q_valid = phi_opt >= thresh
+    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
+    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
+
+    # threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
+
+    nQredpt = np.sum(q_valid_shape, axis=1)
+    n_selected = np.sum(nQredpt)
+    n_total = np.prod(q_valid_shape.shape)
+    phi_opt_min = np.nanmin(phi_opt)
+    phi_opt_max = np.nanmax(phi_opt)
+    print(f"==>> optimal values: min={phi_opt_min}, max={phi_opt_max}")
+    print(f"==>> selected {n_selected} / {n_total} configurations")
+    print(f"==>> selected_rate: {n_selected / n_total}")
+    return q_valid_shape
+
+
+def Qfilter_nn2c(Q, q):
+    pass
+
+
 # Q filter : Radius filter
-Q1red_r = filter_cspace_candidate_radius_to_qinit(Qik_reach_init, qinit)
+Q1red_r = Qfilter_R(Qik_reach_init, qinit, r=2 * np.pi)
 check_number_Q(Q1red_r)
+Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, thresh=0.0001)
+check_number_Q(Q2red_s)
 
 # Merge all Q filter
 Qreduced = np.where(Qikstate_reach_init == 1, True, False) & Q1red_r
 check_number_Q(Qreduced)
 
+raise
 
-def collision_free_distance_estimation(E, Q, tpair):
+
+def Efilter_colfree(E, Q, tpair):
     """
     Input:
     E: edges euclidean distance
@@ -233,9 +284,9 @@ def collision_free_distance_estimation(E, Q, tpair):
     return Ecf
 
 
-Ecf = collision_free_distance_estimation(Ecspace_eudist, Qreduced, task_to_nn_pair)
+Ecf = Efilter_colfree(Ecspace_eudist, Qreduced, task_to_nn_pair)
 
-
+raise
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
 path = os.path.join(rsrc, "gtsp")
@@ -250,19 +301,24 @@ Qreduced_final_flat, nodesid_og, nodesid_cont = write_gtsp_file(
     Ecost=Ecost,
     Q=Qreduced,
 )
-# result = call_gtsp_glns_solver(
-#     solver_dir=path,  # Where GLNScmd.jl lives
-#     input_file=pathprob,
-#     output_file=pathsol,
-#     args={"mode": "slow", "max_time": 300},
-# )
+result = call_gtsp_glns_solver(
+    solver_dir=path,  # Where GLNScmd.jl lives
+    input_file=pathprob,
+    output_file=pathsol,
+    args={"mode": "slow", "max_time": 300},
+)
 tour_flatten = read_gtsp_file(pathsol, nodesid_og, nodesid_cont)
 print(f"==>> tour_flatten: \n{tour_flatten}")
 Qik_reach_init_flat = Qik_reach_init.reshape(-1, dof)
 qtour = Qik_reach_init_flat[tour_flatten]
+print(f"==>> qtour.shape: \n{qtour.shape}")
 print(f"==>> qtour: \n{qtour}")
 
+tour_euc_cost = np.sum(np.linalg.norm(np.diff(qtour, axis=0), axis=1))
+print(f"==>> tour_euc_cost: \n{tour_euc_cost}")
 raise
+
+
 # * 4th STAGE path reconstruction and refinement
 def interp(Q1, Q2, num_points):
     """
