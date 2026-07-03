@@ -155,7 +155,7 @@ qinit_state_[0, 0] = 1
 Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 
-# taskspace distance
+# taskspace relationship analysis
 tspace_dist = se3_error_pairwise_distance(Xlist_to_Hlist(X_reach_init), w_rot=1.0)
 tspace_coorrelation = task_space_correlation(tspace_dist)
 tspace_mapping = task_space_correlation_map(tspace_coorrelation)
@@ -168,35 +168,124 @@ print(f"==>> tspace_dist: \n{tspace_dist}")
 print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
 
-# cspace distance
-Ecspace_eudist = np.empty((task_to_nn_pair_len, num_sols, num_sols))
-for idx, (i, j) in enumerate(task_to_nn_pair):
-    Qfrom = Qik_reach_init[i]  # (num_sols, dof)
-    Qto = Qik_reach_init[j]  # (num_sols, dof)
-    Ecspace_eudist[idx] = nan_euclidean_distances(Qfrom, Qto)
 
-# def euclidean_fn(x, y, weights=None):
-#   if weights is None:
-#     distance = math.sqrt(np.sum((x-y)**2))
-#   else:
-#     distance = math.sqrt(np.sum(weights*(x-y)**2))
-#   return distance
-# def max_joint_diff_fn(x, y, weights=None):
-#   if weights is None:
-#     distance = max(np.abs(x-y))
-#   else:
-#     distance = max(weights*np.abs(x-y))
-#   return distance
-
-
-def Qfilter_R(Q, qinit, r):
+def weighted_nan_euclidean_distances(X, Y=None, w=None):
     """
+    Fully vectorized weighted NaN-aware Euclidean distance.
+
+    Parameters
+    ----------
+    X : (n_samples_X, n_features)
+    Y : (n_samples_Y, n_features), optional
+    w : (n_features,), optional
+
+    Returns
+    -------
+    D : (n_samples_X, n_samples_Y)
+    """
+    X = np.asarray(X, dtype=np.float64)
+
+    if Y is None:
+        Y = X
+    else:
+        Y = np.asarray(Y, dtype=np.float64)
+
+    d = X.shape[1]
+
+    if w is None:
+        w = np.ones(d, dtype=np.float64)
+    else:
+        w = np.asarray(w, dtype=np.float64)
+
+    total_weight = w.sum()
+
+    # Valid entries
+    valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
+
+    # Replace NaN by zero
+    X0 = np.nan_to_num(X)
+    Y0 = np.nan_to_num(Y)
+
+    # Pairwise differences
+    diff = X0[:, None, :] - Y0[None, :, :]
+
+    # Weighted squared differences
+    sqdist = np.sum(w * diff**2 * valid, axis=2)
+
+    # Sum of observed weights
+    observed = np.sum(w * valid, axis=2)
+
+    # Normalize exactly like sklearn
+    D = np.full_like(sqdist, np.nan)
+
+    mask = observed > 0
+    D[mask] = np.sqrt(sqdist[mask] * total_weight / observed[mask])
+
+    return D
+
+
+def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
+    """
+    Pairwise weighted NaN-aware Chebyshev (maximum joint difference) distance.
+
+    d(x, y) = max_i |x_i - y_i| / w_i
+
+    Parameters
+    ----------
+    X : (n_samples_X, n_features)
+    Y : (n_samples_Y, n_features), optional
+    w : (n_features,), optional
+        Positive scaling factors for each feature.
+
+    Returns
+    -------
+    D : (n_samples_X, n_samples_Y)
+    """
+    X = np.asarray(X, dtype=np.float64)
+
+    if Y is None:
+        Y = X
+    else:
+        Y = np.asarray(Y, dtype=np.float64)
+
+    d = X.shape[1]
+
+    if w is None:
+        w = np.ones(d, dtype=np.float64)
+    else:
+        w = np.asarray(w, dtype=np.float64)
+
+    # Valid dimensions
+    valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
+
+    # Pairwise absolute differences
+    diff = np.abs(np.nan_to_num(X)[:, None, :] - np.nan_to_num(Y)[None, :, :])
+
+    # Normalize by weights
+    diff = diff / w
+
+    # Ignore invalid dimensions
+    diff = np.where(valid, diff, -np.inf)
+
+    # Maximum over features
+    D = diff.max(axis=2)
+
+    # If no valid feature exists, return NaN
+    D[np.all(~valid, axis=2)] = np.nan
+
+    return D
+
+
+def Qfilter_R(Q, q, r):
+    """
+    My own thoughts
+
     Filter candidate configurations that are too far from initial configuration
     using a simple radius threshold in cspace distance.
     """
     ntasks_rech, n_ik, dof = Q.shape
     Q_flat = Q.reshape(ntasks_rech * n_ik, dof)
-    dist = nan_euclidean_distances(Q_flat, qinit.reshape(1, -1))
+    dist = nan_euclidean_distances(Q_flat, q.reshape(1, -1))
     q_valid = dist.flatten() <= r
     q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
     q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
@@ -211,17 +300,17 @@ def Qfilter_R(Q, qinit, r):
 
 def Qfilter_similarity(Q, q, thresh):
     """
-    CASE2022 An Efficient Approach for solving RTSP, Li
+    CASE2022, An Efficient Approach for solving RTSP, Li
 
     Filter candidate configurations that are too far from initial configuration
     Weighted euclidean distance to initial config. Now i dont have the weight yet.
     Bigger val mean closer to qinit mean very little Q selected.
     Samaller val mean farther to qinit mean more Q selected.
     """
-    qw = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+    W = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
     ntasks_rech, n_ik, dof = Q.shape
     Q_flat = Q.reshape(ntasks_rech * n_ik, dof)
-    dist = nan_euclidean_distances(Q_flat, q.reshape(1, -1))
+    dist = weighted_nan_euclidean_distances(Q_flat, q.reshape(1, -1), w=W)
     del_sim = 1.0 / (dist + 0.001)  # avoid division by zero
     phi_opt = del_sim / np.nansum(del_sim)  # normalize to sum to 1
     q_valid = phi_opt >= thresh
@@ -241,42 +330,116 @@ def Qfilter_similarity(Q, q, thresh):
     return q_valid_shape
 
 
-def Qfilter_nn2c(Q, q):
-    pass
+def Qfilter_nn2c(Q, tspace_mapping):
+    """
+    GECCO2017 & Operational Research 2019, A Pre-processing reduction GTSP, Mehdi
+
+    Filter candidate configurations such that every cluster pair has at least
+    one valid edge between them.
+    """
+    # get mapping
+    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
+    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Qfrom = Q[i]  # (num_sols, dof)
+        Qto = Q[j]  # (num_sols, dof)
+        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+
+    ntasks_rech, n_ik, dof = Q.shape
+    Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
+    # Qminval = np.zeros_like(Q)
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Eij = E[idx]
+        UV = np.unravel_index(np.nanargmin(Eij), Eij.shape)
+        qu = np.zeros(n_ik, dtype=bool)
+        qu[UV[0]] = True
+        qv = np.zeros(n_ik, dtype=bool)
+        qv[UV[1]] = True
+        Qvalid[i] = Qvalid[i] | qu
+        Qvalid[j] = Qvalid[j] | qv
+
+    return Qvalid[:, :, None]  # add a dummy dimension
+
+
+def Qfilter_Knn2c(Q, k, tspace_mapping):
+    # get mapping
+    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
+    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Qfrom = Q[i]  # (num_sols, dof)
+        Qto = Q[j]  # (num_sols, dof)
+        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+
+    ntasks_rech, n_ik, dof = Q.shape
+    Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Eij = E[idx]
+        # Get the k nearest neighbors for each node
+        knn_indices = np.argpartition(Eij, k, axis=None)[:k]
+        knn_mask = np.zeros_like(Eij, dtype=bool)
+        knn_mask.flat[knn_indices] = True
+        Qvalid[i] = Qvalid[i] | knn_mask.any(axis=1)
+        Qvalid[j] = Qvalid[j] | knn_mask.any(axis=0)
+
+    return Qvalid[:, :, None]  # add a dummy dimension
 
 
 # Q filter : Radius filter
 Q1red_r = Qfilter_R(Qik_reach_init, qinit, r=2 * np.pi)
 check_number_Q(Q1red_r)
+
+# Q filter : Similarity filter
 Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, thresh=0.0001)
 check_number_Q(Q2red_s)
 
+Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, tspace_mapping)
+check_number_Q(Q3red_nn2c)
+
+Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, k=2, tspace_mapping=tspace_mapping)
+check_number_Q(Q4red_Knn2c)
+
+raise
 # Merge all Q filter
 Qreduced = np.where(Qikstate_reach_init == 1, True, False) & Q1red_r
 check_number_Q(Qreduced)
 
-raise
 
-
-def Efilter_colfree(E, Q, tpair):
+def Eest_colfree(Qs, cmax_d, tspace_mapping):
     """
     Input:
-    E: edges euclidean distance
-    Q: nodes validity
-    tpair: pairs of tasks tuple
+    Qs: nodes validity
+    tspace_mapping: mapping dict
+
+    Compute:
+    Only estimate edges that are cost less than 2pi, otherwise invalid (np.inf)
+    If no path between two nodes, then the edge is also invalid (np.inf)
 
     Output:
     Ecf: edges collision-free distance
     """
-    cmax_d = 2 * np.pi
-    Estate = E <= cmax_d  # True/False mask dist over cmax_d
-    # if Q is not valid, then E is also invalid
-    for idx, (i, j) in enumerate(tpair):
-        QIJ = np.outer(Q[i], Q[j])  # (num_sols, num_sols)
-        Estate[idx] = Estate[idx] & QIJ  # update E state
+    # get mapping
+    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
+    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
 
+    # cspace eulidean distance
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
+        Qto = Qik_reach_init[j]  # (num_sols, dof)
+        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+
+    Estate = E <= cmax_d  # True/False mask dist over cmax_d
+    # if Qs is not valid, then E is also invalid
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
+        Estate[idx] = Estate[idx] & QIJ  # update E state
     check_number_E(Estate)
-    # from the E state, we estimation the collision-free distance
+
+    # from the Estate, we estimation the collision-free distance
     # If Estate is True then we have distance valid
     # If Estate is False then we have distance as np.inf
     # For now we use fake cost
@@ -284,7 +447,84 @@ def Efilter_colfree(E, Q, tpair):
     return Ecf
 
 
-Ecf = Efilter_colfree(Ecspace_eudist, Qreduced, task_to_nn_pair)
+def Eest_weighted_euclidean(Qs, W, tspace_mapping):
+    """
+    Input:
+    Qs: nodes validity
+    tspace_mapping: mapping dict
+    W: weight for each joint in form of relative displacement in taskspace
+
+    Compute:
+    Consider every edges to be valid
+
+    Output:
+    Eweu: edges heuristic distance based on weighted euclidean distance
+    """
+    # get mapping
+    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
+    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+
+    # cspace weighted euclidean distance
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
+        Qto = Qik_reach_init[j]  # (num_sols, dof)
+        E[idx] = weighted_nan_euclidean_distances(Qfrom, Qto, w=W)
+
+    Estate = np.ones_like(E, dtype=bool)  # True/False mask
+    # if Qs is not valid, then E is also invalid
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
+        Estate[idx] = Estate[idx] & QIJ  # update E state
+    check_number_E(Estate)
+
+    Eweu = np.where(Estate, E, np.inf)
+    return Eweu
+
+
+def Eest_weighted_max_joint_diff(Qs, W, tspace_mapping):
+    """
+    Input:
+    Qs: nodes validity
+    tspace_mapping: mapping dict
+    W: weight for each joint in form of joint velocity
+
+    Compute:
+    Consider every edges to be valid
+
+    Output:
+    Ewmj: edges heuristic distance based on max joint difference
+    """
+    # get mapping
+    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
+    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+
+    W = 1 / W  # max joint velocity
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
+        Qto = Qik_reach_init[j]  # (num_sols, dof)
+        E[idx] = weighted_nan_max_joint_diff_distances(Qfrom, Qto, w=W)
+
+    Estate = np.ones_like(E, dtype=bool)  # True/False mask
+    # if Qs is not valid, then E is also invalid
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
+        Estate[idx] = Estate[idx] & QIJ  # update E state
+    check_number_E(Estate)
+
+    Ewmj = np.where(Estate, E, np.inf)
+    return Ewmj
+
+
+cmax_d = 2 * np.pi
+Ecf = Eest_colfree(Qreduced, cmax_d, tspace_mapping)
+
+Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+Eweu = Eest_weighted_euclidean(Qreduced, Wweu, tspace_mapping)
+
+Wwmj = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint max velocity
+Ewmj = Eest_weighted_max_joint_diff(Qreduced, Wwmj, tspace_mapping)
 
 raise
 # * 3rd STAGE GTSP problem formulation and solving
