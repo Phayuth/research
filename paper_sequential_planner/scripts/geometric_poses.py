@@ -4,7 +4,7 @@ from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics.pairwise import euclidean_distances, nan_euclidean_distances
+from sklearn.metrics.pairwise import nan_euclidean_distances
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)

@@ -2,16 +2,16 @@ import os
 import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from scipy.spatial.transform import Rotation as R
 from eaik.IK_DH import DhRobot
 from pytransform3d.transform_manager import TransformManager
 from pytransform3d.urdf import UrdfTransformManager
 from pytransform3d.transformations import plot_transform
-from pytransform3d.plot_utils import make_3d_axis
-from pytransform3d.plot_utils import plot_sphere, plot_box
-import torch
+from pytransform3d.plot_utils import make_3d_axis, plot_sphere, plot_box
 import pytorch_kinematics as pk
 import yaml
+import torch
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -455,6 +455,18 @@ class SceneUR5eSpherized:
         return self.check_sphr_box_vec_torch(spheres_in_base)
 
     def view_scene(self, q, Hlist=None):
+        view_elev = 20
+        view_azim = 164
+        view_roll = -4
+
+        def as_numpy(value):
+            if torch.is_tensor(value):
+                return value.detach().cpu().numpy()
+            return np.asarray(value)
+
+        box_in_base = as_numpy(self.box_in_base)
+        boxsz_in_base = as_numpy(self.boxsz_in_base)
+
         qSphere = self.fkin_sphere(q)
         sphere = qSphere[0].detach().cpu().numpy()
 
@@ -472,11 +484,11 @@ class SceneUR5eSpherized:
             )
 
         # boxes
-        for i in range(self.box_in_base.shape[0]):
+        for i in range(box_in_base.shape[0]):
             plot_box(
                 ax=ax,
-                A2B=self.box_in_base[i],
-                size=self.boxsz_in_base[i],
+                A2B=box_in_base[i],
+                size=boxsz_in_base[i],
                 wireframe=False,
                 alpha=0.3,
             )
@@ -487,7 +499,174 @@ class SceneUR5eSpherized:
                 plot_transform(ax=ax, A2B=h, s=0.1, name="task")
 
         ax.set_box_aspect([1, 1, 1])
+        ax.view_init(elev=view_elev, azim=view_azim, roll=view_roll)
         plt.show()
+
+    def view_animation(self, Q, Hlist=None):
+        view_elev = 20
+        view_azim = 164
+        view_roll = -4
+
+        def as_numpy(value):
+            if torch.is_tensor(value):
+                return value.detach().cpu().numpy()
+            return np.asarray(value)
+
+        box_in_base = as_numpy(self.box_in_base)
+        boxsz_in_base = as_numpy(self.boxsz_in_base)
+
+        ur_sphr_ = os.path.join(
+            rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"
+        )
+        with open(ur_sphr_, "r") as f:
+            URDF = f.read()
+
+        # tm = UrdfTransformManager()
+        # tm.load_urdf(URDF, package_dir=os.path.join(rsrc, ""))
+        tm = UrdfTransformManager()
+        tm.load_urdf(URDF)
+        joint_names = [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint",
+        ]
+
+        ax = make_3d_axis(ax_s=1.0)
+        ax.set_box_aspect([1, 1, 1])
+        fig = ax.figure
+        ax.view_init(elev=view_elev, azim=view_azim, roll=view_roll)
+
+        def draw_persistent_geometry(ax):
+            for i in range(box_in_base.shape[0]):
+                plot_box(
+                    ax=ax,
+                    A2B=box_in_base[i],
+                    size=boxsz_in_base[i],
+                    wireframe=False,
+                    alpha=0.1,
+                )
+
+            if Hlist is not None:
+                for h in Hlist:
+                    plot_transform(ax=ax, A2B=h, s=0.1, name="task")
+
+        def update(frame_idx):
+            for joint_idx, name in enumerate(joint_names):
+                tm.set_joint(name, Q[frame_idx, joint_idx])
+
+            fig.clf()
+            ax = make_3d_axis(ax_s=1.0)
+            ax.set_box_aspect([1, 1, 1])
+            draw_persistent_geometry(ax)
+            ax.view_init(elev=view_elev, azim=view_azim, roll=view_roll)
+            tm.plot_collision_objects("base_link", ax_s=0.6, alpha=0.7)
+            ax.set_title(f"UR5e collision objects, frame {frame_idx + 1}/{len(Q)}")
+            return (ax,)
+
+        anim = animation.FuncAnimation(
+            fig,
+            update,
+            frames=len(Q),
+            interval=120,
+            blit=False,
+            repeat=True,
+        )
+
+        plt.show()
+
+
+# class SceneOMPLPlanner:
+
+#     def __init__(self, collision_checker):
+#         from ompl import base as ob
+#         from ompl import geometric as og
+#         from ompl import util as ou
+
+#         ou.RNG.setSeed(42)
+#         self.collision_checker = collision_checker
+
+#         self.space = ob.RealVectorStateSpace(6)
+#         self.bounds = ob.RealVectorBounds(6)
+#         self.limit6 = [
+#             2 * np.pi,
+#             2 * np.pi,
+#             np.pi,
+#             2 * np.pi,
+#             2 * np.pi,
+#             2 * np.pi,
+#         ]
+#         for i in range(6):
+#             self.bounds.setLow(i, -self.limit6[i])
+#             self.bounds.setHigh(i, self.limit6[i])
+#         self.bounds.setLow(1, -np.pi)
+#         self.bounds.setHigh(1, 0)
+#         self.space.setBounds(self.bounds)
+
+#         self.ss = og.SimpleSetup(self.space)
+#         self.ss.setStateValidityChecker(
+#             ob.StateValidityCheckerFn(self.isStateValid)
+#         )
+#         # self.planner = og.BITstar(self.ss.getSpaceInformation())
+#         self.planner = og.ABITstar(self.ss.getSpaceInformation())
+#         # self.planner = og.AITstar(self.ss.getSpaceInformation())
+#         # self.planner.setRange(0.1)
+#         self.ss.setPlanner(self.planner)
+
+#     def isStateValid(self, state):
+#         q = [state[0], state[1], state[2], state[3], state[4], state[5]]
+#         col = self.collision_checker(q)
+#         return not col
+
+#     def query_planning(self, start_list, goal_list):
+#         # Important!
+#         # Clear previous planning data to ensure fresh planning because caching
+#         self.ss.clear()
+
+#         start = ob.State(self.space)
+#         start[0] = start_list[0]
+#         start[1] = start_list[1]
+#         start[2] = start_list[2]
+#         start[3] = start_list[3]
+#         start[4] = start_list[4]
+#         start[5] = start_list[5]
+#         goal = ob.State(self.space)
+#         goal[0] = goal_list[0]
+#         goal[1] = goal_list[1]
+#         goal[2] = goal_list[2]
+#         goal[3] = goal_list[3]
+#         goal[4] = goal_list[4]
+#         goal[5] = goal_list[5]
+
+#         dist = np.linalg.norm(np.array(goal_list) - np.array(start_list))
+
+#         self.ss.setStartAndGoalStates(start, goal)
+#         status = self.ss.solve(100.0)
+#         print("Plan from ", start_list, " to ", goal_list, "estimate cost:", dist)
+#         (
+#             print("EXACT")
+#             if status.getStatus() == status.EXACT_SOLUTION
+#             else print("Invalid result")
+#         )
+#         if status.getStatus() == status.EXACT_SOLUTION:
+#             self.ss.simplifySolution()
+#             path = self.ss.getSolutionPath()
+#             path_cost = path.length()
+
+#             print("Found solution:")
+#             print(f"Path cost: {path_cost}")
+#             print(self.ss.getSolutionPath())
+
+#             pathlist = []
+#             for i in range(path.getStateCount()):
+#                 pi = path.getState(i)
+#                 pathlist.append([pi[0], pi[1], pi[2], pi[3], pi[4], pi[5]])
+#             return pathlist, path_cost
+#         else:
+#             print("No solution found")
+#             return None
 
 
 def pick_task_poses():
@@ -532,11 +711,15 @@ def view_pick_task_poses():
     robot_kin = RobotUR5eKin()
     scene = SceneUR5eSpherized()
 
-    q = torch.tensor(
-        [0, -np.pi / 4, 0, -np.pi / 2, 0, np.pi / 3], dtype=torch.float32
-    ).to(device)
     Hlist = pick_task_poses()
-    scene.view_scene(q, Hlist)
+    # qz = torch.tensor([0, 0, 0, 0, 0, 0], dtype=torch.float32).to(device)
+    # scene.view_scene(qz, Hlist)
+
+    # raise
+    q0 = [0, -np.pi / 4, 0, -np.pi / 2, 0, np.pi / 3]
+    qe = [0, -np.pi / 2, 0, -np.pi / 2, 0, np.pi / 3]
+    Q = np.linspace(q0, qe, 100)
+    scene.view_animation(Q, Hlist)
 
 
 def batch_check():

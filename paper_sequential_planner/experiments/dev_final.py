@@ -153,6 +153,7 @@ Qik_reach_init = np.vstack((qinit_, Qik_reach))  # init & ntasks
 qinit_state_ = np.full((1, Qikstate_reach.shape[1], Qikstate_reach.shape[2]), -1)
 qinit_state_[0, 0] = 1
 Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
+Qikstate_reach_init = np.where(Qikstate_reach_init == 1, True, False)  # T/F mask
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 
 # taskspace relationship analysis
@@ -276,29 +277,40 @@ def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
     return D
 
 
-def Qfilter_R(Q, q, r):
+def Qfilter_R(Q, q, Qs, r):
     """
     My own thoughts
 
     Filter candidate configurations that are too far from initial configuration
     using a simple radius threshold in cspace distance.
+
+    !Important: make sure that the selected configurations are also valid from Qs.
+    !If the selected configurations have its edge in minimum cost but the node is invalid,
+    !then we selected the next minimum cost edge that is valid.
+
+    Q: node
+    q: initial configuration
+    Qs: node validity from collision check (important)
+    r: radius threshold
     """
     ntasks_rech, n_ik, dof = Q.shape
     Q_flat = Q.reshape(ntasks_rech * n_ik, dof)
     dist = nan_euclidean_distances(Q_flat, q.reshape(1, -1))
     q_valid = dist.flatten() <= r
-    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
-    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
+    Qvalid = q_valid.reshape(ntasks_rech, n_ik)
+    Qvalid = Qvalid[:, :, None]  # just add a dummy dimension
+    Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
-    nQredpt = np.sum(q_valid_shape, axis=1)
+    # print debug info
+    nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
-    n_total = np.prod(q_valid_shape.shape)
+    n_total = np.prod(Qvalid.shape)
     print(f"==>> selected {n_selected} / {n_total} configurations")
     print(f"==>> selected_rate: {n_selected / n_total}")
-    return q_valid_shape
+    return Qvalid
 
 
-def Qfilter_similarity(Q, q, thresh):
+def Qfilter_similarity(Q, q, Qs, thresh):
     """
     CASE2022, An Efficient Approach for solving RTSP, Li
 
@@ -306,6 +318,11 @@ def Qfilter_similarity(Q, q, thresh):
     Weighted euclidean distance to initial config. Now i dont have the weight yet.
     Bigger val mean closer to qinit mean very little Q selected.
     Samaller val mean farther to qinit mean more Q selected.
+
+    Q: node
+    q: initial configuration
+    Qs: node validity from collision check (important)
+    thresh: threshold for selection
     """
     W = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
     ntasks_rech, n_ik, dof = Q.shape
@@ -314,28 +331,36 @@ def Qfilter_similarity(Q, q, thresh):
     del_sim = 1.0 / (dist + 0.001)  # avoid division by zero
     phi_opt = del_sim / np.nansum(del_sim)  # normalize to sum to 1
     q_valid = phi_opt >= thresh
-    q_valid_shape = q_valid.reshape(ntasks_rech, n_ik)
-    q_valid_shape = q_valid_shape[:, :, None]  # just add a dummy dimension
+    Qvalid = q_valid.reshape(ntasks_rech, n_ik)
+    Qvalid = Qvalid[:, :, None]  # just add a dummy dimension
+    Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
     # threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
-
-    nQredpt = np.sum(q_valid_shape, axis=1)
+    nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
-    n_total = np.prod(q_valid_shape.shape)
+    n_total = np.prod(Qvalid.shape)
     phi_opt_min = np.nanmin(phi_opt)
     phi_opt_max = np.nanmax(phi_opt)
     print(f"==>> optimal values: min={phi_opt_min}, max={phi_opt_max}")
     print(f"==>> selected {n_selected} / {n_total} configurations")
     print(f"==>> selected_rate: {n_selected / n_total}")
-    return q_valid_shape
+    return Qvalid
 
 
-def Qfilter_nn2c(Q, tmap):
+def Qfilter_nn2c(Q, Qs, tmap):
     """
     GECCO2017 & Operational Research 2019, A Pre-processing reduction GTSP, Mehdi
 
     Filter candidate configurations such that every cluster pair has at least
     one valid edge between them.
+
+    !Important: make sure that the selected configurations are also valid from Qs.
+    !If the selected configurations have its edge in minimum cost but the node is invalid,
+    !then we selected the next minimum cost edge that is valid.
+
+    Q: node
+    Qs: node validity from collision check (important)
+    tmap: mapping dict
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -349,7 +374,8 @@ def Qfilter_nn2c(Q, tmap):
     Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
     # Qminval = np.zeros_like(Q)
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Eij = E[idx]
+        Esij = np.outer(Qs[i], Qs[j])  # ensure nodes is valid from collision check
+        Eij = np.where(Esij, E[idx], np.nan)  # filter out invalid edges value
         UV = np.unravel_index(np.nanargmin(Eij), Eij.shape)
         qu = np.zeros(n_ik, dtype=bool)
         qu[UV[0]] = True
@@ -361,9 +387,14 @@ def Qfilter_nn2c(Q, tmap):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
-def Qfilter_Knn2c(Q, k, tmap):
+def Qfilter_Knn2c(Q, Qs, k, tmap):
     """
     The same as Qfilter_nn2c, but we select the K nearest neighbors
+
+    Q: node
+    Qs: node validity from collision check (important)
+    k: number of nearest neighbors to select
+    tmap: mapping dict
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -376,7 +407,8 @@ def Qfilter_Knn2c(Q, k, tmap):
     ntasks_rech, n_ik, dof = Q.shape
     Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Eij = E[idx]
+        Esij = np.outer(Qs[i], Qs[j])  # ensure nodes is valid from collision check
+        Eij = np.where(Esij, E[idx], np.nan)  # filter out invalid edges value
         # Get the k nearest neighbors for each node
         knn_indices = np.argpartition(Eij, k, axis=None)[:k]
         knn_mask = np.zeros_like(Eij, dtype=bool)
@@ -387,9 +419,14 @@ def Qfilter_Knn2c(Q, k, tmap):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
-def Qfilter_Dnn2c(Q, d, tmap):
+def Qfilter_Dnn2c(Q, Qs, d, tmap):
     """
     The same as Qfilter_nn2c, but we select the in Distance nearest neighbors
+
+    Q: node
+    Qs: node validity from collision check (important)
+    d: distance threshold for nearest neighbors
+    tmap: mapping dict
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -402,7 +439,8 @@ def Qfilter_Dnn2c(Q, d, tmap):
     ntasks_rech, n_ik, dof = Q.shape
     Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Eij = E[idx]
+        Esij = np.outer(Qs[i], Qs[j])  # ensure nodes is valid from collision check
+        Eij = np.where(Esij, E[idx], np.nan)  # filter out invalid edges value
         # Get the indices of elements less than or equal to d
         dnn_mask = Eij <= d
         Qvalid[i] = Qvalid[i] | dnn_mask.any(axis=1)
@@ -411,24 +449,24 @@ def Qfilter_Dnn2c(Q, d, tmap):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
-Q1red_r = Qfilter_R(Qik_reach_init, qinit, r=2 * np.pi)
-check_number_Q(Q1red_r)
+Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
+Q2red_s = Qfilter_similarity(
+    Qik_reach_init, qinit, Qs=Qikstate_reach_init, thresh=0.0001
+)
+Q3red_nn2c = Qfilter_nn2c(
+    Qik_reach_init, Qs=Qikstate_reach_init, tmap=tspace_mapping
+)
 
-Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, thresh=0.0001)
-check_number_Q(Q2red_s)
+Q4red_Knn2c = Qfilter_Knn2c(
+    Qik_reach_init, Qs=Qikstate_reach_init, k=50, tmap=tspace_mapping
+)
 
-Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, tmap=tspace_mapping)
-check_number_Q(Q3red_nn2c)
+Q5red_Dnn2c = Qfilter_Dnn2c(
+    Qik_reach_init, Qs=Qikstate_reach_init, d=5, tmap=tspace_mapping
+)
 
-Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, k=50, tmap=tspace_mapping)
-check_number_Q(Q4red_Knn2c)
-
-Q5red_Dnn2c = Qfilter_Dnn2c(Qik_reach_init, d=5, tmap=tspace_mapping)
-check_number_Q(Q5red_Dnn2c)
-
-raise
-# Merge all Q filter
-Qreduced = np.where(Qikstate_reach_init == 1, True, False) & Q1red_r
+# choose filter method
+Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
 check_number_Q(Qreduced)
 
 
@@ -440,7 +478,7 @@ def Eest_colfree(Q, Qs, cmax_d, tmap):
     tmap: mapping dict
 
     Compute:
-    Only estimate edges that are cost less than 2pi, otherwise invalid (np.inf)
+    If provide cmax_d, then only estimate edges that are cost less than 2pi, otherwise invalid (np.inf)
     If no path between two nodes, then the edge is also invalid (np.inf)
 
     Output:
@@ -455,11 +493,14 @@ def Eest_colfree(Q, Qs, cmax_d, tmap):
     for idx, (i, j) in enumerate(task_to_nn_pair):
         E[idx] = nan_euclidean_distances(Q[i], Q[j])
 
-    Estate = E <= cmax_d  # True/False mask dist over cmax_d
-    # if Qs is not valid, then E is also invalid
-    for idx, (i, j) in enumerate(task_to_nn_pair):
-        QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
-        Estate[idx] = Estate[idx] & QIJ  # update E state
+    if cmax_d is not None:
+        Estate = E <= cmax_d  # True/False mask dist over cmax_d
+        # if Qs is not valid, then E is also invalid
+        for idx, (i, j) in enumerate(task_to_nn_pair):
+            QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
+            Estate[idx] = Estate[idx] & QIJ  # update E state
+    else:
+        Estate = np.ones_like(E, dtype=bool)  # True/False mask
     check_number_E(Estate)
 
     # from the Estate, we estimation the collision-free distance
@@ -538,16 +579,16 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
     return Ewmj
 
 
-cmax_d = 2 * np.pi
+# cmax_d = 2 * np.pi
+cmax_d = None  # disable cmax_d filtering
 Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 
-Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
+# Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
 
-Wwmj = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint max velocity
-Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
+# Wwmj = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint max velocity
+# Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
 
-raise
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
 path = os.path.join(rsrc, "gtsp")
@@ -562,22 +603,35 @@ Qreduced_final_flat, nodesid_og, nodesid_cont = write_gtsp_file(
     Ecost=Ecost,
     Q=Qreduced,
 )
-result = call_gtsp_glns_solver(
-    solver_dir=path,  # Where GLNScmd.jl lives
-    input_file=pathprob,
-    output_file=pathsol,
-    args={"mode": "slow", "max_time": 300},
-)
+# result = call_gtsp_glns_solver(
+#     solver_dir=path,  # Where GLNScmd.jl lives
+#     input_file=pathprob,
+#     output_file=pathsol,
+#     args={"mode": "slow", "max_time": 300},
+# )
 tour_flatten = read_gtsp_file(pathsol, nodesid_og, nodesid_cont)
-print(f"==>> tour_flatten: \n{tour_flatten}")
 Qik_reach_init_flat = Qik_reach_init.reshape(-1, dof)
-qtour = Qik_reach_init_flat[tour_flatten]
-print(f"==>> qtour.shape: \n{qtour.shape}")
-print(f"==>> qtour: \n{qtour}")
+Qtour = Qik_reach_init_flat[tour_flatten]
+# Xorder =
 
-tour_euc_cost = np.sum(np.linalg.norm(np.diff(qtour, axis=0), axis=1))
+tour_euc_cost = np.sum(np.linalg.norm(np.diff(Qtour, axis=0), axis=1))
 print(f"==>> tour_euc_cost: \n{tour_euc_cost}")
-raise
+
+
+def lininterp_tour(Q, num_points):
+    """
+    Linear interpolation of the tour path for visualization.
+    Q: (n, dof)
+    return: (n, num_points, dof)
+    """
+    Qinterp = np.empty((Q.shape[0] - 1, num_points, Q.shape[1]))
+    for i in range(Q.shape[0] - 1):
+        Qinterp[i] = np.linspace(Q[i], Q[i + 1], num_points)
+    return Qinterp.reshape(-1, Q.shape[1])
+
+
+Qfull = lininterp_tour(Qtour, num_points=20)
+scene.view_animation(Qfull, Hlist=H)
 
 
 # * 4th STAGE path reconstruction and refinement
@@ -613,21 +667,20 @@ def center(Q1, Q2):
     return Qcenter
 
 
-t1 = 1
-t2 = 2
-idx = task_to_nn_pair.index((t1, t2))
-print(f"==>> idx: \n{idx}")
-Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
-print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
-print(f"==>> Qfrom: \n{Qfrom}")
-Qto = Qik_reach_init[t2]  # (num_sols, dof)
-print(f"==>> Qto.shape: \n{Qto.shape}")
-print(f"==>> Qto: \n{Qto}")
-Qinterp = interp(Qfrom, Qto, num_points=20)
-print(f"==>> Qinterp.shape: \n{Qinterp.shape}")
+# t1 = 1
+# t2 = 2
+# idx = task_to_nn_pair.index((t1, t2))
+# print(f"==>> idx: \n{idx}")
+# Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
+# print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
+# print(f"==>> Qfrom: \n{Qfrom}")
+# Qto = Qik_reach_init[t2]  # (num_sols, dof)
+# print(f"==>> Qto.shape: \n{Qto.shape}")
+# print(f"==>> Qto: \n{Qto}")
+# Qinterp = interp(Qfrom, Qto, num_points=20)
+# print(f"==>> Qinterp.shape: \n{Qinterp.shape}")
 
 
-raise
-# write tour path to file
-pathtour = os.path.join(rsrc, "gtsp", "ur5e_tour_path.txt")
-write_tour_path(pathtour, qtour)
+# # write tour path to file
+# pathtour = os.path.join(rsrc, "gtsp", "ur5e_tour_path.txt")
+# write_tour_path(pathtour, Qfull)

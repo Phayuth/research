@@ -220,11 +220,31 @@ def read_gtsp_file(input_file, nodesid_og, nodesid_cont):
                 break
 
     # remap the tour flatten node id back to its original id
+    tour = np.array(tour)
     tour_indices = np.searchsorted(nodesid_cont, tour)
     tour_indices_og = nodesid_og[tour_indices]
-    # print(f"==>> tour_indices: \n{tour_indices}")
-    # print(f"==>> tour_indices_og: \n{tour_indices_og}")
-    return tour_indices_og
+    tour_indices_og_rotated = rotate_tour(tour_indices_og, start_node=0)
+
+    # print debug info
+    print("------------------------------------------------------------")
+    print(f"GLNS Tour IDs (flattened): {tour}")
+    print(f"Tour indices in original node IDs: {tour_indices_og}")
+    print(f"Rotated tour indices: {tour_indices_og_rotated}")
+    return tour_indices_og_rotated
+
+
+def rotate_tour(tour_indices_og, start_node):
+    """
+    Rotate the tour so that it starts with the specified start_node.
+    """
+    if start_node not in tour_indices_og:
+        raise ValueError(f"Start node {start_node} not found in the tour.")
+
+    start_index = np.where(tour_indices_og == start_node)[0][0]
+    rotated_tour = np.concatenate(
+        (tour_indices_og[start_index:], tour_indices_og[:start_index])
+    )
+    return rotated_tour
 
 
 def call_gtsp_glns_solver(
