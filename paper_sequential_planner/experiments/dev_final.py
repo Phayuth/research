@@ -330,7 +330,7 @@ def Qfilter_similarity(Q, q, thresh):
     return q_valid_shape
 
 
-def Qfilter_nn2c(Q, tspace_mapping):
+def Qfilter_nn2c(Q, tmap):
     """
     GECCO2017 & Operational Research 2019, A Pre-processing reduction GTSP, Mehdi
 
@@ -338,14 +338,12 @@ def Qfilter_nn2c(Q, tspace_mapping):
     one valid edge between them.
     """
     # get mapping
-    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
-    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Qfrom = Q[i]  # (num_sols, dof)
-        Qto = Q[j]  # (num_sols, dof)
-        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+        E[idx] = nan_euclidean_distances(Q[i], Q[j])
 
     ntasks_rech, n_ik, dof = Q.shape
     Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
@@ -363,16 +361,17 @@ def Qfilter_nn2c(Q, tspace_mapping):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
-def Qfilter_Knn2c(Q, k, tspace_mapping):
+def Qfilter_Knn2c(Q, k, tmap):
+    """
+    The same as Qfilter_nn2c, but we select the K nearest neighbors
+    """
     # get mapping
-    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
-    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Qfrom = Q[i]  # (num_sols, dof)
-        Qto = Q[j]  # (num_sols, dof)
-        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+        E[idx] = nan_euclidean_distances(Q[i], Q[j])
 
     ntasks_rech, n_ik, dof = Q.shape
     Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
@@ -388,19 +387,44 @@ def Qfilter_Knn2c(Q, k, tspace_mapping):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
-# Q filter : Radius filter
+def Qfilter_Dnn2c(Q, d, tmap):
+    """
+    The same as Qfilter_nn2c, but we select the in Distance nearest neighbors
+    """
+    # get mapping
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        E[idx] = nan_euclidean_distances(Q[i], Q[j])
+
+    ntasks_rech, n_ik, dof = Q.shape
+    Qvalid = np.zeros((ntasks_rech, n_ik), dtype=bool)
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Eij = E[idx]
+        # Get the indices of elements less than or equal to d
+        dnn_mask = Eij <= d
+        Qvalid[i] = Qvalid[i] | dnn_mask.any(axis=1)
+        Qvalid[j] = Qvalid[j] | dnn_mask.any(axis=0)
+
+    return Qvalid[:, :, None]  # add a dummy dimension
+
+
 Q1red_r = Qfilter_R(Qik_reach_init, qinit, r=2 * np.pi)
 check_number_Q(Q1red_r)
 
-# Q filter : Similarity filter
 Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, thresh=0.0001)
 check_number_Q(Q2red_s)
 
-Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, tspace_mapping)
+Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, tmap=tspace_mapping)
 check_number_Q(Q3red_nn2c)
 
-Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, k=2, tspace_mapping=tspace_mapping)
+Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, k=50, tmap=tspace_mapping)
 check_number_Q(Q4red_Knn2c)
+
+Q5red_Dnn2c = Qfilter_Dnn2c(Qik_reach_init, d=5, tmap=tspace_mapping)
+check_number_Q(Q5red_Dnn2c)
 
 raise
 # Merge all Q filter
@@ -408,11 +432,12 @@ Qreduced = np.where(Qikstate_reach_init == 1, True, False) & Q1red_r
 check_number_Q(Qreduced)
 
 
-def Eest_colfree(Qs, cmax_d, tspace_mapping):
+def Eest_colfree(Q, Qs, cmax_d, tmap):
     """
     Input:
+    Q: nodes
     Qs: nodes validity
-    tspace_mapping: mapping dict
+    tmap: mapping dict
 
     Compute:
     Only estimate edges that are cost less than 2pi, otherwise invalid (np.inf)
@@ -422,15 +447,13 @@ def Eest_colfree(Qs, cmax_d, tspace_mapping):
     Ecf: edges collision-free distance
     """
     # get mapping
-    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
-    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     # cspace eulidean distance
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
-        Qto = Qik_reach_init[j]  # (num_sols, dof)
-        E[idx] = nan_euclidean_distances(Qfrom, Qto)
+        E[idx] = nan_euclidean_distances(Q[i], Q[j])
 
     Estate = E <= cmax_d  # True/False mask dist over cmax_d
     # if Qs is not valid, then E is also invalid
@@ -447,11 +470,12 @@ def Eest_colfree(Qs, cmax_d, tspace_mapping):
     return Ecf
 
 
-def Eest_weighted_euclidean(Qs, W, tspace_mapping):
+def Eest_weighted_euclidean(Q, Qs, W, tmap):
     """
     Input:
+    Q: nodes
     Qs: nodes validity
-    tspace_mapping: mapping dict
+    tmap: mapping dict
     W: weight for each joint in form of relative displacement in taskspace
 
     Compute:
@@ -461,15 +485,13 @@ def Eest_weighted_euclidean(Qs, W, tspace_mapping):
     Eweu: edges heuristic distance based on weighted euclidean distance
     """
     # get mapping
-    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
-    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     # cspace weighted euclidean distance
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
-        Qto = Qik_reach_init[j]  # (num_sols, dof)
-        E[idx] = weighted_nan_euclidean_distances(Qfrom, Qto, w=W)
+        E[idx] = weighted_nan_euclidean_distances(Q[i], Q[j], w=W)
 
     Estate = np.ones_like(E, dtype=bool)  # True/False mask
     # if Qs is not valid, then E is also invalid
@@ -482,11 +504,12 @@ def Eest_weighted_euclidean(Qs, W, tspace_mapping):
     return Eweu
 
 
-def Eest_weighted_max_joint_diff(Qs, W, tspace_mapping):
+def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
     """
     Input:
+    Q: nodes
     Qs: nodes validity
-    tspace_mapping: mapping dict
+    tmap: mapping dict
     W: weight for each joint in form of joint velocity
 
     Compute:
@@ -496,15 +519,13 @@ def Eest_weighted_max_joint_diff(Qs, W, tspace_mapping):
     Ewmj: edges heuristic distance based on max joint difference
     """
     # get mapping
-    task_to_nn_pair = tspace_mapping["task_to_nn_pair"]
-    task_to_nn_pair_len = tspace_mapping["task_to_nn_pair_len"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     W = 1 / W  # max joint velocity
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
-        Qfrom = Qik_reach_init[i]  # (num_sols, dof)
-        Qto = Qik_reach_init[j]  # (num_sols, dof)
-        E[idx] = weighted_nan_max_joint_diff_distances(Qfrom, Qto, w=W)
+        E[idx] = weighted_nan_max_joint_diff_distances(Q[i], Q[j], w=W)
 
     Estate = np.ones_like(E, dtype=bool)  # True/False mask
     # if Qs is not valid, then E is also invalid
@@ -518,13 +539,13 @@ def Eest_weighted_max_joint_diff(Qs, W, tspace_mapping):
 
 
 cmax_d = 2 * np.pi
-Ecf = Eest_colfree(Qreduced, cmax_d, tspace_mapping)
+Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 
 Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-Eweu = Eest_weighted_euclidean(Qreduced, Wweu, tspace_mapping)
+Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
 
 Wwmj = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint max velocity
-Ewmj = Eest_weighted_max_joint_diff(Qreduced, Wwmj, tspace_mapping)
+Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
 
 raise
 # * 3rd STAGE GTSP problem formulation and solving
