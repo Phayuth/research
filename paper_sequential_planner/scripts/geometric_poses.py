@@ -4,7 +4,6 @@ from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from sklearn.mixture import GaussianMixture
-from sklearn.metrics.pairwise import nan_euclidean_distances
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -235,9 +234,6 @@ def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_pair):
         return cspace_eudist[idx]
 
 
-# *rack system ----------------------------------------------------------------
-
-
 # *cluster algorithm ----------------------------------------------------------
 def dbscan_clustering(Hse3logerr):
 
@@ -390,75 +386,6 @@ def xlist_to_Xlist(xlist):
         dummy = np.array([[0.0, 0.0, 0.0, 1.0]] * ntasks)
         Xlist = np.column_stack([xlist, dummy])
         return Xlist
-
-
-# *cspace --------------------------------------------------------------------
-def brute_cspace_distance(Q):
-    """
-    Very easy but memory-heavy way to compute pairwise cspace distance by IK pairing
-    Q is (ntasks_rech, n_ik*altcnf, dof)
-
-    Return shape (ntasks_rech, ntasks_rech, n_ik*altcnf, n_ik*altcnf)
-    accessing same id will give us dist to itself, which we dont need.
-    always access different task id to get task-to-task distance, which we need
-    """
-    ntasks_rech, n_ik, dof = Q.shape
-    _Qflat = Q.reshape(ntasks_rech * n_ik, dof)
-    _cspace_eudist_flat = nan_euclidean_distances(_Qflat, _Qflat)
-    cspace_eudist = _cspace_eudist_flat.reshape(
-        ntasks_rech, n_ik, ntasks_rech, n_ik
-    )
-    cspace_eudist = cspace_eudist.transpose(0, 2, 1, 3)
-    return cspace_eudist
-
-
-def brute_cspace_min_distance(cspace_eudist):
-    """ """
-    _cspace_dist_inf = np.where(np.isnan(cspace_eudist), np.inf, cspace_eudist)
-    cspace_task_min = _cspace_dist_inf.min(axis=(2, 3))
-    cspace_task_min[~np.isfinite(cspace_task_min)] = np.nan
-
-    min_flat_idx = np.argmin(
-        _cspace_dist_inf.reshape(
-            _cspace_dist_inf.shape[0], _cspace_dist_inf.shape[1], -1
-        ),
-        axis=2,
-    )
-    min_idx_2d = np.unravel_index(min_flat_idx, _cspace_dist_inf.shape[2:])
-    cspace_task_min_idx = np.stack(min_idx_2d, axis=-1)
-
-    cspace_task_min_values = {
-        "cspace_task_min": cspace_task_min,
-        "cspace_task_min_idx": cspace_task_min_idx,
-    }
-    return cspace_task_min_values
-
-
-def task_to_task_configuration_interp(Qaik_rall, nintp=10):
-    """
-    Vectorized Interpolate between all pairs of task-reachable configurations,
-    and set to nan if either of the pair is invalid.
-    final shape (ntasks_rech, ntasks_rech, n_ik, n_ik, nintp, dof)
-
-    [This memory-heavy interpolation, only be used for small number of tasks]
-    Ex:
-    tt_cspace_interp = task_to_task_configuration_interp(Qaik_rall, nintp=10)
-    t0t1q0q0 = tt_cspace_interp[0, 1, 0, 0]
-    give us interp bet/ first IK of task0 to first IK of task1.
-    task id should not be the same
-    """
-    ntasks_rech, n_ik, dof = Qaik_rall.shape
-    Q1 = Qaik_rall[:, None, :, None, None, :]  # (ntasks_rech,1,n_ik,1,1,dof)
-    Q2 = Qaik_rall[None, :, None, :, None, :]  # (1,ntasks_rech,1,n_ik,1,dof)
-    tau = np.linspace(0.0, 1.0, nintp, dtype=Qaik_rall.dtype)
-    tau = tau[None, None, None, None, :, None]  # (1,1,1,1,nintp,1)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik,nintp,dof)
-    interp = (1.0 - tau) * Q1 + tau * Q2
-    invalid_cfg = np.isnan(Qaik_rall).all(axis=-1)  # (ntasks_rech,n_ik)
-    # (ntasks_rech,ntasks_rech,n_ik,n_ik)
-    invalid_pair = invalid_cfg[:, None, :, None] | invalid_cfg[None, :, None, :]
-    interp = np.where(invalid_pair[..., None, None], np.nan, interp)
-    return interp
 
 
 # *generate synthetic poses ----------------------------------------------

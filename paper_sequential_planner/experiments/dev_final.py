@@ -14,7 +14,6 @@ from paper_sequential_planner.scripts.geometric_poses import (
     se3_error_pairwise_distance,
     task_space_correlation,
     task_space_correlation_map,
-    query_data_from_tspace_map,
 )
 from paper_sequential_planner.experiments.env_ur5e_sphere import (
     RobotUR5eKin,
@@ -596,26 +595,31 @@ pathprob = os.path.join(rsrc, "gtsp", "new_ur5e_sphere_gtsp.gtsp")
 pathsol = os.path.join(rsrc, "gtsp", "new_ur5e_sols")
 
 Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
-Qreduced_final_flat, nodesid_og, nodesid_cont = write_gtsp_file(
+print(f"==>> Ecost.shape: \n{Ecost.shape}")
+print(f"==>> Qreduced.shape: \n{Qreduced.shape}")
+
+
+Qid_true, Qid_true_cont = write_gtsp_file(
     filename=pathprob,
-    name="ur5e_sphere_gtsp",
+    instancename="ur5e_sphere_gtsp",
     task_to_nn_pair=task_to_nn_pair,
-    Ecost=Ecost,
+    E=Ecost,
     Q=Qreduced,
 )
-# result = call_gtsp_glns_solver(
-#     solver_dir=path,  # Where GLNScmd.jl lives
-#     input_file=pathprob,
-#     output_file=pathsol,
-#     args={"mode": "slow", "max_time": 300},
-# )
-tour_flatten = read_gtsp_file(pathsol, nodesid_og, nodesid_cont)
-Qik_reach_init_flat = Qik_reach_init.reshape(-1, dof)
-Qtour = Qik_reach_init_flat[tour_flatten]
-# Xorder =
+result = call_gtsp_glns_solver(
+    solver_dir=path,  # Where GLNScmd.jl lives
+    input_file=pathprob,
+    output_file=pathsol,
+    args={"mode": "slow", "max_time": 300},
+)
+Qtour = read_gtsp_file(pathsol, Qid_true, Qid_true_cont)
+Ttour = Qtour // num_sols
+print(f"==>> Ttour: \n{Ttour}")
 
-tour_euc_cost = np.sum(np.linalg.norm(np.diff(Qtour, axis=0), axis=1))
-print(f"==>> tour_euc_cost: \n{tour_euc_cost}")
+tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
+tourQcosteuldist = np.sum(np.linalg.norm(np.diff(tourQval, axis=0), axis=1))
+print(f"==>> tourQcosteuldist: \n{tourQcosteuldist}")
+raise
 
 
 def lininterp_tour(Q, num_points):
@@ -630,7 +634,7 @@ def lininterp_tour(Q, num_points):
     return Qinterp.reshape(-1, Q.shape[1])
 
 
-Qfull = lininterp_tour(Qtour, num_points=20)
+Qfull = lininterp_tour(tourQval, num_points=20)
 scene.view_animation(Qfull, Hlist=H)
 
 

@@ -59,7 +59,7 @@ def extract_paths(file_path):
     return paths
 
 
-def generate_gtsp_header(name, dimension, gtsp_sets):
+def gen_gtsp_header(name, dimension, gtsp_sets):
     """
     DIMENSION is the total sum of every nodes in every cluster (solutions)
     GTSP_SETS is the total number of clusters (tasks)
@@ -74,16 +74,11 @@ def generate_gtsp_header(name, dimension, gtsp_sets):
     return "\n".join(lines)
 
 
-def generate_gtsp_edge_weight_section(
-    nodesid_og,
-    num_sols,
-    task_to_nn_pair,
-    Ecost,
-):
+def gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, Ecost):
     # Extract task and solution IDs for each flat node
-    node_tasks = nodesid_og // num_sols
-    node_sols = nodesid_og % num_sols
-    n_nodes = len(nodesid_og)
+    node_tasks = Qid_true // num_sols
+    node_sols = Qid_true % num_sols
+    n_nodes = len(Qid_true)
 
     # Build lookup table for task pair indices: task_pair_lookup[i,j] -> task_pair_idx
     task_to_nn_pair_arr = np.array(task_to_nn_pair)
@@ -152,12 +147,12 @@ def generate_gtsp_edge_weight_section(
     return "\n".join(lines)
 
 
-def generate_gtsp_set_section(nQredfinalpt, nodesid_cont):
+def gen_gtsp_set_section(nQredfinalpt, Qid_true_cont):
     lines = ["GTSP_SET_SECTION"]
     node_idx = 0
     for task_id, num_nodes in enumerate(nQredfinalpt, start=1):
         # Get the nodes for this task
-        task_nodes = nodesid_cont[node_idx : node_idx + num_nodes.item()]
+        task_nodes = Qid_true_cont[node_idx : node_idx + num_nodes.item()]
         # Format: task_id node1 node2 ... nodeN -1
         nodes_str = " ".join(map(str, task_nodes))
         lines.append(f"{task_id} {nodes_str} -1")
@@ -166,70 +161,54 @@ def generate_gtsp_set_section(nQredfinalpt, nodesid_cont):
     return "\n".join(lines)
 
 
-def write_gtsp_file(
-    filename="output.gtsp",
-    name="GTSP_Instance",
-    task_to_nn_pair=None,
-    Ecost=None,
-    Q=None,
-):
+def write_gtsp_file(filename, instancename, task_to_nn_pair, E, Q):
     print(f"==>> Writing GTSP file to {filename} !")
 
     # determine the number of dimensions and gtsp sets
-    nQredfinalpt = np.sum(Q, axis=1)
-    nQredfinal = np.sum(Q)
+    nQpt = np.sum(Q, axis=1)
+    nQ = np.sum(Q)
     ntasks, num_sols, dof = Q.shape
-    dimension = nQredfinal
+    dimension = nQ
     gtsp_sets = ntasks
 
     # mapping the flatten node id
     # nodeid_og is the original node id
     # nodeid_cont is the continuous node id for gtsp solver
-    Qreduced_final_flat = Q.flatten()
-    nodesid_og = np.where(Qreduced_final_flat)[0]  # take only the True nodes
-    nodesid_cont = np.arange(nQredfinal) + 1  # GTSP node id start from 1
+    Qid_true = np.where(Q.flatten())[0]  # take only the True nodes
+    Qid_true_cont = np.arange(Qid_true.shape[0]) + 1  # GTSP node id start from 1
 
-    header = generate_gtsp_header(
-        name,
-        dimension,
-        gtsp_sets,
-    )
-    edge_section = generate_gtsp_edge_weight_section(
-        nodesid_og,
-        num_sols,
-        task_to_nn_pair,
-        Ecost,
-    )
-    set_section = generate_gtsp_set_section(nQredfinalpt, nodesid_cont)
-
-    gtsp_content = f"{header}\n\n{edge_section}\n\n{set_section}"
-
+    header = gen_gtsp_header(instancename, dimension, gtsp_sets)
+    ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
+    set = gen_gtsp_set_section(nQpt, Qid_true_cont)
+    gtsp = f"{header}\n\n{ed}\n\n{set}"
     with open(filename, "w") as f:
-        f.write(gtsp_content)
+        f.write(gtsp)
 
     print(f"==>> GTSP file written to {filename} !")
-    return Qreduced_final_flat, nodesid_og, nodesid_cont
+
+    return Qid_true, Qid_true_cont
 
 
-def read_gtsp_file(input_file, nodesid_og, nodesid_cont):
-    with open(input_file, "r") as f:
+def read_gtsp_file(filename, Qid_true, Qid_true_cont):
+    with open(filename, "r") as f:
         for line in f:
             if line.startswith("Tour") and not line.startswith("Tour Cost"):
                 tour_str = line.split(":", 1)[1].strip()
-                tour = eval(tour_str)
+                tour_glns = eval(tour_str)
                 break
 
     # remap the tour flatten node id back to its original id
-    tour = np.array(tour)
-    tour_indices = np.searchsorted(nodesid_cont, tour)
-    tour_indices_og = nodesid_og[tour_indices]
+    tour_glns = np.array(tour_glns)
+    tour_indices = np.searchsorted(Qid_true_cont, tour_glns)
+    tour_indices_og = Qid_true[tour_indices]
     tour_indices_og_rotated = rotate_tour(tour_indices_og, start_node=0)
 
     # print debug info
     print("------------------------------------------------------------")
-    print(f"GLNS Tour IDs (flattened): {tour}")
+    print(f"GLNS Tour IDs (flattened): {tour_glns}")
     print(f"Tour indices in original node IDs: {tour_indices_og}")
     print(f"Rotated tour indices: {tour_indices_og_rotated}")
+
     return tour_indices_og_rotated
 
 
@@ -248,12 +227,7 @@ def rotate_tour(tour_indices_og, start_node):
 
 
 def call_gtsp_glns_solver(
-    solver_dir,
-    input_file,
-    output_file=None,
-    args=None,
-    check=True,
-    verbose=True,
+    solver_dir, input_file, output_file=None, args=None, check=True, verbose=True
 ):
     """
     Generic caller for external command-line solvers.
