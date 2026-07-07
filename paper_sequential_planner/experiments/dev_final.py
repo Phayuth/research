@@ -3,24 +3,20 @@ import numpy as np
 import time
 import tqdm
 import torch
-from paper_sequential_planner.scripts.geometric_torus import (
-    find_alt_config2,
-)
 from sklearn.metrics.pairwise import nan_euclidean_distances
+from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
 from paper_sequential_planner.scripts.geometric_poses import (
     H_to_X,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
-    se3_error_pairwise_distance,
-    task_space_correlation,
-    task_space_correlation_map,
+    KRNN_task_space_correlation,
+    Advanced_task_space_correlation,
 )
 from paper_sequential_planner.experiments.env_ur5e_sphere import (
     RobotUR5eKin,
     SceneUR5eSpherized,
     pick_task_poses,
 )
-
 from paper_sequential_planner.experiments.utilio import (
     check_number_Q,
     check_number_E,
@@ -154,19 +150,27 @@ qinit_state_[0, 0] = 1
 Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
 Qikstate_reach_init = np.where(Qikstate_reach_init == 1, True, False)  # T/F mask
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
+H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_dist = se3_error_pairwise_distance(Xlist_to_Hlist(X_reach_init), w_rot=1.0)
-tspace_coorrelation = task_space_correlation(tspace_dist)
-tspace_mapping = task_space_correlation_map(tspace_coorrelation)
+tspace_mapping = KRNN_task_space_correlation(
+    H_reach_init,
+    w_rot=0.0,
+    nnr=0.15,
+    nnk=10,
+)
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
     tspace_mapping["task_to_nn_pair_len"],
 )
-print(f"==>> tspace_dist: \n{tspace_dist}")
 print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
+
+# Warg = {"wse3_rot": 1.0}
+# Advanced_task_space_correlation(
+#     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
+# )
 
 
 def weighted_nan_euclidean_distances(X, Y=None, w=None):
@@ -300,12 +304,14 @@ def Qfilter_R(Q, q, Qs, r):
     Qvalid = Qvalid[:, :, None]  # just add a dummy dimension
     Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
-    # print debug info
+    print(f"---------------------------------------------------------")
     nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
     n_total = np.prod(Qvalid.shape)
+    print(f"==>> Qfilter R debug Info")
     print(f"==>> selected {n_selected} / {n_total} configurations")
     print(f"==>> selected_rate: {n_selected / n_total}")
+    print(f"---------------------------------------------------------")
     return Qvalid
 
 
@@ -335,14 +341,17 @@ def Qfilter_similarity(Q, q, Qs, thresh):
     Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
     # threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
+    print(f"---------------------------------------------------------")
     nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
     n_total = np.prod(Qvalid.shape)
     phi_opt_min = np.nanmin(phi_opt)
     phi_opt_max = np.nanmax(phi_opt)
+    print(f"==>> Qfilter similarity debug Info")
     print(f"==>> optimal values: min={phi_opt_min}, max={phi_opt_max}")
     print(f"==>> selected {n_selected} / {n_total} configurations")
     print(f"==>> selected_rate: {n_selected / n_total}")
+    print(f"---------------------------------------------------------")
     return Qvalid
 
 
@@ -619,7 +628,6 @@ print(f"==>> Ttour: \n{Ttour}")
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
 tourQcosteuldist = np.sum(np.linalg.norm(np.diff(tourQval, axis=0), axis=1))
 print(f"==>> tourQcosteuldist: \n{tourQcosteuldist}")
-raise
 
 
 def lininterp_tour(Q, num_points):
@@ -635,6 +643,10 @@ def lininterp_tour(Q, num_points):
 
 
 Qfull = lininterp_tour(tourQval, num_points=20)
+
+
+# raise
+
 scene.view_animation(Qfull, Hlist=H)
 
 

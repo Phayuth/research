@@ -33,32 +33,6 @@ def check_number_E(E):
     print("------------------------------------------------------------")
 
 
-def extract_paths(file_path):
-    """
-    Reads a TSV file and extracts the path for each source-target pair.
-    """
-    with open(file_path, "r") as tsvfile:
-        reader = csv.DictReader(tsvfile, delimiter="\t")
-
-        paths = []
-        for row in reader:
-            source = row.get("source")
-            target = row.get("target")
-            path_str = row.get("path", "")
-            if path_str:
-                try:
-                    nodes = [int(node) for node in path_str.split(",")]
-                    print(f"Source: {source}, Target: {target}")
-                    print(f"  Path: {nodes}")
-                    paths.append(nodes)
-                except ValueError as e:
-                    print(
-                        f"Warning: Could not process path for Source: {source}, Target: {target}. Error: {e}"
-                    )
-                    paths.append(None)
-    return paths
-
-
 def gen_gtsp_header(name, dimension, gtsp_sets):
     """
     DIMENSION is the total sum of every nodes in every cluster (solutions)
@@ -298,6 +272,32 @@ def call_gtsp_glns_solver(
 def write_tour_path(path, tour=None):
     np.savetxt(path, tour, delimiter=",", fmt="%.6f")
     print(f"==>> Tour path written to {path} !")
+
+
+def extract_paths(file_path):
+    """
+    Reads a TSV file and extracts the path for each source-target pair.
+    """
+    with open(file_path, "r") as tsvfile:
+        reader = csv.DictReader(tsvfile, delimiter="\t")
+
+        paths = []
+        for row in reader:
+            source = row.get("source")
+            target = row.get("target")
+            path_str = row.get("path", "")
+            if path_str:
+                try:
+                    nodes = [int(node) for node in path_str.split(",")]
+                    print(f"Source: {source}, Target: {target}")
+                    print(f"  Path: {nodes}")
+                    paths.append(nodes)
+                except ValueError as e:
+                    print(
+                        f"Warning: Could not process path for Source: {source}, Target: {target}. Error: {e}"
+                    )
+                    paths.append(None)
+    return paths
 
 
 if __name__ == "__main__":

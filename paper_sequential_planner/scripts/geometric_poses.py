@@ -1,69 +1,25 @@
 import os
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
-from sklearn.mixture import GaussianMixture
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
-
-# Combined SE(3) metric (common practice) -----------------------------
-def translation_error(t1, t2):
-    return np.linalg.norm(t1 - t2)
-
-
-def rotation_error(R1, R2):
-    R_err = R1.T @ R2
-    tr = np.trace(R_err)
-    cos_theta = (tr - 1.0) * 0.5
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-    return np.arccos(cos_theta)  # radians
+"""
+Taskspace Correlation based on k-NN and r-NN with pure SE(3) distance metric
+Mutual Discussion
+k-NN: directed graph (not mutual)
+r-NN: undirected graph (mutual, under symmetric metric)
+So we most likely dont find mutual k-NN
+"""
 
 
-def rotation_quat_error(q1, q2):
-    """
-    >>> q1 = np.array([0.7071, 0.7071, 0.0, 0.0])  # 90 deg around X
-    >>> q2 = np.array([0.7071, 0.0, 0.7071, 0.0])  # 90 deg around Y
-    >>> print("Quat angle:", rotation_quat_error(q1, q2))
-
-    >>> R1 = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])  # 90 deg around X
-    >>> R2 = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]])  # 90 deg around Y
-    >>> print("SO(3) log:", rotation_error(R1, R2))
-    """
-    dot = np.abs(np.dot(q1, q2))  # double-cover fix
-    dot = np.clip(dot, -1.0, 1.0)
-    return 2 * np.arccos(dot)
-
-
-def se3_error_split(H1, H2):
-    R1, t1 = H1[:3, :3], H1[:3, 3]
-    R2, t2 = H2[:3, :3], H2[:3, 3]
-
-    et = translation_error(t1, t2)
-    er = rotation_error(R1, R2)
-    return et, er
-
-
-def se3_error(H1, H2, w_rot=1.0):
-    # e=sqrt ∥t1​−t2​∥2+λθ2
-    et, er = se3_error_split(H1, H2)
-    return np.sqrt(et**2 + (w_rot * er) ** 2)
-
-
-def se3_error_pairwise_distance(H, w_rot=1.0):
+def se3_pairwise_distances(H, w_rot=1.0):
     """
     H: (N, 4, 4)
     return: (N, N) pairwise SE(3) distance
-
-    Eqivalent to:
-    Dist = np.zeros((len(Hlist), len(Hlist)))
-    for i in range(len(Hlist)):
-        for j in range(i + 1, len(Hlist)):
-            Dist[i, j] = se3_error(Hlist[i], Hlist[j], w_rot=10.0)
-            Dist[j, i] = Dist[i, j]
+    Use w_rot equal to 0.0 if you want to ignore rotation.
     """
     R = H[:, :3, :3]  # (N, 3, 3)
     t = H[:, :3, 3]  # (N, 3)
@@ -83,73 +39,6 @@ def se3_error_pairwise_distance(H, w_rot=1.0):
     return d
 
 
-def se3_error_position_only_pairwise_distance(H):
-    t = H[:, :3, 3]  # (N, 3)
-    dt = t[:, None, :] - t[None, :, :]  # (N, N, 3)
-    et2 = np.sum(dt**2, axis=-1)  # (N, N)
-    d = np.sqrt(et2)
-    return d
-
-
-# Alternative (Lie algebra, cleaner for optimization) -----------------------------
-def so3_log(R):
-    cos_theta = (np.trace(R) - 1.0) * 0.5
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-    theta = np.arccos(cos_theta)
-
-    if theta < 1e-8:
-        return np.zeros(3)
-
-    w_hat = (R - R.T) / (2.0 * np.sin(theta))
-    return theta * np.array([w_hat[2, 1], w_hat[0, 2], w_hat[1, 0]])
-
-
-def se3_log(H):
-    R = H[:3, :3]
-    t = H[:3, 3]
-
-    phi = so3_log(R)
-    theta = np.linalg.norm(phi)
-
-    if theta < 1e-8:
-        V_inv = np.eye(3)
-    else:
-        axis = phi / theta
-        K = np.array(
-            [
-                [0, -axis[2], axis[1]],
-                [axis[2], 0, -axis[0]],
-                [-axis[1], axis[0], 0],
-            ]
-        )
-        A = np.sin(theta) / theta
-        B = (1 - np.cos(theta)) / (theta**2)
-        V = np.eye(3) + B * K + ((1 - A) / theta**2) * (K @ K)
-        V_inv = np.linalg.inv(V)
-
-    rho = V_inv @ t
-    return np.hstack([rho, phi])  # 6D vector
-
-
-def se3_error_log(H1, H2):
-    H_err = np.linalg.inv(H1) @ H2
-    xi = se3_log(H_err)
-    return xi, np.linalg.norm(xi)
-
-
-# *taskspace correlation ------------------------------------------------------
-# k-NN: directed graph (not mutual)
-# r-NN: undirected graph (mutual, under symmetric metric)
-# so we most likely dont find mutual k-NN
-def rnn_from_distance(D, radius):
-    neighbors = []
-    for i in range(D.shape[0]):
-        idx = np.where(D[i] < radius)[0]
-        idx = idx[idx != i]  # remove self
-        neighbors.append(idx.tolist())
-    return neighbors
-
-
 def knn_from_distance(D, k):
     # ignore self-distance by setting diagonal large
     D = D.copy()
@@ -165,16 +54,26 @@ def knn_from_distance(D, k):
     return idx.tolist()  # indices of k nearest per row
 
 
-def task_space_correlation(tspace_dist, nnr=0.15, nnk=5):
-    nn_r = rnn_from_distance(tspace_dist, radius=nnr)
-    nn_k = knn_from_distance(tspace_dist, k=nnk)
+def rnn_from_distance(D, radius):
+    neighbors = []
+    for i in range(D.shape[0]):
+        idx = np.where(D[i] < radius)[0]
+        idx = idx[idx != i]  # remove self
+        neighbors.append(idx.tolist())
+    return neighbors
+
+
+def KRNN_task_space_correlation(H, w_rot, nnr, nnk):
+    Dse3 = se3_pairwise_distances(H, w_rot=w_rot)
+    nn_k = knn_from_distance(Dse3, k=nnk)
+    nn_r = rnn_from_distance(Dse3, radius=nnr)
     nn_union = []
-    for i in range(tspace_dist.shape[0]):
+    for i in range(Dse3.shape[0]):
         union_set = set(nn_r[i]) | set(nn_k[i])
         nn_union.append(sorted(union_set))
     nn_dist = []
     for i in range(len(nn_union)):
-        dists = [tspace_dist[i, j].item() for j in nn_union[i]]
+        dists = [Dse3[i, j].item() for j in nn_union[i]]
         nn_dist.append(dists)
 
     nn_count = [len(n) for n in nn_union]
@@ -186,10 +85,8 @@ def task_space_correlation(tspace_dist, nnr=0.15, nnk=5):
         "nn_r": nn_r,
         "nn_k": nn_k,
     }
-    return tspace_coorrelation
 
-
-def task_space_correlation_map(tspace_coorrelation):
+    # *mapping construction
     nn_union = tspace_coorrelation["nn_union"]
 
     task_to_nn_dict = {}
@@ -217,124 +114,38 @@ def task_space_correlation_map(tspace_coorrelation):
     return tspace_mapping
 
 
-def query_data_from_tspace_map(i, j, cspace_eudist, task_to_nn_pair):
+"""
+Taskspace Correlation based on advanced Robotics Arm Metric
+For Robotics Arm, Consider purely SE(3) distance metric is not enough.
+We must consider extra factors like
+- joint limits
+- singularity
+- manipulability
+- collision
+- redundancy
+"""
+
+
+def Advanced_task_space_correlation(H, Q, Qs, W):
     """
-    I is task [from] id
-    J is task [to] id
-    query (I, J) and (J, I) give the same value
-    but the shape is transposed to swap T1 and T2
+    H: (N, 4, 4) task space poses
+    Q: (N, numik, dof) robot configurations
+    Qs: (N, numik, 1) validity flags for each configuration
+    W: weight factors
     """
-    if j < i:
-        a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_pair.index((a, b))
-        return cspace_eudist[idx].T  # transpose to swap T1 and T2
-    else:
-        a, b = (i, j) if i < j else (j, i)
-        idx = task_to_nn_pair.index((a, b))
-        return cspace_eudist[idx]
+    wse3_rot = W["wse3_rot"]
+    Dse3 = se3_pairwise_distances(H, w_rot=wse3_rot)
+    print(f"==>> Dse3.shape: \n{Dse3.shape}")
 
 
-# *cluster algorithm ----------------------------------------------------------
-def dbscan_clustering(Hse3logerr):
-
-    def _estimate_eps(X, k=10):
-        nbrs = NearestNeighbors(n_neighbors=k).fit(X)
-        dists, _ = nbrs.kneighbors(X)
-        kth = np.sort(dists[:, -1])
-        return np.percentile(kth, 90)  # automatic-ish
-
-    eps = _estimate_eps(Hse3logerr)
-    labels = DBSCAN(eps=eps, min_samples=10).fit_predict(Hse3logerr)
-    cluster_id = np.unique(labels)
-    num_clusters = len(cluster_id[cluster_id != -1])  # ignore noise
-    return labels, cluster_id, num_clusters
-
-
-def dhbscan_clustering(Hse3logerr):
-    # import hdbscan
-    # clusterer = hdbscan.HDBSCAN(min_cluster_size=20)
-    # labels = clusterer.fit_predict(X)
-    pass
-
-
-def gmm_bic_clustering(Hse3logerr):
-
-    def _fit_gmm_bic(X, k_max=10):
-        best_k, best_model, best_bic = None, None, np.inf
-        for k in range(1, k_max + 1):
-            gmm = GaussianMixture(n_components=k, covariance_type="full")
-            gmm.fit(X)
-            bic = gmm.bic(X)
-            if bic < best_bic:
-                best_k, best_model, best_bic = k, gmm, bic
-        return best_k, best_model
-
-    best_k, best_gmm = _fit_gmm_bic(Hse3logerr)
-    labels = best_gmm.predict(Hse3logerr)
-    cluster_id = np.unique(labels)
-    num_clusters = len(cluster_id[cluster_id != -1])  # ignore noise
-    return labels, cluster_id, num_clusters
-
-
-# # Normalize so translation/rotation are comparable:
-# Hse3logerr = np.array([se3_log(H) for H in Hlist])  # shape (N,6)
-# Hse3logerr[:, :3] /= np.std(Hse3logerr[:, :3]) + 1e-8
-# Hse3logerr[:, 3:] /= np.std(Hse3logerr[:, 3:]) + 1e-8
-# mode = ["DBSCAN", "GMM_BIC"][0]
-# if mode == "DBSCAN":
-#     labels, cluster_id, num_clusters = dbscan_clustering(Hse3logerr)
-# if mode == "GMM_BIC":
-#     labels, cluster_id, num_clusters = gmm_bic_clustering(Hse3logerr)
-# Hmeans = {i: None for i in cluster_id if i != -1}
-# for i in Hmeans:
-#     Hmeans[i] = se3_mean(Hlist[labels == i])
-
-
-def se3_mean(Hs, max_iter=20):
-    """
-    Determine the mean pose of SE(3) from cluster of Hs
-    """
-    H_mean = Hs[0].copy()
-
-    for _ in range(max_iter):
-        xis = [se3_log(np.linalg.inv(H_mean) @ H) for H in Hs]
-        xi_bar = np.mean(xis, axis=0)
-
-        if np.linalg.norm(xi_bar) < 1e-6:
-            break
-
-        # exponential map (approx)
-        rho, phi = xi_bar[:3], xi_bar[3:]
-        theta = np.linalg.norm(phi)
-
-        if theta < 1e-8:
-            R = np.eye(3)
-        else:
-            axis = phi / theta
-            K = np.array(
-                [
-                    [0, -axis[2], axis[1]],
-                    [axis[2], 0, -axis[0]],
-                    [-axis[1], axis[0], 0],
-                ]
-            )
-            R = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
-
-        T_update = np.eye(4)
-        T_update[:3, :3] = R
-        T_update[:3, 3] = rho
-
-        H_mean = H_mean @ T_update
-
-    return H_mean
-
-
-# *pose format conversion ------------------------------------------------------
+"""
+# Pose format conversion
 # x = (x,y,z) # shape (3,)
 # X = (x,y,z, qx, qy, qz, qw) # shape (7,)
 # Xlist = [(x,y,z, qx, qy, qz, qw), ...] # shape (N,7)
 # H = [R|t] in SE(3) # shape (4,4)
 # Hlist = [H1, H2, ...] # shape (N,4,4)
+"""
 
 
 def H_to_X(H):
@@ -546,32 +357,3 @@ def poses_epGH():
                     poses.append(T)
     poses = np.array(poses)
     return poses
-
-
-if __name__ == "__main__":
-    import trimesh
-
-    # Hlist = poses_a()
-    # Hlist = poses_b()
-    # Hlist = poses_c()
-    Hlist = poses_epGH()
-    print(f"==>> Hlist.shape: \n{Hlist.shape}")
-
-    scene = trimesh.Scene()
-    plane = trimesh.creation.box(extents=(4, 4, 0.01))
-    plane.visual.face_colors = [200, 200, 200, 80]
-    axis = trimesh.creation.axis(origin_size=0.05, axis_length=2)
-    box = trimesh.creation.box(extents=(4, 4, 4))
-    box.visual.face_colors = [100, 150, 255, 40]
-    scene.add_geometry(plane)
-    scene.add_geometry(box)
-    scene.add_geometry(axis)
-    # points = Hlist[:, :3, 3]
-    # point_cloud = trimesh.points.PointCloud(points, colors=[255, 0, 0, 255])
-    # scene.add_geometry(point_cloud)
-    for H in Hlist:
-        axis = trimesh.creation.axis(
-            origin_size=0.002, transform=H, axis_length=0.05, axis_radius=0.0008
-        )
-        scene.add_geometry(axis)
-    scene.show()

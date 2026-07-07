@@ -20,8 +20,8 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     filter_cspace_candidate_radius_to_qinit,
     xlist_to_Xlist,
-    se3_error_pairwise_distance,
-    task_space_correlation,
+    se3_pairwise_distances,
+    KRNN_task_space_correlation,
     brute_cspace_distance,
     brute_cspace_min_distance,
     filter_cspace_candidate_similar_to_qinit,
@@ -89,7 +89,7 @@ print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 # distance -----------------------------------------------
 X_r_full = xlist_to_Xlist(X_rall)  # (ntasks_rech, 6)
 H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
-tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
+tspace_dist = se3_pairwise_distances(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 
 cspace_eudist = brute_cspace_distance(Qaik_rall)
@@ -106,7 +106,7 @@ print(f"==>> cspace_task_min_idx.shape: \n{cspace_task_min_idx.shape}")
 
 
 # task space neighbors by radius and knn, then union them ---------
-tspace_coorrelation = task_space_correlation(tspace_dist)
+tspace_coorrelation = KRNN_task_space_correlation(tspace_dist)
 nn_union, nn_dist, nn_count, nn_r, nn_k = (
     tspace_coorrelation["nn_union"],
     tspace_coorrelation["nn_dist"],

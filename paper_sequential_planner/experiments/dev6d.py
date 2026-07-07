@@ -12,8 +12,8 @@ from paper_sequential_planner.scripts.geometric_poses import (
     xlist_to_Xlist,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
-    se3_error_pairwise_distance,
-    task_space_correlation,
+    se3_pairwise_distances,
+    KRNN_task_space_correlation,
 )
 from paper_sequential_planner.experiments.env_ur5e import RobotUR5eKin
 
@@ -140,7 +140,7 @@ print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 
 # taskspace distance -----------------------------------------------
 H_r_full = Xlist_to_Hlist(X_rall)  # (ntasks_rech, 4, 4)
-tspace_dist = se3_error_pairwise_distance(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
+tspace_dist = se3_pairwise_distances(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 # -----------------------------------------------------------------
 
@@ -158,7 +158,7 @@ print(f"==>> cspace_eudist.shape: \n{cspace_eudist.shape}")
 # -----------------------------------------------------------------
 
 
-tspace_coorrelation = task_space_correlation(tspace_dist)
+tspace_coorrelation = KRNN_task_space_correlation(tspace_dist)
 nn_union, nn_dist, nn_count, nn_r, nn_k = (
     tspace_coorrelation["nn_union"],
     tspace_coorrelation["nn_dist"],
