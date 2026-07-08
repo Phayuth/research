@@ -9,6 +9,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     H_to_X,
     Hlist_to_Xlist,
     Xlist_to_Hlist,
+    Naive_task_space_correlation,
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
 )
@@ -153,12 +154,18 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = KRNN_task_space_correlation(
+#     H_reach_init,
+#     w_rot=0.0,
+#     nnr=0.15,
+#     nnk=10,
+# )
+# Warg = {"wse3_rot": 1.0}
+# tspace_mapping = Advanced_task_space_correlation(
+#     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
+# )
+
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
@@ -166,11 +173,6 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
 )
 print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
-
-# Warg = {"wse3_rot": 1.0}
-# Advanced_task_space_correlation(
-#     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
-# )
 
 
 def weighted_nan_euclidean_distances(X, Y=None, w=None):

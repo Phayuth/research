@@ -6,6 +6,39 @@ np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
+
+"""
+Taskspace Correlation based on all neighbors
+All tasks are connected to all other tasks.
+This is the naive version, which is not efficient and not scalable.
+"""
+
+
+def Naive_task_space_correlation(H):
+    """
+    H: (N, 4, 4)
+    return: taskspace correlation mapping
+    """
+    N = H.shape[0]
+    task_to_nn_dict = {i: [j for j in range(N) if j != i] for i in range(N)}
+    task_to_nn_pair = set()
+    for i in range(N):
+        for j in range(N):
+            if i == j:
+                continue
+            a, b = (i, j) if i < j else (j, i)
+            task_to_nn_pair.add((a, b))
+    task_to_nn_pair = sorted(task_to_nn_pair)
+    task_to_nn_pair_len = len(task_to_nn_pair)
+
+    tspace_mapping = {
+        "task_to_nn_dict": task_to_nn_dict,
+        "task_to_nn_pair": task_to_nn_pair,
+        "task_to_nn_pair_len": task_to_nn_pair_len,
+    }
+    return tspace_mapping
+
+
 """
 Taskspace Correlation based on k-NN and r-NN with pure SE(3) distance metric
 Mutual Discussion
