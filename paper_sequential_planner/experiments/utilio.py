@@ -1,4 +1,4 @@
-import csv
+import yaml
 import numpy as np
 import subprocess
 import os
@@ -274,31 +274,46 @@ def write_tour_path(path, tour=None):
     print(f"==>> Tour path written to {path} !")
 
 
-def extract_paths(file_path):
-    """
-    Reads a TSV file and extracts the path for each source-target pair.
-    """
-    with open(file_path, "r") as tsvfile:
-        reader = csv.DictReader(tsvfile, delimiter="\t")
+class Tour:
 
-        paths = []
-        for row in reader:
-            source = row.get("source")
-            target = row.get("target")
-            path_str = row.get("path", "")
-            if path_str:
-                try:
-                    nodes = [int(node) for node in path_str.split(",")]
-                    print(f"Source: {source}, Target: {target}")
-                    print(f"  Path: {nodes}")
-                    paths.append(nodes)
-                except ValueError as e:
-                    print(
-                        f"Warning: Could not process path for Source: {source}, Target: {target}. Error: {e}"
-                    )
-                    paths.append(None)
-    return paths
+    def __init__(self, path):
+        self.path = path
+        self.data_dict = {
+            "points": None,
+            "velocities": None,
+            "accelerations": None,
+            "time_from_start": None,
+        }
+
+    def save(self):
+        pass
 
 
-if __name__ == "__main__":
-    extract_paths("combined_paths.tsv")
+class TrajectoryCspace:
+
+    def __init__(self, path):
+        self.path = path
+        self.data_dict = {
+            "points": None,
+            "velocities": None,
+            "accelerations": None,
+            "time_from_start": None,
+        }
+
+    def save(self):
+        pass
+
+
+class TrajectoryTaskspace:
+
+    def __init__(self, path):
+        self.path = path
+        self.data_dict = {
+            "points": None,
+            "velocities": None,
+            "accelerations": None,
+            "time_from_start": None,
+        }
+
+    def save(self):
+        pass

@@ -128,7 +128,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 
 # preliminary input data processing
-qinit = np.array([0, -np.pi / 2, 0, -np.pi / 2, 0, 0])
+qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
 H = pick_task_poses()
 X = Hlist_to_Xlist(H)
