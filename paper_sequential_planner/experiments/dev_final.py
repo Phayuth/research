@@ -24,7 +24,10 @@ from paper_sequential_planner.experiments.utilio import (
     write_gtsp_file,
     read_gtsp_file,
     call_gtsp_glns_solver,
-    write_tour_path,
+    gen_joint_trajectory,
+    gen_taskspace_tour,
+    yaml_write,
+    yaml_read,
 )
 
 np.random.seed(42)
@@ -645,7 +648,11 @@ def lininterp_tour(Q, num_points):
 
 
 Qfull = lininterp_tour(tourQval, num_points=20)
+jtdict = gen_joint_trajectory(Qfull)
+path = os.path.join(rsrc, "gtsp", "joint_trajectory.yaml")
+yaml_write(path, jtdict)
 
+tsdict = gen_taskspace_tour(X_reach_init, Ttour)
 
 # raise
 
@@ -697,8 +704,3 @@ def center(Q1, Q2):
 # print(f"==>> Qto: \n{Qto}")
 # Qinterp = interp(Qfrom, Qto, num_points=20)
 # print(f"==>> Qinterp.shape: \n{Qinterp.shape}")
-
-
-# # write tour path to file
-# pathtour = os.path.join(rsrc, "gtsp", "ur5e_tour_path.txt")
-# write_tour_path(pathtour, Qfull)

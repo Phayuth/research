@@ -269,51 +269,43 @@ def call_gtsp_glns_solver(
         raise
 
 
-def write_tour_path(path, tour=None):
-    np.savetxt(path, tour, delimiter=",", fmt="%.6f")
-    print(f"==>> Tour path written to {path} !")
+def yaml_write(path, data):
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False)
 
 
-class Tour:
-
-    def __init__(self, path):
-        self.path = path
-        self.data_dict = {
-            "points": None,
-            "velocities": None,
-            "accelerations": None,
-            "time_from_start": None,
-        }
-
-    def save(self):
-        pass
+def yaml_read(path):
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    return data
 
 
-class TrajectoryCspace:
+def gen_joint_trajectory(traj):
+    traj_dict = {}
+    joint_names = [
+        "joint1",
+        "joint2",
+        "joint3",
+        "joint4",
+        "joint5",
+        "joint6",
+    ]
+    traj_dict["joint_names"] = joint_names
+    traj_dict["N"] = traj.shape[0]
+    traj_dict["points"] = traj.tolist()
+    traj_dict["time_from_start"] = (np.arange(traj.shape[0]) * 0.1).tolist()
+    return traj_dict
 
-    def __init__(self, path):
-        self.path = path
-        self.data_dict = {
-            "points": None,
-            "velocities": None,
-            "accelerations": None,
-            "time_from_start": None,
-        }
 
-    def save(self):
-        pass
+def gen_taskspace_tour(X, Ttour):
+    ts_dict = {}
+    ts_dict["standard"] = "xyz_qxqyqzqw"
+    ts_dict["is_points_ordered"] = False
+    ts_dict["order"] = Ttour.tolist()
+    ts_dict["points"] = X.tolist()
+    ts_dict["N"] = X.shape[0]
+    return ts_dict
 
 
-class TrajectoryTaskspace:
-
-    def __init__(self, path):
-        self.path = path
-        self.data_dict = {
-            "points": None,
-            "velocities": None,
-            "accelerations": None,
-            "time_from_start": None,
-        }
-
-    def save(self):
-        pass
+if __name__ == "__main__":
+    pass
