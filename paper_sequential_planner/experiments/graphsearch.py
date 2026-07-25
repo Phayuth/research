@@ -3,11 +3,10 @@ import numpy as np
 import tqdm
 import torch
 from paper_sequential_planner.scripts.geometric_ellipse import *
-from paper_sequential_planner.experiments.env_ur5e_sphere import (
+from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
     SceneUR5eSpherized,
     device,
-    pick_task_poses,
 )
 
 np.random.seed(42)
@@ -57,6 +56,7 @@ print(f"dataset is on device: {dataset.device}")
 
 
 import faiss
+
 res = faiss.StandardGpuResources()  # use a single GPU
 index_flat = faiss.IndexFlatL2(dof)  # build a flat (CPU) index
 gpu_index_flat = faiss.index_cpu_to_gpu(res, 0, index_flat)

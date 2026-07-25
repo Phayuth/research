@@ -5,7 +5,10 @@ import os
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
-rsrc = os.environ["RSRC_DIR"]
+dir_rsrc = os.environ["RSRC_DIR"]
+dir_urdf = os.path.join(dir_rsrc, "urdfs")
+dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
+dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 
 def check_number_Q(Q):
@@ -135,8 +138,9 @@ def gen_gtsp_set_section(nQredfinalpt, Qid_true_cont):
     return "\n".join(lines)
 
 
-def write_gtsp_file(filename, instancename, task_to_nn_pair, E, Q):
-    print(f"==>> Writing GTSP file to {filename} !")
+def write_glns_file(problem_name, task_to_nn_pair, E, Q):
+    problem_path = os.path.join(dir_glns, f"{problem_name}.gtsp")
+    print(f"==>> Writing GLNS file to {problem_path} !")
 
     # determine the number of dimensions and gtsp sets
     nQpt = np.sum(Q, axis=1)
@@ -151,19 +155,90 @@ def write_gtsp_file(filename, instancename, task_to_nn_pair, E, Q):
     Qid_true = np.where(Q.flatten())[0]  # take only the True nodes
     Qid_true_cont = np.arange(Qid_true.shape[0]) + 1  # GTSP node id start from 1
 
-    header = gen_gtsp_header(instancename, dimension, gtsp_sets)
+    header = gen_gtsp_header(problem_name, dimension, gtsp_sets)
     ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
     set = gen_gtsp_set_section(nQpt, Qid_true_cont)
     gtsp = f"{header}\n\n{ed}\n\n{set}"
-    with open(filename, "w") as f:
+    with open(problem_path, "w") as f:
         f.write(gtsp)
 
-    print(f"==>> GTSP file written to {filename} !")
-
+    print(f"==>> GTSP file written to {problem_path} !")
     return Qid_true, Qid_true_cont
 
 
-def read_gtsp_file(filename, Qid_true, Qid_true_cont):
+def call_glns_solver(
+    problem_name,
+    args=None,
+    check=True,
+    verbose=True,
+):
+    """
+    Generic caller for external command-line solvers.
+
+    Args:
+        solver_dir: Directory containing the solver executable
+        args: Dict of additional arguments (e.g., {'mode': 'fast', 'max_time': 60})
+        check: Raise exception on non-zero exit code (default: True)
+        verbose: Print output messages (default: True)
+
+    Returns:
+        CompletedProcess object containing returncode, stdout, stderr
+
+    option
+        -max_time=[Int]				 (default set by mode)
+        -trials=[Int]				 (default set by mode)
+        -restarts=[Int]              (default set by mode)
+        -mode=[default, fast, slow]  (default is default)
+        -verbose=[0, 1, 2, 3]        (default is 3. 0 is no output, 3 is most verbose)
+        -output=[filename]           (default is None)
+        -epsilon=[Float in [0,1]]	 (default is 0.5)
+        -reopt=[Float in [0,1]]      (default is set by mode)
+
+    terminal command example:
+    ./GLNScmd.jl ur5e_sphere_gtsp.gtsp -output=ur5e_sphere_gtsp.sols
+    """
+    solver_cmd = "GLNScmd.jl"
+    solver_dir = dir_glns
+    solver_path = os.path.join(solver_dir, solver_cmd)
+    input_file = os.path.join(solver_dir, f"{problem_name}.gtsp")
+    output_file = os.path.join(solver_dir, f"{problem_name}.sols")
+    command = [solver_path, input_file]
+
+    # Add output file if provided
+    if output_file:
+        command.append(f"-output={output_file}")
+
+    # Add additional arguments
+    if args:
+        for key, val in args.items():
+            command.append(f"-{key}={val}")
+
+    try:
+        if verbose:
+            print(f"Executing: {' '.join(command)}")
+
+        result = subprocess.run(
+            command, check=check, capture_output=True, text=True
+        )
+
+        if verbose:
+            if result.stdout:
+                print(f"Output:\n{result.stdout}")
+            print(f"Solver executed successfully (exit code: {result.returncode})")
+
+        return result
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing solver: {e}")
+        if e.stdout:
+            print(f"stdout: {e.stdout}")
+        if e.stderr:
+            print(f"stderr: {e.stderr}")
+        raise
+
+
+def read_glns_file(problem_name, Qid_true, Qid_true_cont):
+    filename = os.path.join(dir_glns, f"{problem_name}.sols")
     with open(filename, "r") as f:
         for line in f:
             if line.startswith("Tour") and not line.startswith("Tour Cost"):
@@ -200,78 +275,9 @@ def rotate_tour(tour_indices_og, start_node):
     return rotated_tour
 
 
-def call_gtsp_glns_solver(
-    solver_dir, input_file, output_file=None, args=None, check=True, verbose=True
-):
-    """
-    Generic caller for external command-line solvers.
-
-    Args:
-        solver_dir: Directory containing the solver executable
-        input_file: Path to input file
-        output_file: Path to output file (optional)
-        args: Dict of additional arguments (e.g., {'mode': 'fast', 'max_time': 60})
-        check: Raise exception on non-zero exit code (default: True)
-        verbose: Print output messages (default: True)
-
-    Returns:
-        CompletedProcess object containing returncode, stdout, stderr
-
-    option
-        -max_time=[Int]				 (default set by mode)
-        -trials=[Int]				 (default set by mode)
-        -restarts=[Int]              (default set by mode)
-        -mode=[default, fast, slow]  (default is default)
-        -verbose=[0, 1, 2, 3]        (default is 3. 0 is no output, 3 is most verbose)
-        -output=[filename]           (default is None)
-        -epsilon=[Float in [0,1]]	 (default is 0.5)
-        -reopt=[Float in [0,1]]      (default is set by mode)
-
-    terminal command example:
-    ./GLNScmd.jl ur5e_sphere_gtsp.gtsp -output=ur5e_sols
-    """
-
-    # Build command list
-    solver_cmd = "GLNScmd.jl"
-    solver_path = os.path.join(solver_dir, solver_cmd)
-    command = [solver_path, input_file]
-
-    # Add output file if provided
-    if output_file:
-        command.append(f"-output={output_file}")
-
-    # Add additional arguments
-    if args:
-        for key, val in args.items():
-            command.append(f"-{key}={val}")
-
-    try:
-        if verbose:
-            print(f"Executing: {' '.join(command)}")
-
-        result = subprocess.run(
-            command, check=check, capture_output=True, text=True
-        )
-
-        if verbose:
-            if result.stdout:
-                print(f"Output:\n{result.stdout}")
-            print(f"Solver executed successfully (exit code: {result.returncode})")
-
-        return result
-
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing solver: {e}")
-        if e.stdout:
-            print(f"stdout: {e.stdout}")
-        if e.stderr:
-            print(f"stderr: {e.stderr}")
-        raise
-
-
 def yaml_write(path, data):
     with open(path, "w") as f:
-        yaml.dump(data, f, default_flow_style=False)
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def yaml_read(path):
@@ -301,9 +307,9 @@ def gen_taskspace_tour(X, Ttour):
     ts_dict = {}
     ts_dict["standard"] = "xyz_qxqyqzqw"
     ts_dict["is_points_ordered"] = False
+    ts_dict["N"] = X.shape[0]
     ts_dict["order"] = Ttour.tolist()
     ts_dict["points"] = X.tolist()
-    ts_dict["N"] = X.shape[0]
     return ts_dict
 
 

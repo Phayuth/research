@@ -1,17 +1,14 @@
 import os
-import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from scipy.spatial.transform import Rotation as R
 from eaik.IK_DH import DhRobot
-from pytransform3d.transform_manager import TransformManager
-from pytransform3d.urdf import UrdfTransformManager
 from pytransform3d.transformations import plot_transform
 from pytransform3d.plot_utils import make_3d_axis, plot_sphere, plot_box
 import pytorch_kinematics as pk
+import tqdm
 import yaml
 import torch
+from paper_sequential_planner.scripts.geometric_poses import Xlist_to_Hlist
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -76,12 +73,6 @@ class RobotUR5eKin:
     def plot_link_transforms(self, q, frame_size=0.08):
         """Plot all frame transforms derived from DH parameters for a joint state."""
         relative_tf, world_tf = self.get_dh_chain(q)
-        print(f"==>> relative_tf: \n{relative_tf}")
-        print(f"==>> world_tf: \n{world_tf}")
-
-        tm = TransformManager()
-        for i, A_i in enumerate(relative_tf, start=1):
-            tm.add_transform(f"link_{i}", f"link_{i-1}", A_i)
 
         ax = make_3d_axis(ax_s=1.0)
 
@@ -113,10 +104,11 @@ class SceneUR5eSpherized:
         self.chain = self.load_robot_chain()
         self.collision_sphere = self.load_robot_collision_spheres()
         self.box_in_base, self.boxsz_in_base = self.load_static_collision()
+        self.H = self.load_taskspace_poses()
 
     def load_robot_chain(self):
         ur_sphr_ = os.path.join(
-            dir_rsrc, "./ur5e/ur5e_extract_calibrated_spherized.urdf"
+            dir_urdf, "./ur5e/ur5e_extract_calibrated_spherized.urdf"
         )
         with open(ur_sphr_, "rb") as f:
             URDFrb = f.read()
@@ -128,13 +120,13 @@ class SceneUR5eSpherized:
             end_link_name="tool0",
         )
         chain = chain.to(device=self.device, dtype=self.dtype)
-        # joint_names = chain.get_joint_parameter_names()
-        # print(f"==>> joint_names: \n{joint_names}")
+        joint_names = chain.get_joint_parameter_names()
+        print(f"==>> joint_names: \n{joint_names}")
         return chain
 
     def load_robot_collision_spheres(self):
         sphr_info_ = os.path.join(
-            dir_rsrc, "./ur5e/ur5e_extract_calibrated_spherized.yml"
+            dir_urdf, "./ur5e/ur5e_extract_calibrated_spherized.yml"
         )
         with open(sphr_info_, "r") as f:
             sphere_info = yaml.safe_load(f)
@@ -145,6 +137,11 @@ class SceneUR5eSpherized:
     def load_static_collision(self):
         raise NotImplementedError(
             "load_static_collision must be defined in subclass"
+        )
+
+    def load_taskspace_poses(self):
+        raise NotImplementedError(
+            "load_taskspace_poses must be defined in subclass"
         )
 
     def fkin_sphere(self, Q):
@@ -358,7 +355,6 @@ class SceneUR5eSpherizedAirbusShopFloor(SceneUR5eSpherized):
 
     def __init__(self):
         super().__init__()
-        self.box_in_base, self.boxsz_in_base = self.load_static_collision()
 
     def load_static_collision(self):
         ff = os.path.join(dir_rsrc, "urdfs", "airbus_shopfloor_collision.yaml")
@@ -383,12 +379,28 @@ class SceneUR5eSpherizedAirbusShopFloor(SceneUR5eSpherized):
         print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
+    def load_taskspace_poses(self):
+        fyaml = os.path.join(dir_rtsp, "airbus_shopfloor_taskspace_poses.yaml")
+        with open(fyaml, "r") as f:
+            data = yaml.safe_load(f)
+
+        standard = data["metadata"]["standard"]
+        N = data["metadata"]["N"]
+        points = np.array(data["points"])
+        points[:, 2] -= 0.15  # offset in z for taskspace defined in baselink
+        if standard == "xyz_qwqxqyqz":
+            points = points[:, [0, 1, 2, 4, 5, 6, 3]]  # convert to xyz_qxqyqzqw
+        if standard == "xyz_qxqyqzqw":
+            pass
+
+        Hlist = Xlist_to_Hlist(points)
+        return Hlist
+
 
 class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
 
     def __init__(self):
         super().__init__()
-        self.box_in_base, self.boxsz_in_base = self.load_static_collision()
 
     def load_static_collision(self):
         ff = os.path.join(dir_rsrc, "urdfs", "single_stool_collision.yaml")
@@ -413,12 +425,28 @@ class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
         print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
+    def load_taskspace_poses(self):
+        fyaml = os.path.join(dir_rtsp, "single_stool_taskspace_poses.yaml")
+        with open(fyaml, "r") as f:
+            data = yaml.safe_load(f)
+
+        standard = data["metadata"]["standard"]
+        N = data["metadata"]["N"]
+        points = np.array(data["points"])
+        points[:, 2] -= 0.15  # offset in z for taskspace defined in baselink
+        if standard == "xyz_qwqxqyqz":
+            points = points[:, [0, 1, 2, 4, 5, 6, 3]]  # convert to xyz_qxqyqzqw
+        if standard == "xyz_qxqyqzqw":
+            pass
+
+        Hlist = Xlist_to_Hlist(points)
+        return Hlist
+
 
 class SceneUR5eSpherizedThreePlanarBoard(SceneUR5eSpherized):
 
     def __init__(self):
         super().__init__()
-        self.box_in_base, self.boxsz_in_base = self.load_static_collision()
 
     def load_static_collision(self):
         ff = os.path.join(dir_rsrc, "urdfs", "three_planar_board_collision.yaml")
@@ -448,7 +476,6 @@ class SceneUR5eSpherizedSingleBarStrict(SceneUR5eSpherized):
 
     def __init__(self):
         super().__init__()
-        self.box_in_base, self.boxsz_in_base = self.load_static_collision()
 
     def load_static_collision(self):
         ff = os.path.join(dir_rsrc, "urdfs", "single_bar_strict_collision.yaml")
@@ -478,7 +505,6 @@ class SceneUR5eSpherizedThreeShelf(SceneUR5eSpherized):
 
     def __init__(self):
         super().__init__()
-        self.box_in_base, self.boxsz_in_base = self.load_three_shelf_collision()
 
     def load_static_collision(self):
         ff = os.path.join(dir_rsrc, "urdfs", "three_shelf_collision.yaml")
@@ -502,6 +528,22 @@ class SceneUR5eSpherizedThreeShelf(SceneUR5eSpherized):
         print(box_in_base)
         print(boxsz_in_base)
         return box_in_base, boxsz_in_base
+
+    def load_taskspace_poses(self):
+        fyaml = os.path.join(dir_rtsp, "three_shelf_taskspace_poses.yaml")
+        with open(fyaml, "r") as f:
+            data = yaml.safe_load(f)
+
+        standard = data["metadata"]["standard"]
+        N = data["metadata"]["N"]
+        points = np.array(data["points"])
+        if standard == "xyz_qwqxqyqz":
+            points = points[:, [0, 1, 2, 4, 5, 6, 3]]  # convert to xyz_qxqyqzqw
+        if standard == "xyz_qxqyqzqw":
+            pass
+
+        Hlist = Xlist_to_Hlist(points)
+        return Hlist
 
 
 class SceneOMPLPlanner:
@@ -600,13 +642,56 @@ class SceneOMPLPlanner:
             return None
 
 
-def load_taskspace_poses():
-    fyaml = os.path.join(dir_rtsp, "three_shelf_taskspace_poses.yaml")
-    with open(fyaml, "r") as f:
-        data = yaml.safe_load(f)
+def batch_check():
+    scene = SceneUR5eSpherizedThreeShelf()
+    # small batch test
+    ntraj = 100000
+    dof = 6
+    Q = torch.rand(ntraj, dof).to(device) * torch.pi - torch.pi / 2
+    col_states = scene.collision_check(Q)
+    collision_count = col_states.sum().item()
+    print(f"==>> Total trajectories: {ntraj}")
+    print(f"==>> Colliding trajectories: {collision_count}")
+    print(f"==>> Collision rate: {collision_count / ntraj * 100:.2f}%")
+
+    # large batch test must be done in chunks to avoid OOM
+    nstore = 1000000
+    dataset = torch.empty(nstore, dof).to(device)
+    dataset_y = torch.empty(nstore, dtype=torch.bool).to(device)
+    batch = 100000
+    it = nstore // batch
+    for i in tqdm.tqdm(range(it)):
+        start = i * batch
+        end = start + batch
+        dataset[start:end, :dof] = (
+            torch.rand(batch, dof).to(device) * torch.pi - torch.pi / 2
+        )
+        col_states = scene.collision_check(dataset[start:end, :dof])
+        dataset_y[start:end] = col_states
+
+    collision_rate = dataset_y.sum().item() / nstore
+    print(f"==>> Dataset collision rate: {collision_rate * 100:.2f}%")
+
+
+def planning():
+    scene = SceneUR5eSpherizedThreeShelf()
+    planner = SceneOMPLPlanner(scene.collision_check)
+
+    q0 = [0, -np.pi / 4, 0, -np.pi / 2, 0, np.pi / 3]
+    qe = [0, -np.pi / 2, 0, -np.pi / 2, 0, np.pi / 3]
+
+    pathlist, path_cost = planner.query_planning(q0, qe)
+    if pathlist is not None:
+        print("Planned path:")
+        for q in pathlist:
+            print(q)
+        print(f"Path cost: {path_cost}")
+
 
 if __name__ == "__main__":
     robot_kin = RobotUR5eKin()
     q = np.array([0, -np.pi / 2, 0, -np.pi / 2, 0, 0])
-    ax = robot_kin.plot_link_transforms(q)
-    plt.show()
+
+    scene = SceneUR5eSpherizedThreeShelf()
+    H = scene.H
+    scene.view_scene(q, Hlist=H)

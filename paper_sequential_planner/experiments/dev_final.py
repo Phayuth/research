@@ -13,17 +13,17 @@ from paper_sequential_planner.scripts.geometric_poses import (
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
 )
-from paper_sequential_planner.experiments.env_ur5e_sphere import (
+from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
-    SceneUR5eSpherized,
-    pick_task_poses,
+    SceneUR5eSpherizedThreeShelf,
+    SceneUR5eSpherizedAirbusShopFloor,
 )
 from paper_sequential_planner.experiments.utilio import (
     check_number_Q,
     check_number_E,
-    write_gtsp_file,
-    read_gtsp_file,
-    call_gtsp_glns_solver,
+    write_glns_file,
+    read_glns_file,
+    call_glns_solver,
     gen_joint_trajectory,
     gen_taskspace_tour,
     yaml_write,
@@ -32,11 +32,20 @@ from paper_sequential_planner.experiments.utilio import (
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
-rsrc = os.environ["RSRC_DIR"]
+dir_rsrc = os.environ["RSRC_DIR"]
+dir_urdf = os.path.join(dir_rsrc, "urdfs")
+dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
+dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
+PROBLEM_NAME = "ur5e_sphere_three_shelf"
 robkin = RobotUR5eKin()
-scene = SceneUR5eSpherized()
+scene = SceneUR5eSpherizedThreeShelf()
 planner = None  # placeholder for planner instance, not implemented yet
+
+# PROBLEM_NAME = "ur5e_sphere_airbus_shopfloor"
+# robkin = RobotUR5eKin()
+# scene = SceneUR5eSpherizedAirbusShopFloor()
+# planner = None
 
 alt_num = 32
 unique_sols = 8
@@ -133,7 +142,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
-H = pick_task_poses()
+H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
 Qik = wspace_ik_extended(robkin, X)
@@ -604,29 +613,20 @@ Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
-path = os.path.join(rsrc, "gtsp")
-pathprob = os.path.join(rsrc, "gtsp", "new_ur5e_sphere_gtsp.gtsp")
-pathsol = os.path.join(rsrc, "gtsp", "new_ur5e_sols")
-
 Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
-print(f"==>> Ecost.shape: \n{Ecost.shape}")
-print(f"==>> Qreduced.shape: \n{Qreduced.shape}")
+check_number_E(Ecost)
 
-
-Qid_true, Qid_true_cont = write_gtsp_file(
-    filename=pathprob,
-    instancename="ur5e_sphere_gtsp",
+Qid_true, Qid_true_cont = write_glns_file(
+    problem_name=PROBLEM_NAME,
     task_to_nn_pair=task_to_nn_pair,
     E=Ecost,
     Q=Qreduced,
 )
-result = call_gtsp_glns_solver(
-    solver_dir=path,  # Where GLNScmd.jl lives
-    input_file=pathprob,
-    output_file=pathsol,
+result = call_glns_solver(
+    problem_name=PROBLEM_NAME,
     args={"mode": "slow", "max_time": 300},
 )
-Qtour = read_gtsp_file(pathsol, Qid_true, Qid_true_cont)
+Qtour = read_glns_file(PROBLEM_NAME, Qid_true, Qid_true_cont)
 Ttour = Qtour // num_sols
 print(f"==>> Ttour: \n{Ttour}")
 
@@ -649,14 +649,12 @@ def lininterp_tour(Q, num_points):
 
 Qfull = lininterp_tour(tourQval, num_points=20)
 jtdict = gen_joint_trajectory(Qfull)
-path = os.path.join(rsrc, "gtsp", "joint_trajectory.yaml")
-yaml_write(path, jtdict)
+pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
+yaml_write(pathj, jtdict)
 
 tsdict = gen_taskspace_tour(X_reach_init, Ttour)
-
-# raise
-
-scene.view_animation(Qfull, Hlist=H)
+patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
+yaml_write(patht, tsdict)
 
 
 # * 4th STAGE path reconstruction and refinement
