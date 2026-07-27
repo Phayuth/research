@@ -39,15 +39,15 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
-PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
+# PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
+# scene = SceneUR5eSpherizedThreeShelf()
+PROBLEM_NAME = "ur5e_sphere_airbus_shopfloor"
+scene = SceneUR5eSpherizedAirbusShopFloor()
+
 robkin = RobotUR5eKin()
-scene = SceneUR5eSpherizedThreeShelf()
 planner = SceneOMPLPlanner(scene.collision_check)
 
-# PROBLEM_NAME = "ur5e_sphere_airbus_shopfloor"
-# robkin = RobotUR5eKin()
-# scene = SceneUR5eSpherizedAirbusShopFloor()
-
+dtype = np.float32
 alt_num = 32
 unique_sols = 8
 num_sols = unique_sols * alt_num
@@ -167,13 +167,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_mapping = Naive_task_space_correlation(H_reach_init)
-# tspace_mapping = KRNN_task_space_correlation(
-#     H_reach_init,
-#     w_rot=0.0,
-#     nnr=0.15,
-#     nnk=10,
-# )
+# tspace_mapping = Naive_task_space_correlation(H_reach_init)
+tspace_mapping = KRNN_task_space_correlation(
+    H_reach_init,
+    w_rot=0.0,
+    nnr=0.15,
+    nnk=10,
+)
 # Warg = {"wse3_rot": 1.0}
 # tspace_mapping = Advanced_task_space_correlation(
 #     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
@@ -202,19 +202,19 @@ def weighted_nan_euclidean_distances(X, Y=None, w=None):
     -------
     D : (n_samples_X, n_samples_Y)
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=dtype)
 
     if Y is None:
         Y = X
     else:
-        Y = np.asarray(Y, dtype=np.float64)
+        Y = np.asarray(Y, dtype=dtype)
 
     d = X.shape[1]
 
     if w is None:
-        w = np.ones(d, dtype=np.float64)
+        w = np.ones(d, dtype=dtype)
     else:
-        w = np.asarray(w, dtype=np.float64)
+        w = np.asarray(w, dtype=dtype)
 
     total_weight = w.sum()
 
@@ -235,7 +235,7 @@ def weighted_nan_euclidean_distances(X, Y=None, w=None):
     observed = np.sum(w * valid, axis=2)
 
     # Normalize exactly like sklearn
-    D = np.full_like(sqdist, np.nan)
+    D = np.full_like(sqdist, np.nan, dtype=dtype)
 
     mask = observed > 0
     D[mask] = np.sqrt(sqdist[mask] * total_weight / observed[mask])
@@ -260,19 +260,19 @@ def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
     -------
     D : (n_samples_X, n_samples_Y)
     """
-    X = np.asarray(X, dtype=np.float64)
+    X = np.asarray(X, dtype=dtype)
 
     if Y is None:
         Y = X
     else:
-        Y = np.asarray(Y, dtype=np.float64)
+        Y = np.asarray(Y, dtype=dtype)
 
     d = X.shape[1]
 
     if w is None:
-        w = np.ones(d, dtype=np.float64)
+        w = np.ones(d, dtype=dtype)
     else:
-        w = np.asarray(w, dtype=np.float64)
+        w = np.asarray(w, dtype=dtype)
 
     # Valid dimensions
     valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
@@ -292,7 +292,7 @@ def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
     # If no valid feature exists, return NaN
     D[np.all(~valid, axis=2)] = np.nan
 
-    return D
+    return D.astype(dtype)
 
 
 def Qfilter_R(Q, q, Qs, r):
@@ -472,25 +472,41 @@ def Qfilter_Dnn2c(Q, Qs, d, tmap):
     return Qvalid[:, :, None]  # add a dummy dimension
 
 
+def Qfilter_Favor(Q, Qs, tmap):
+    """
+    Favor the first solution of each task, and select the nearest neighbor for each task pair.
+
+    Q: node
+    Qs: node validity from collision check (important)
+    tmap: mapping dict
+    """
+    # get mapping
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+    pass
+
+
 Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
-Q2red_s = Qfilter_similarity(
-    Qik_reach_init, qinit, Qs=Qikstate_reach_init, thresh=0.0001
-)
-Q3red_nn2c = Qfilter_nn2c(
-    Qik_reach_init, Qs=Qikstate_reach_init, tmap=tspace_mapping
-)
 
-Q4red_Knn2c = Qfilter_Knn2c(
-    Qik_reach_init, Qs=Qikstate_reach_init, k=50, tmap=tspace_mapping
-)
+# Q2red_s = Qfilter_similarity(
+#     Qik_reach_init, qinit, Qs=Qikstate_reach_init, thresh=0.0001
+# )
+# Q3red_nn2c = Qfilter_nn2c(
+#     Qik_reach_init, Qs=Qikstate_reach_init, tmap=tspace_mapping
+# )
 
-Q5red_Dnn2c = Qfilter_Dnn2c(
-    Qik_reach_init, Qs=Qikstate_reach_init, d=5, tmap=tspace_mapping
-)
+# Q4red_Knn2c = Qfilter_Knn2c(
+#     Qik_reach_init, Qs=Qikstate_reach_init, k=50, tmap=tspace_mapping
+# )
 
-# choose filter method
-Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
-check_number_Q(Qreduced)
+# Q5red_Dnn2c = Qfilter_Dnn2c(
+#     Qik_reach_init, Qs=Qikstate_reach_init, d=5, tmap=tspace_mapping
+# )
+
+# # choose filter method
+# Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
+# check_number_Q(Qreduced)
+Qreduced = Q1red_r
 
 
 def Eest_colfree(Q, Qs, cmax_d, tmap):
@@ -512,7 +528,7 @@ def Eest_colfree(Q, Qs, cmax_d, tmap):
     task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     # cspace eulidean distance
-    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols), dtype=dtype)
     for idx, (i, j) in enumerate(task_to_nn_pair):
         E[idx] = nan_euclidean_distances(Q[i], Q[j])
 
@@ -553,7 +569,7 @@ def Eest_weighted_euclidean(Q, Qs, W, tmap):
     task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     # cspace weighted euclidean distance
-    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols), dtype=dtype)
     for idx, (i, j) in enumerate(task_to_nn_pair):
         E[idx] = weighted_nan_euclidean_distances(Q[i], Q[j], w=W)
 
@@ -586,7 +602,7 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
     task_to_nn_pair = tmap["task_to_nn_pair"]
     task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
-    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols), dtype=dtype)
     for idx, (i, j) in enumerate(task_to_nn_pair):
         E[idx] = weighted_nan_max_joint_diff_distances(Q[i], Q[j], w=W)
 

@@ -100,7 +100,6 @@ class SceneUR5eSpherized:
     def __init__(self):
         self.device = torch.device(device)
         self.dtype = torch.float32
-        self.robot_kin = RobotUR5eKin()
         self.chain = self.load_robot_chain()
         self.collision_sphere = self.load_robot_collision_spheres()
         self.box_in_base, self.boxsz_in_base = self.load_static_collision()
@@ -471,6 +470,22 @@ class SceneUR5eSpherizedThreePlanarBoard(SceneUR5eSpherized):
         print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
+    def load_taskspace_poses(self):
+        fyaml = os.path.join(dir_rtsp, "single_stool_taskspace_poses.yaml")
+        with open(fyaml, "r") as f:
+            data = yaml.safe_load(f)
+
+        standard = data["metadata"]["standard"]
+        N = data["metadata"]["N"]
+        points = np.array(data["points"])
+        if standard == "xyz_qwqxqyqz":
+            points = points[:, [0, 1, 2, 4, 5, 6, 3]]  # convert to xyz_qxqyqzqw
+        if standard == "xyz_qxqyqzqw":
+            pass
+
+        Hlist = Xlist_to_Hlist(points)
+        return Hlist
+
 
 class SceneUR5eSpherizedSingleBarStrict(SceneUR5eSpherized):
 
@@ -499,6 +514,22 @@ class SceneUR5eSpherizedSingleBarStrict(SceneUR5eSpherized):
         print(box_in_base)
         print(boxsz_in_base)
         return box_in_base, boxsz_in_base
+
+    def load_taskspace_poses(self):
+        fyaml = os.path.join(dir_rtsp, "single_stool_taskspace_poses.yaml")
+        with open(fyaml, "r") as f:
+            data = yaml.safe_load(f)
+
+        standard = data["metadata"]["standard"]
+        N = data["metadata"]["N"]
+        points = np.array(data["points"])
+        if standard == "xyz_qwqxqyqz":
+            points = points[:, [0, 1, 2, 4, 5, 6, 3]]  # convert to xyz_qxqyqzqw
+        if standard == "xyz_qxqyqzqw":
+            pass
+
+        Hlist = Xlist_to_Hlist(points)
+        return Hlist
 
 
 class SceneUR5eSpherizedThreeShelf(SceneUR5eSpherized):
