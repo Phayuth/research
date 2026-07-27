@@ -313,5 +313,73 @@ def gen_taskspace_tour(X, Ttour):
     return ts_dict
 
 
+def retimed_joint_trajectory(traj_dict, time_step=0.1):
+    """
+    Retimes the joint trajectory to have a uniform time step.
+
+    Args:
+        traj_dict: Dictionary containing the joint trajectory.
+        time_step: Desired time step for retiming.
+
+    Returns:
+        retimed_traj_dict: Dictionary containing the retimed joint trajectory.
+    """
+    joint_names = traj_dict["joint_names"]
+    points = np.array(traj_dict["points"])
+    time_from_start = np.array(traj_dict["time_from_start"])
+
+    # Create new time array with uniform time steps
+    new_time_from_start = np.arange(0, time_from_start[-1], time_step)
+
+    # Interpolate points for the new time array
+    retimed_points = np.empty((len(new_time_from_start), points.shape[1]))
+    for i in range(points.shape[1]):
+        retimed_points[:, i] = np.interp(
+            new_time_from_start, time_from_start, points[:, i]
+        )
+
+    retimed_traj_dict = {
+        "joint_names": joint_names,
+        "N": len(new_time_from_start),
+        "points": retimed_points.tolist(),
+        "time_from_start": new_time_from_start.tolist(),
+    }
+
+    return retimed_traj_dict
+
+
+def plot_joint_trajectory(traj_dict):
+    import matplotlib.pyplot as plt
+
+    joint_names = traj_dict["joint_names"]
+    points = np.array(traj_dict["points"])
+    time_from_start = np.array(traj_dict["time_from_start"])
+    dof = points.shape[1]
+    fig, axes = plt.subplots(dof, 1, figsize=(10, 2 * dof))
+    markhlines = [-2 * np.pi, -np.pi, 0, np.pi, 2 * np.pi]
+    if dof == 1:
+        axes = [axes]
+    for i in range(dof):
+        axes[i].plot(time_from_start, points[:, i])
+
+        for hline in markhlines:
+            axes[i].hlines(
+                hline,
+                time_from_start[0],
+                time_from_start[-1],
+                colors="r",
+                linestyles="dashed",
+                alpha=0.3,
+            )
+        axes[i].set_xlim(time_from_start[0], time_from_start[-1])
+        axes[i].set_ylim(-2 * np.pi, 2 * np.pi)
+        axes[i].set_xlabel("Time (s)")
+        axes[i].set_ylabel(f"{joint_names[i]} (rad)")
+    plt.show()
+
+
 if __name__ == "__main__":
-    pass
+    PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
+    pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
+    jtdict = yaml_read(pathj)
+    plot_joint_trajectory(jtdict)

@@ -641,6 +641,25 @@ class SceneOMPLPlanner:
             print("No solution found")
             return None
 
+    def query_tour_planning(self, Q):
+        # Ensure Q is a 2D array of shape (n, 6)
+        Q = np.asarray(Q)
+        if Q.ndim != 2 or Q.shape[1] != 6:
+            raise ValueError("Q must be a 2D array with shape (n, 6)")
+
+        nseg = Q.shape[0]  # normally nseg = ntraj - 1 but, it loop back to start
+        paths_tour = []
+        for i in range(nseg):
+            q0 = Q[i]
+            qe = Q[(i + 1) % nseg]  # wrap around to the first point
+            res_ = self.query_planning(q0, qe)
+            if res_ is None:
+                print(f"Planning failed for segment {i}: {q0} -> {qe}")
+                return None
+            pathlist, path_cost = res_
+            paths_tour.extend(pathlist)
+        return np.array(paths_tour)
+
 
 def batch_check():
     scene = SceneUR5eSpherizedThreeShelf()

@@ -15,6 +15,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
+    SceneOMPLPlanner,
     SceneUR5eSpherizedThreeShelf,
     SceneUR5eSpherizedAirbusShopFloor,
 )
@@ -28,6 +29,7 @@ from paper_sequential_planner.experiments.utilio import (
     gen_taskspace_tour,
     yaml_write,
     yaml_read,
+    plot_joint_trajectory,
 )
 
 np.random.seed(42)
@@ -37,15 +39,14 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
-PROBLEM_NAME = "ur5e_sphere_three_shelf"
+PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
 robkin = RobotUR5eKin()
 scene = SceneUR5eSpherizedThreeShelf()
-planner = None  # placeholder for planner instance, not implemented yet
+planner = SceneOMPLPlanner(scene.collision_check)
 
 # PROBLEM_NAME = "ur5e_sphere_airbus_shopfloor"
 # robkin = RobotUR5eKin()
 # scene = SceneUR5eSpherizedAirbusShopFloor()
-# planner = None
 
 alt_num = 32
 unique_sols = 8
@@ -245,9 +246,9 @@ def weighted_nan_euclidean_distances(X, Y=None, w=None):
 def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
     """
     Pairwise weighted NaN-aware Chebyshev (maximum joint difference) distance.
-
-    d(x, y) = max_i |x_i - y_i| / w_i
-
+                    |                 |
+    d(x, y) = max_i | w_i*|x_i - y_i| |
+                    |                 |
     Parameters
     ----------
     X : (n_samples_X, n_features)
@@ -280,7 +281,7 @@ def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
     diff = np.abs(np.nan_to_num(X)[:, None, :] - np.nan_to_num(Y)[None, :, :])
 
     # Normalize by weights
-    diff = diff / w
+    diff = w * diff
 
     # Ignore invalid dimensions
     diff = np.where(valid, diff, -np.inf)
@@ -585,7 +586,6 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
     task_to_nn_pair = tmap["task_to_nn_pair"]
     task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
-    W = 1 / W  # max joint velocity
     E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
     for idx, (i, j) in enumerate(task_to_nn_pair):
         E[idx] = weighted_nan_max_joint_diff_distances(Q[i], Q[j], w=W)
@@ -605,15 +605,17 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
 cmax_d = None  # disable cmax_d filtering
 Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 
-# Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
+Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
 
-# Wwmj = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint max velocity
-# Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
+qmax = np.array([np.pi] * 6)  # hardware spec
+qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+Wwmj = qw / qmax
+Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, qw, tspace_mapping)
 
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
-Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
+Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
 check_number_E(Ecost)
 
 Qid_true, Qid_true_cont = write_glns_file(
@@ -648,6 +650,7 @@ def lininterp_tour(Q, num_points):
 
 
 Qfull = lininterp_tour(tourQval, num_points=20)
+# Qfull = planner.query_tour_planning(tourQval)
 jtdict = gen_joint_trajectory(Qfull)
 pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
@@ -690,6 +693,7 @@ def center(Q1, Q2):
     return Qcenter
 
 
+plot_joint_trajectory(jtdict)
 # t1 = 1
 # t2 = 2
 # idx = task_to_nn_pair.index((t1, t2))
