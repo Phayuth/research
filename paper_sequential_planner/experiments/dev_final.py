@@ -12,12 +12,14 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
+    position_pairwise_distances,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
     SceneOMPLPlanner,
     SceneUR5eSpherizedThreeShelf,
     SceneUR5eSpherizedAirbusShopFloor,
+    SceneUR5eSpherizedSingleStool,
 )
 from paper_sequential_planner.experiments.utilio import (
     check_number_Q,
@@ -30,6 +32,8 @@ from paper_sequential_planner.experiments.utilio import (
     yaml_write,
     yaml_read,
     plot_joint_trajectory,
+    tsp_solver,
+    rotate_tour,
 )
 
 np.random.seed(42)
@@ -39,10 +43,10 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
-# PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
+# PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart_euclidist"
 # scene = SceneUR5eSpherizedThreeShelf()
-PROBLEM_NAME = "ur5e_sphere_airbus_shopfloor"
-scene = SceneUR5eSpherizedAirbusShopFloor()
+PROBLEM_NAME = "single_stool_Tspaceonly"
+scene = SceneUR5eSpherizedSingleStool()
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -142,6 +146,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
+# qinit = np.array([-1.973, -1.094, -1.986, 0.024, 1.701, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
@@ -184,8 +189,17 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_pair"],
     tspace_mapping["task_to_nn_pair_len"],
 )
-print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
-print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
+# print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
+# print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
+
+# D = position_distance_matrix(H_reach_init)
+# Dint = D * 10000
+# tour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
+# Ttour = rotate_tour(tour, start_node=0)
+# tsdict = gen_taskspace_tour(X_reach_init, Ttour)
+# patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
+# yaml_write(patht, tsdict)
+# raise
 
 
 def weighted_nan_euclidean_distances(X, Y=None, w=None):
@@ -319,14 +333,14 @@ def Qfilter_R(Q, q, Qs, r):
     Qvalid = Qvalid[:, :, None]  # just add a dummy dimension
     Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
-    print(f"---------------------------------------------------------")
+    # print(f"---------------------------------------------------------")
     nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
     n_total = np.prod(Qvalid.shape)
-    print(f"==>> Qfilter R debug Info")
-    print(f"==>> selected {n_selected} / {n_total} configurations")
-    print(f"==>> selected_rate: {n_selected / n_total}")
-    print(f"---------------------------------------------------------")
+    # print(f"==>> Qfilter R debug Info")
+    # print(f"==>> selected {n_selected} / {n_total} configurations")
+    # print(f"==>> selected_rate: {n_selected / n_total}")
+    # print(f"---------------------------------------------------------")
     return Qvalid
 
 
@@ -356,17 +370,17 @@ def Qfilter_similarity(Q, q, Qs, thresh):
     Qvalid = Qvalid & Qs  # ensure nodes is valid from collision check
 
     # threshold = thresh_mult * (optimal_val_max - optimal_val_min) + optimal_val_min
-    print(f"---------------------------------------------------------")
+    # print(f"---------------------------------------------------------")
     nQredpt = np.sum(Qvalid, axis=1)
     n_selected = np.sum(nQredpt)
     n_total = np.prod(Qvalid.shape)
     phi_opt_min = np.nanmin(phi_opt)
     phi_opt_max = np.nanmax(phi_opt)
-    print(f"==>> Qfilter similarity debug Info")
-    print(f"==>> optimal values: min={phi_opt_min}, max={phi_opt_max}")
-    print(f"==>> selected {n_selected} / {n_total} configurations")
-    print(f"==>> selected_rate: {n_selected / n_total}")
-    print(f"---------------------------------------------------------")
+    # print(f"==>> Qfilter similarity debug Info")
+    # print(f"==>> optimal values: min={phi_opt_min}, max={phi_opt_max}")
+    # print(f"==>> selected {n_selected} / {n_total} configurations")
+    # print(f"==>> selected_rate: {n_selected / n_total}")
+    # print(f"---------------------------------------------------------")
     return Qvalid
 
 
@@ -631,7 +645,7 @@ Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, qw, tspace_mapping
 
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
-Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
+Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
 check_number_E(Ecost)
 
 Qid_true, Qid_true_cont = write_glns_file(
@@ -646,12 +660,11 @@ result = call_glns_solver(
 )
 Qtour = read_glns_file(PROBLEM_NAME, Qid_true, Qid_true_cont)
 Ttour = Qtour // num_sols
-print(f"==>> Ttour: \n{Ttour}")
+# print(f"==>> Ttour: \n{Ttour}")
 
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
 tourQcosteuldist = np.sum(np.linalg.norm(np.diff(tourQval, axis=0), axis=1))
-print(f"==>> tourQcosteuldist: \n{tourQcosteuldist}")
-
+# print(f"==>> tourQcosteuldist: \n{tourQcosteuldist}")
 
 def lininterp_tour(Q, num_points):
     """
@@ -710,15 +723,15 @@ def center(Q1, Q2):
 
 
 plot_joint_trajectory(jtdict)
-# t1 = 1
-# t2 = 2
-# idx = task_to_nn_pair.index((t1, t2))
+# # t1 = 1
+# # t2 = 2
+# # idx = task_to_nn_pair.index((t1, t2))
 # print(f"==>> idx: \n{idx}")
-# Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
+# # Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
 # print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
 # print(f"==>> Qfrom: \n{Qfrom}")
-# Qto = Qik_reach_init[t2]  # (num_sols, dof)
+# # Qto = Qik_reach_init[t2]  # (num_sols, dof)
 # print(f"==>> Qto.shape: \n{Qto.shape}")
 # print(f"==>> Qto: \n{Qto}")
-# Qinterp = interp(Qfrom, Qto, num_points=20)
+# # Qinterp = interp(Qfrom, Qto, num_points=20)
 # print(f"==>> Qinterp.shape: \n{Qinterp.shape}")

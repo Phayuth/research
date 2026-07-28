@@ -2,6 +2,8 @@ import yaml
 import numpy as np
 import subprocess
 import os
+from python_tsp import exact as pytsp_exact, heuristics as pytsp_heuristics
+import fast_tsp
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -261,10 +263,53 @@ def read_glns_file(problem_name, Qid_true, Qid_true_cont):
     return tour_indices_og_rotated
 
 
+def write_tsp_file(problem_name, E, Q):
+    pass
+
+
+def call_tsp_solver():
+    pass
+
+
+def read_tsp_file():
+    pass
+
+
+def tsp_solver(dists, method):
+    if method == "local_solver":
+        tour = fast_tsp.find_tour(dists)
+        cost = fast_tsp.compute_cost(tour, dists)
+    elif method == "greedy_nearest_neighbor":
+        tour = fast_tsp.greedy_nearest_neighbor(dists)
+        cost = fast_tsp.compute_cost(tour, dists)
+    elif method == "exact_held_karp":
+        tour = fast_tsp.solve_tsp_exact(dists)
+        cost = fast_tsp.compute_cost(tour, dists)
+
+    elif method == "exact_brute_force":
+        tour, cost = pytsp_exact.solve_tsp_brute_force(dists)
+    elif method == "exact_dynamic_programming":
+        tour, cost = pytsp_exact.solve_tsp_dynamic_programming(dists)
+    elif method == "exact_branch_and_bound":
+        tour, cost = pytsp_exact.solve_tsp_branch_and_bound(dists)
+
+    elif method == "heuristic_local_search":
+        tour, cost = pytsp_heuristics.solve_tsp_local_search(dists)
+    elif method == "heuristic_simulated_annealing":
+        tour, cost = pytsp_heuristics.solve_tsp_simulated_annealing(dists)
+    elif method == "heuristic_lin_kernighan":
+        tour, cost = pytsp_heuristics.solve_tsp_lin_kernighan(dists)
+    elif method == "heuristic_record_to_record":
+        tour, cost = pytsp_heuristics.solve_tsp_record_to_record(dists)
+
+    return tour, cost
+
+
 def rotate_tour(tour_indices_og, start_node):
     """
     Rotate the tour so that it starts with the specified start_node.
     """
+    tour_indices_og = np.asarray(tour_indices_og)
     if start_node not in tour_indices_og:
         raise ValueError(f"Start node {start_node} not found in the tour.")
 

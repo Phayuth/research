@@ -20,7 +20,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     filter_cspace_candidate_radius_to_qinit,
     xlist_to_Xlist,
-    se3_pairwise_distances,
+    SE3_pairwise_distances,
     KRNN_task_space_correlation,
     brute_cspace_distance,
     brute_cspace_min_distance,
@@ -89,7 +89,7 @@ print(f"==>> Qaik_rall.shape: \n{Qaik_rall.shape}")
 # distance -----------------------------------------------
 X_r_full = xlist_to_Xlist(X_rall)  # (ntasks_rech, 6)
 H_r_full = Xlist_to_Hlist(X_r_full)  # (ntasks_rech, 4, 4)
-tspace_dist = se3_pairwise_distances(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
+tspace_dist = SE3_pairwise_distances(H_r_full, 0.2)  # (ntasks_r, ntasks_r)
 print(f"==>> tspace_dist.shape: \n{tspace_dist.shape}")
 
 cspace_eudist = brute_cspace_distance(Qaik_rall)
