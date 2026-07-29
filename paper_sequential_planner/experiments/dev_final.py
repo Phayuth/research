@@ -14,6 +14,11 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Advanced_task_space_correlation,
     position_pairwise_distances,
 )
+from paper_sequential_planner.scripts.geometric_config import (
+    weighted_nan_euclidean_distances,
+    weighted_nan_max_joint_diff_distances,
+    traj_complete_cost,
+)
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
     SceneOMPLPlanner,
@@ -43,10 +48,10 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
-# PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart_euclidist"
-# scene = SceneUR5eSpherizedThreeShelf()
-PROBLEM_NAME = "single_stool_Tspaceonly"
-scene = SceneUR5eSpherizedSingleStool()
+PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart_euclidist"
+scene = SceneUR5eSpherizedThreeShelf()
+# PROBLEM_NAME = "single_stool_Tspaceonly"
+# scene = SceneUR5eSpherizedSingleStool()
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -200,113 +205,6 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
 # patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
 # yaml_write(patht, tsdict)
 # raise
-
-
-def weighted_nan_euclidean_distances(X, Y=None, w=None):
-    """
-    Fully vectorized weighted NaN-aware Euclidean distance.
-
-    Parameters
-    ----------
-    X : (n_samples_X, n_features)
-    Y : (n_samples_Y, n_features), optional
-    w : (n_features,), optional
-
-    Returns
-    -------
-    D : (n_samples_X, n_samples_Y)
-    """
-    X = np.asarray(X, dtype=dtype)
-
-    if Y is None:
-        Y = X
-    else:
-        Y = np.asarray(Y, dtype=dtype)
-
-    d = X.shape[1]
-
-    if w is None:
-        w = np.ones(d, dtype=dtype)
-    else:
-        w = np.asarray(w, dtype=dtype)
-
-    total_weight = w.sum()
-
-    # Valid entries
-    valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
-
-    # Replace NaN by zero
-    X0 = np.nan_to_num(X)
-    Y0 = np.nan_to_num(Y)
-
-    # Pairwise differences
-    diff = X0[:, None, :] - Y0[None, :, :]
-
-    # Weighted squared differences
-    sqdist = np.sum(w * diff**2 * valid, axis=2)
-
-    # Sum of observed weights
-    observed = np.sum(w * valid, axis=2)
-
-    # Normalize exactly like sklearn
-    D = np.full_like(sqdist, np.nan, dtype=dtype)
-
-    mask = observed > 0
-    D[mask] = np.sqrt(sqdist[mask] * total_weight / observed[mask])
-
-    return D
-
-
-def weighted_nan_max_joint_diff_distances(X, Y=None, w=None):
-    """
-    Pairwise weighted NaN-aware Chebyshev (maximum joint difference) distance.
-                    |                 |
-    d(x, y) = max_i | w_i*|x_i - y_i| |
-                    |                 |
-    Parameters
-    ----------
-    X : (n_samples_X, n_features)
-    Y : (n_samples_Y, n_features), optional
-    w : (n_features,), optional
-        Positive scaling factors for each feature.
-
-    Returns
-    -------
-    D : (n_samples_X, n_samples_Y)
-    """
-    X = np.asarray(X, dtype=dtype)
-
-    if Y is None:
-        Y = X
-    else:
-        Y = np.asarray(Y, dtype=dtype)
-
-    d = X.shape[1]
-
-    if w is None:
-        w = np.ones(d, dtype=dtype)
-    else:
-        w = np.asarray(w, dtype=dtype)
-
-    # Valid dimensions
-    valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
-
-    # Pairwise absolute differences
-    diff = np.abs(np.nan_to_num(X)[:, None, :] - np.nan_to_num(Y)[None, :, :])
-
-    # Normalize by weights
-    diff = w * diff
-
-    # Ignore invalid dimensions
-    diff = np.where(valid, diff, -np.inf)
-
-    # Maximum over features
-    D = diff.max(axis=2)
-
-    # If no valid feature exists, return NaN
-    D[np.all(~valid, axis=2)] = np.nan
-
-    return D.astype(dtype)
 
 
 def Qfilter_R(Q, q, Qs, r):
@@ -663,8 +561,9 @@ Ttour = Qtour // num_sols
 # print(f"==>> Ttour: \n{Ttour}")
 
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
-tourQcosteuldist = np.sum(np.linalg.norm(np.diff(tourQval, axis=0), axis=1))
-# print(f"==>> tourQcosteuldist: \n{tourQcosteuldist}")
+tourQcost_complete = traj_complete_cost(tourQval)
+print(f"==>> tourQcost_complete: \n{tourQcost_complete}")
+
 
 def lininterp_tour(Q, num_points):
     """
