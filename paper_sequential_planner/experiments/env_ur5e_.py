@@ -100,6 +100,7 @@ class SceneUR5eSpherized:
     def __init__(self):
         self.device = torch.device(device)
         self.dtype = torch.float32
+        self.joint_names = None
         self.chain = self.load_robot_chain()
         self.collision_sphere = self.load_robot_collision_spheres()
         self.box_in_base, self.boxsz_in_base = self.load_static_collision()
@@ -119,8 +120,7 @@ class SceneUR5eSpherized:
             end_link_name="tool0",
         )
         chain = chain.to(device=self.device, dtype=self.dtype)
-        joint_names = chain.get_joint_parameter_names()
-        print(f"==>> joint_names: \n{joint_names}")
+        self.joint_names = chain.get_joint_parameter_names()
         return chain
 
     def load_robot_collision_spheres(self):
@@ -374,8 +374,6 @@ class SceneUR5eSpherizedAirbusShopFloor(SceneUR5eSpherized):
             box_in_base[i] = H
             boxsz_in_base[i] = size
 
-        print(box_in_base)
-        print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
@@ -420,8 +418,6 @@ class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
             box_in_base[i] = H
             boxsz_in_base[i] = size
 
-        print(box_in_base)
-        print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
@@ -466,8 +462,6 @@ class SceneUR5eSpherizedThreePlanarBoard(SceneUR5eSpherized):
             box_in_base[i] = H
             boxsz_in_base[i] = size
 
-        print(box_in_base)
-        print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
@@ -511,8 +505,6 @@ class SceneUR5eSpherizedSingleBarStrict(SceneUR5eSpherized):
             box_in_base[i] = H
             boxsz_in_base[i] = size
 
-        print(box_in_base)
-        print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
@@ -556,8 +548,6 @@ class SceneUR5eSpherizedThreeShelf(SceneUR5eSpherized):
             box_in_base[i] = H
             boxsz_in_base[i] = size
 
-        print(box_in_base)
-        print(boxsz_in_base)
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):

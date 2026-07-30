@@ -1,9 +1,13 @@
+import os
 import yaml
 import numpy as np
 import subprocess
-import os
-from python_tsp import exact as pytsp_exact, heuristics as pytsp_heuristics
+from dataclasses import dataclass, field, fields
+import matplotlib.pyplot as plt
+from prettytable import PrettyTable
+from datetime import datetime
 import fast_tsp
+from python_tsp import exact as pytsp_exact, heuristics as pytsp_heuristics
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -17,6 +21,9 @@ def check_number_Q(Q):
     """
     Q must be state True/False
     """
+    if not np.issubdtype(Q.dtype, np.bool_):
+        raise ValueError("Q must be a boolean array")
+
     nQvalpt = np.sum(Q, axis=1)
     nQvalAll = np.sum(nQvalpt)
     print("------------------------------------------------------------")
@@ -29,6 +36,9 @@ def check_number_E(E):
     """
     E must be state True/False
     """
+    if not np.issubdtype(E.dtype, np.bool_):
+        raise ValueError("E must be a boolean array")
+
     nEpair = E.shape[0]
     nEvalpt = np.sum(E, axis=(1, 2))
     nEvalAll = np.sum(nEvalpt)
@@ -36,6 +46,24 @@ def check_number_E(E):
     print(f"There are {nEpair} pairs with {nEvalAll} valid edges in total.")
     print(f"E is in shape {E.shape}, nEval per pair : \n{nEvalpt}")
     print("------------------------------------------------------------")
+
+
+def check_num_edges_unique(num_qreachable):
+    totalnode = sum(num_qreachable)
+    self_connections = sum([n * (n - 1) / 2 for n in num_qreachable])
+    unique_edges = (totalnode * (totalnode - 1) / 2) - self_connections
+    print("------------------------------------------------------------")
+    print(f"Total unique edges: {unique_edges}")
+    print("------------------------------------------------------------")
+    return unique_edges
+
+
+def check_num_supercluster_edges(n_tasks):
+    supercluster_edges = n_tasks * (n_tasks - 1) / 2
+    print("------------------------------------------------------------")
+    print(f"Total supercluster edges: {supercluster_edges}")
+    print("------------------------------------------------------------")
+    return supercluster_edges
 
 
 def gen_gtsp_header(name, dimension, gtsp_sets):
@@ -157,10 +185,10 @@ def write_glns_file(problem_name, task_to_nn_pair, E, Q):
     Qid_true = np.where(Q.flatten())[0]  # take only the True nodes
     Qid_true_cont = np.arange(Qid_true.shape[0]) + 1  # GTSP node id start from 1
 
-    header = gen_gtsp_header(problem_name, dimension, gtsp_sets)
+    head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
     ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
     set = gen_gtsp_set_section(nQpt, Qid_true_cont)
-    gtsp = f"{header}\n\n{ed}\n\n{set}"
+    gtsp = f"{head}\n\n{ed}\n\n{set}"
     with open(problem_path, "w") as f:
         f.write(gtsp)
 
@@ -359,9 +387,7 @@ def gen_taskspace_tour(X, Ttour):
     return ts_dict
 
 
-def plot_joint_trajectory(traj_dict):
-    import matplotlib.pyplot as plt
-
+def plot_joint_trajectory(traj_dict, savepath=None):
     name = traj_dict["name"]
     joint_names = traj_dict["joint_names"]
     points = np.array(traj_dict["points"])
@@ -391,107 +417,138 @@ def plot_joint_trajectory(traj_dict):
         axes[i].set_ylim(-2 * np.pi, 2 * np.pi)
         axes[i].set_xlabel("Time (s)")
         axes[i].set_ylabel(f"{joint_names[i]} (rad)")
-    plt.show()
+
+    if savepath:
+        plt.savefig(savepath, dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
+
+
+@dataclass
+class RTSPLog:
+    # metadata
+    d = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    date: str = field(default=d, metadata={"label": "Date"})
+    pname: str = field(default=None, metadata={"label": "Problem Name"})
+    robot: str = field(default=None, metadata={"label": "Robot"})
+    ntasks: int = field(default=None, metadata={"label": "Number of Tasks"})
+    nQpt: int = field(default=None, metadata={"label": "Number of Q per Task"})
+    nEpp: int = field(default=None, metadata={"label": "Number of E per Pair"})
+    nrtasks: int = field(
+        default=None,
+        metadata={
+            "label": "Number of Reachable Tasks",
+            "info": "includes initial task",
+        },
+    )
+    tnrQ: int = field(
+        default=None, metadata={"label": "Total Number of Reachable Q"}
+    )
+    tnrE: int = field(
+        default=None, metadata={"label": "Total Number of Reachable E"}
+    )
+
+    # methods
+    Qf: str = field(default=None, metadata={"label": "Qfilter"})
+    Qf_d: str = field(default=None, metadata={"label": "Qfilter Data"})
+    Eest: str = field(default=None, metadata={"label": "Eestimation"})
+    Eest_d: str = field(default=None, metadata={"label": "Eestimation Data"})
+    GTSP_svr: str = field(default=None, metadata={"label": "GTSP Solver"})
+    GTSP_svr_d: str = field(default=None, metadata={"label": "GTSP Solver Data"})
+
+    # results
+    l1: float = field(
+        default=None, metadata={"label": "Manhattan Cost", "info": "unit:rad"}
+    )
+    l2: float = field(
+        default=None, metadata={"label": "Euclidean Cost", "info": "unit:rad"}
+    )
+    linf: float = field(
+        default=None, metadata={"label": "Infinity Cost", "info": "unit:rad"}
+    )
+    time: float = field(
+        default=None, metadata={"label": "Time Cost", "info": "unit:s"}
+    )
+    l1pj: float = field(
+        default=None, metadata={"label": "Per-Joint Cost", "info": "unit:rad"}
+    )
+
+    # collision-free planning
+    cf_svr: str = field(default=None, metadata={"label": "Collision-Free Planner"})
+    cf_svr_d: str = field(
+        default=None, metadata={"label": "Collision-Free Planner Data"}
+    )
+    l1cf: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Manhattan Cost", "info": "unit:rad"},
+    )
+    l2cf: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Euclidean Cost", "info": "unit:rad"},
+    )
+    linfcf: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Infinity Cost", "info": "unit:rad"},
+    )
+    timecf: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Time Cost", "info": "unit:s"},
+    )
+    l1pjcf: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Per-Joint Cost", "info": "unit:rad"},
+    )
+
+    # cpu compute time
+    Qft: float = field(
+        default=None, metadata={"label": "Qfilter Time", "info": "unit:s"}
+    )
+    Eestt: float = field(
+        default=None, metadata={"label": "Eestimation Time", "info": "unit:s"}
+    )
+    GTSPt: float = field(
+        default=None, metadata={"label": "GTSP Solver Time", "info": "unit:s"}
+    )
+    cft: float = field(
+        default=None,
+        metadata={"label": "Collision-Free Planner Time", "info": "unit:s"},
+    )
 
 
 class RTSPLogger:
 
     def __init__(self):
-        self.rl = {
-            "Meta": {
-                "Problem Name": None,
-                "Robot": None,
-                "Number of Tasks": None,
-                "Number of Reachable Tasks": None,
-                "Number of Q Per Task": None,
-                "Number of E Per Pair": None,
-                "Total Number of Reachable Q": None,
-                "Total Number of Reachable E": None,
-            },
-            "Method": {
-                "Qfilter": None,
-                "Qfilter Data": None,
-                "Eestimation": None,
-                "Eestimation Data": None,
-                "GTSP Solver": None,
-                "GTSP Solver Data": None,
-            },
-            "Result": {
-                "Manhattan Cost": None,
-                "Euclidean Cost": None,
-                "Infinity Cost": None,
-                "Time Cost": None,
-                "PerJoint Cost": None,
-            },
-        }
+        self.data = RTSPLog()
+        self.tb = PrettyTable()
 
-    def add_metadata(self, key, value):
-        self.rl["Meta"][key] = value
-
-    def add_method(self, key, value):
-        self.rl["Method"][key] = value
-
-    def add_result(self, key, value):
-        self.rl["Result"][key] = value
+    def _fmt(self, x):
+        if isinstance(x, float):
+            return f"{x:.5f}"
+        elif isinstance(x, list):
+            return [float(f"{v:.5f}") if isinstance(v, float) else v for v in x]
+        return x
 
     def print_log(self):
-        from prettytable import PrettyTable
+        self.tb.align = "l"
+        self.tb.title = f"RTSP Problem: {self.data.pname}"
+        self.tb.field_names = ["Parameter", "Value", "Info"]
+        tbd = []
+        for f in fields(self.data):
+            lb = f.metadata.get("label", f.name)
+            val = self._fmt(getattr(self.data, f.name))
+            info = f.metadata.get("info", "")
+            row = [lb, val, info]
+            tbd.append(row)
+        self.tb.add_rows(tbd)
+        print(self.tb)
 
-        mdth = ["Parameter", "Value", "Info"]
-        META_INFO = {
-            "Problem Name": "",
-            "Robot": "",
-            "Number of Tasks": "",
-            "Number of Reachable Tasks": "including initial ee pose",
-        }
+    def save_log(self, path):
+        # human-readable table
+        with open(path + ".txt", "w") as f:
+            f.write(str(self.tb))
 
-        mdtd = [
-            [k, self.rl["Meta"][k], info]
-            for k, info in META_INFO.items()
-        ]
-        mdt = PrettyTable()
-        mdt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
-        mdt.field_names = mdth
-        mdt.add_rows(mdtd)
-        print(mdt)
-
-        mtth = ["Method", "Value", "Info"]
-        mttd = [
-            [
-                "Qfilter",
-                self.rl["Method"]["Qfilter"],
-                self.rl["Method"]["Qfilter Data"],
-            ],
-            [
-                "Eestimation",
-                self.rl["Method"]["Eestimation"],
-                self.rl["Method"]["Eestimation Data"],
-            ],
-            [
-                "GTSP Solver",
-                self.rl["Method"]["GTSP Solver"],
-                self.rl["Method"]["GTSP Solver Data"],
-            ],
-        ]
-        mtt = PrettyTable()
-        mtt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
-        mtt.field_names = mtth
-        mtt.add_rows(mttd)
-        print(mtt)
-
-        rsth = ["Cost", "Unit", "Value"]
-        rstd = [
-            ["Manhattan Cost", "rad", self.rl["Result"]["Manhattan Cost"]],
-            ["Euclidean Cost", "rad", self.rl["Result"]["Euclidean Cost"]],
-            ["Infinity Cost", "rad", self.rl["Result"]["Infinity Cost"]],
-            ["Time Cost", "s", self.rl["Result"]["Time Cost"]],
-            ["PerJoint Cost", "rad", self.rl["Result"]["PerJoint Cost"]],
-        ]
-        rt = PrettyTable()
-        rt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
-        rt.field_names = rsth
-        rt.add_rows(rstd)
-        print(rt)
+        # yaml table
+        yaml_write(path + ".yaml", self.data.__dict__)
 
 
 if __name__ == "__main__":

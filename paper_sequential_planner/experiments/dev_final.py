@@ -31,6 +31,8 @@ from paper_sequential_planner.experiments.env_ur5e_ import (
 from paper_sequential_planner.experiments.utilio import (
     check_number_Q,
     check_number_E,
+    check_num_edges_unique,
+    check_num_supercluster_edges,
     write_glns_file,
     read_glns_file,
     call_glns_solver,
@@ -52,7 +54,7 @@ dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 
-PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
+PROBLEM_NAME = "three_shelf_maxjointdiff_ww_"
 scene = SceneUR5eSpherizedThreeShelf()
 # PROBLEM_NAME = "single_stool_Tspaceonly"
 # scene = SceneUR5eSpherizedSingleStool()
@@ -421,8 +423,8 @@ Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
 
 # # choose filter method
 # Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
-# check_number_Q(Qreduced)
 Qreduced = Q1red_r
+check_number_Q(Qreduced)
 
 
 def Eest_colfree(Q, Qs, cmax_d, tmap):
@@ -548,7 +550,6 @@ Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mappi
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
 Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
-check_number_E(Ecost)
 
 Qid_true, Qid_true_cont = write_glns_file(
     problem_name=PROBLEM_NAME,
@@ -560,14 +561,15 @@ result = call_glns_solver(
     problem_name=PROBLEM_NAME,
     args={"mode": "slow", "max_time": 300},
 )
-Qtour = read_glns_file(PROBLEM_NAME, Qid_true, Qid_true_cont)
+Qtour = read_glns_file(
+    PROBLEM_NAME,
+    Qid_true,
+    Qid_true_cont,
+)
 Ttour = Qtour // num_sols
-# print(f"==>> Ttour: \n{Ttour}")
 
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
 tourQcost_complete = traj_complete_cost(tourQval, qdot)
-print(f"==>> tourQcost_complete: \n{tourQcost_complete}")
-
 
 Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
 # Qfull = planner.query_tour_planning(tourQval)
@@ -581,25 +583,29 @@ yaml_write(patht, tsdict)
 
 
 rl = RTSPLogger()
-rl.add_metadata("Problem Name", PROBLEM_NAME)
-rl.add_metadata("Number of Tasks", ntasks)
-rl.add_metadata("Robot", "UR5e")
-rl.add_metadata("Number of Reachable Tasks", X_reach_init.shape[0])
-rl.add_metadata("Number of Q Per Task", num_sols)
-rl.add_metadata("Number of E Per Pair", Ecost.shape[0])
-rl.add_metadata("Total Number of Reachable Q", Qreduced.shape[0])
-rl.add_metadata("Total Number of Reachable E", np.sum(np.isfinite(Ecost)))
-rl.add_method("Qfilter", "Qfilter_R")
-rl.add_method("Qfilter Data", f"r={2 * np.pi}")
-rl.add_method("Eestimation", "Eest_weighted_max_joint_diff")
-rl.add_method("Eestimation Data", f"Wwmj={Wwmj}")
-rl.add_method("GTSP Solver", "GLNS")
-rl.add_method("GTSP Solver Data", f"mode=slow, max_time=300")
-rl.add_result("Manhattan Cost", tourQcost_complete["manhattan"])
-rl.add_result("Euclidean Cost", tourQcost_complete["euclidean"])
-rl.add_result("Infinity Cost", tourQcost_complete["inf"])
-rl.add_result("Time Cost", tourQcost_complete["time"])
-rl.add_result("PerJoint Cost", tourQcost_complete["perjoint"])
+rl.data.pname = PROBLEM_NAME
+rl.data.robot = "UR5e"
+rl.data.ntasks = ntasks
+rl.data.nrtasks = X_reach_init.shape[0]
+rl.data.nQpt = num_sols
+rl.data.nEpp = num_sols * num_sols
+rl.data.tnrQ = Qreduced.shape[0]
+rl.data.tnrE = np.sum(np.isfinite(Ecost)).item()
+
+rl.data.Qf = "Qfilter_R"
+rl.data.Qf_d = f"r={2*np.pi}"
+rl.data.Eest = "Eest_weighted_max_joint_diff"
+rl.data.Eest_d = f"Wwmj={Wwmj}"
+rl.data.GTSP_svr = "GLNS"
+rl.data.GTSP_svr_d = "mode=slow, max_time=300"
+
+rl.data.l1 = tourQcost_complete["manhattan"]
+rl.data.l2 = tourQcost_complete["euclidean"]
+rl.data.linf = tourQcost_complete["inf"]
+rl.data.time = tourQcost_complete["time"]
+rl.data.l1pj = tourQcost_complete["perjoint"]
 rl.print_log()
 
-plot_joint_trajectory(jtdict)
+logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
+rl.save_log(logpath)
+plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")
