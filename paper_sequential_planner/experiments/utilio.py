@@ -331,7 +331,7 @@ def yaml_read(path):
     return data
 
 
-def gen_joint_trajectory(traj):
+def gen_joint_trajectory(traj, time_from_start, name):
     traj_dict = {}
     joint_names = [
         "joint1",
@@ -341,10 +341,11 @@ def gen_joint_trajectory(traj):
         "joint5",
         "joint6",
     ]
+    traj_dict["name"] = name
     traj_dict["joint_names"] = joint_names
     traj_dict["N"] = traj.shape[0]
     traj_dict["points"] = traj.tolist()
-    traj_dict["time_from_start"] = (np.arange(traj.shape[0]) * 0.1).tolist()
+    traj_dict["time_from_start"] = time_from_start.tolist()
     return traj_dict
 
 
@@ -358,49 +359,19 @@ def gen_taskspace_tour(X, Ttour):
     return ts_dict
 
 
-def retimed_joint_trajectory(traj_dict, time_step=0.1):
-    """
-    Retimes the joint trajectory to have a uniform time step.
-
-    Args:
-        traj_dict: Dictionary containing the joint trajectory.
-        time_step: Desired time step for retiming.
-
-    Returns:
-        retimed_traj_dict: Dictionary containing the retimed joint trajectory.
-    """
-    joint_names = traj_dict["joint_names"]
-    points = np.array(traj_dict["points"])
-    time_from_start = np.array(traj_dict["time_from_start"])
-
-    # Create new time array with uniform time steps
-    new_time_from_start = np.arange(0, time_from_start[-1], time_step)
-
-    # Interpolate points for the new time array
-    retimed_points = np.empty((len(new_time_from_start), points.shape[1]))
-    for i in range(points.shape[1]):
-        retimed_points[:, i] = np.interp(
-            new_time_from_start, time_from_start, points[:, i]
-        )
-
-    retimed_traj_dict = {
-        "joint_names": joint_names,
-        "N": len(new_time_from_start),
-        "points": retimed_points.tolist(),
-        "time_from_start": new_time_from_start.tolist(),
-    }
-
-    return retimed_traj_dict
-
-
 def plot_joint_trajectory(traj_dict):
     import matplotlib.pyplot as plt
 
+    name = traj_dict["name"]
     joint_names = traj_dict["joint_names"]
     points = np.array(traj_dict["points"])
     time_from_start = np.array(traj_dict["time_from_start"])
     dof = points.shape[1]
+
     fig, axes = plt.subplots(dof, 1, figsize=(10, 2 * dof))
+    fig.suptitle(f"Problem: {name}", fontsize=16, fontweight="bold")
+    fig.canvas.manager.set_window_title(f"Problem: {name}")
+
     markhlines = [-2 * np.pi, -np.pi, 0, np.pi, 2 * np.pi]
     if dof == 1:
         axes = [axes]
@@ -423,8 +394,108 @@ def plot_joint_trajectory(traj_dict):
     plt.show()
 
 
+class RTSPLogger:
+
+    def __init__(self):
+        self.rl = {
+            "Meta": {
+                "Problem Name": None,
+                "Robot": None,
+                "Number of Tasks": None,
+                "Number of Reachable Tasks": None,
+                "Number of Q Per Task": None,
+                "Number of E Per Pair": None,
+                "Total Number of Reachable Q": None,
+                "Total Number of Reachable E": None,
+            },
+            "Method": {
+                "Qfilter": None,
+                "Qfilter Data": None,
+                "Eestimation": None,
+                "Eestimation Data": None,
+                "GTSP Solver": None,
+                "GTSP Solver Data": None,
+            },
+            "Result": {
+                "Manhattan Cost": None,
+                "Euclidean Cost": None,
+                "Infinity Cost": None,
+                "Time Cost": None,
+                "PerJoint Cost": None,
+            },
+        }
+
+    def add_metadata(self, key, value):
+        self.rl["Meta"][key] = value
+
+    def add_method(self, key, value):
+        self.rl["Method"][key] = value
+
+    def add_result(self, key, value):
+        self.rl["Result"][key] = value
+
+    def print_log(self):
+        from prettytable import PrettyTable
+
+        mdth = ["Parameter", "Value", "Info"]
+        META_INFO = {
+            "Problem Name": "",
+            "Robot": "",
+            "Number of Tasks": "",
+            "Number of Reachable Tasks": "including initial ee pose",
+        }
+
+        mdtd = [
+            [k, self.rl["Meta"][k], info]
+            for k, info in META_INFO.items()
+        ]
+        mdt = PrettyTable()
+        mdt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
+        mdt.field_names = mdth
+        mdt.add_rows(mdtd)
+        print(mdt)
+
+        mtth = ["Method", "Value", "Info"]
+        mttd = [
+            [
+                "Qfilter",
+                self.rl["Method"]["Qfilter"],
+                self.rl["Method"]["Qfilter Data"],
+            ],
+            [
+                "Eestimation",
+                self.rl["Method"]["Eestimation"],
+                self.rl["Method"]["Eestimation Data"],
+            ],
+            [
+                "GTSP Solver",
+                self.rl["Method"]["GTSP Solver"],
+                self.rl["Method"]["GTSP Solver Data"],
+            ],
+        ]
+        mtt = PrettyTable()
+        mtt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
+        mtt.field_names = mtth
+        mtt.add_rows(mttd)
+        print(mtt)
+
+        rsth = ["Cost", "Unit", "Value"]
+        rstd = [
+            ["Manhattan Cost", "rad", self.rl["Result"]["Manhattan Cost"]],
+            ["Euclidean Cost", "rad", self.rl["Result"]["Euclidean Cost"]],
+            ["Infinity Cost", "rad", self.rl["Result"]["Infinity Cost"]],
+            ["Time Cost", "s", self.rl["Result"]["Time Cost"]],
+            ["PerJoint Cost", "rad", self.rl["Result"]["PerJoint Cost"]],
+        ]
+        rt = PrettyTable()
+        rt.title = f"RTSP Problem: {self.rl['Meta']['Problem Name']}"
+        rt.field_names = rsth
+        rt.add_rows(rstd)
+        print(rt)
+
+
 if __name__ == "__main__":
-    PROBLEM_NAME = "ur5e_sphere_three_shelf_maxjointdiff_ww"
+    PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
     pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
     jtdict = yaml_read(pathj)
     plot_joint_trajectory(jtdict)

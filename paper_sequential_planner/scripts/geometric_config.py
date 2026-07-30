@@ -116,6 +116,7 @@ def weighted_nan_max_joint_diff_distances(X, Y=None, w=None, dtype=np.float32):
 def traj_mahattan_dist_cost(traj):
     """
     Compute the total Manhattan distance of a trajectory.
+
     traj: (N, d) array of points
     return: scalar total distance
     """
@@ -125,6 +126,7 @@ def traj_mahattan_dist_cost(traj):
 def traj_euclidean_dist_cost(traj):
     """
     Compute the total Euclidean distance of a trajectory.
+
     traj: (N, d) array of points
     return: scalar total distance
     """
@@ -134,6 +136,7 @@ def traj_euclidean_dist_cost(traj):
 def traj_inf_dist_cost(traj):
     """
     Compute the total infinity norm distance of a trajectory.
+
     traj: (N, d) array of points
     return: scalar total distance
     """
@@ -143,6 +146,8 @@ def traj_inf_dist_cost(traj):
 def traj_perjoint_motion_cost(traj):
     """
     Compute the total per-joint motion cost of a trajectory.
+    Equation is the same as Manhattan distance, but computed per joint.
+
     traj: (N, d) array of points
     return: vector of scalar total distance per joint
     """
@@ -154,6 +159,7 @@ def traj_time_cost(traj, qdot):
     Simple time cost function
     Compute the total time cost of a trajectory given joint velocities.
     Equation is the same as inf norm distance, but normalized by joint velocities.
+
     traj: (N, d) array of points
     qdot: (d,) array of joint velocities
     return: scalar total time cost
@@ -161,9 +167,10 @@ def traj_time_cost(traj, qdot):
     return np.sum(np.max(np.abs(np.diff(traj, axis=0)) / qdot, axis=1))
 
 
-def traj_complete_cost(traj):
+def traj_complete_cost(traj, *args, **kwargs):
     """
     Compute the complete cost view of a trajectory.
+
     traj: (N, d) array of points
     return: dict with various cost metrics
     """
@@ -171,5 +178,91 @@ def traj_complete_cost(traj):
         "manhattan": traj_mahattan_dist_cost(traj).item(),
         "euclidean": traj_euclidean_dist_cost(traj).item(),
         "inf": traj_inf_dist_cost(traj).item(),
+        "time": traj_time_cost(traj, *args, **kwargs).item(),
         "perjoint": traj_perjoint_motion_cost(traj).tolist(),
     }
+
+
+def batch_config_pairwise_lininterp(Q1, Q2, num_points):
+    """
+    Pairwise linear interpolation between corresponding rows of two sets of configurations.
+    Q1: (n, dof)
+    Q2: (n, dof)
+    num_points: number of interpolation points (including endpoints)
+    return: (n, n, num_points, dof)
+    """
+    # Reshape for broadcasting: (n, 1, 1, dof) and (1, n, 1, dof)
+    Q1_exp = Q1[:, np.newaxis, np.newaxis, :]
+    Q2_exp = Q2[np.newaxis, :, np.newaxis, :]
+    # Interpolation parameter: (1, 1, num_points, 1)
+    t = np.linspace(0, 1, num_points)[np.newaxis, np.newaxis, :, np.newaxis]
+    # Linear interpolation with full broadcasting
+    result = Q1_exp + (Q2_exp - Q1_exp) * t  # (n, n, num_points, dof)
+    # Propagate NaN: if Q1 or Q2 has NaN, result is NaN
+    result = np.where(np.isnan(Q1_exp) | np.isnan(Q2_exp), np.nan, result)
+    return result
+
+
+def batch_config_pairwise_center(Q1, Q2):
+    """
+    Compute the center configuration between two sets of configurations.
+    Q1: (n, dof)
+    Q2: (n, dof)
+    return: (n, n, dof)
+    """
+    Qcenter = (Q1[:, np.newaxis, :] + Q2[np.newaxis, :, :]) / 2.0  # (n, n, dof)
+    return Qcenter
+    # Qcenter = np.where(np.isnan(Q1) | np.isnan(Q2), np.nan, (Q1 + Q2) / 2.0)
+    # return Qcenter
+
+
+def traj_tour_from_lininterp(Q, num_points, dt=0.1):
+    """
+    Creating tour trajectory given the sequence of waypoints configurations Q.
+    Each segment between two waypoints is fixed to have num_points points.
+    This make some segment to look longer than others.
+
+    Q: (n, dof)
+    return: (n * num_points, dof)
+    """
+    traj = np.empty((Q.shape[0] - 1, num_points, Q.shape[1]))
+    time_from_start = np.arange(traj.shape[0]) * dt
+    for i in range(Q.shape[0] - 1):
+        traj[i] = np.linspace(Q[i], Q[i + 1], num_points)
+    return traj.reshape(-1, Q.shape[1]), time_from_start
+
+
+def traj_tour_from_lininterp_qdot(Q, qdot):
+    """
+    Creating tour trajectory given the sequence of waypoints configurations Q.
+    Each segment between two waypoints is interpolated based on the joint velocities qdot.
+    This ensures that the time taken for each segment is proportional to the distance and joint velocities.
+
+    Q: (n, dof)
+    qdot: (dof,) array of joint velocities
+    return: (m, dof) where m is the total number of interpolated points
+    """
+    traj = []
+    time_from_start = []
+    for i in range(Q.shape[0] - 1):
+        # Compute the distance for each joint
+        dist = np.abs(Q[i + 1] - Q[i])
+        # Compute the time required for each joint based on qdot
+        time_required = dist / qdot
+        # The maximum time required across all joints determines the number of interpolation points
+        max_time = np.max(time_required)
+        num_points = int(np.ceil(max_time * 100))  # Assuming 100 Hz sampling rate
+        if num_points < 2:
+            num_points = 2  # Ensure at least two points for interpolation
+        # Interpolate between Q[i] and Q[i + 1]
+        interp_segment = np.linspace(Q[i], Q[i + 1], num_points)
+        traj.append(interp_segment)
+        # Compute time_from_start for this segment
+        if len(time_from_start) == 0:
+            time_from_start.append(np.linspace(0, max_time, num_points))
+        else:
+            last_time = time_from_start[-1][-1]
+            time_from_start.append(
+                np.linspace(last_time, last_time + max_time, num_points)
+            )
+    return np.vstack(traj), np.hstack(time_from_start)

@@ -18,6 +18,8 @@ from paper_sequential_planner.scripts.geometric_config import (
     weighted_nan_euclidean_distances,
     weighted_nan_max_joint_diff_distances,
     traj_complete_cost,
+    traj_tour_from_lininterp,
+    traj_tour_from_lininterp_qdot,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
@@ -39,6 +41,7 @@ from paper_sequential_planner.experiments.utilio import (
     plot_joint_trajectory,
     tsp_solver,
     rotate_tour,
+    RTSPLogger,
 )
 
 np.random.seed(42)
@@ -48,7 +51,8 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
-PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart_euclidist"
+
+PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
 scene = SceneUR5eSpherizedThreeShelf()
 # PROBLEM_NAME = "single_stool_Tspaceonly"
 # scene = SceneUR5eSpherizedSingleStool()
@@ -201,7 +205,7 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
 # Dint = D * 10000
 # tour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
 # Ttour = rotate_tour(tour, start_node=0)
-# tsdict = gen_taskspace_tour(X_reach_init, Ttour)
+# tsdict = position_pairwise_distances(X_reach_init, Ttour)
 # patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
 # yaml_write(patht, tsdict)
 # raise
@@ -536,14 +540,14 @@ Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
 Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
 
-qmax = np.array([np.pi] * 6)  # hardware spec
+qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
 qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
-Wwmj = qw / qmax
-Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, qw, tspace_mapping)
+Wwmj = qw / qdot
+Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
 
 # * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
-Ecost = np.where(np.isfinite(Ecf), Ecf, 1000)  # cost for infeasible edges
+Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
 check_number_E(Ecost)
 
 Qid_true, Qid_true_cont = write_glns_file(
@@ -561,25 +565,13 @@ Ttour = Qtour // num_sols
 # print(f"==>> Ttour: \n{Ttour}")
 
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
-tourQcost_complete = traj_complete_cost(tourQval)
+tourQcost_complete = traj_complete_cost(tourQval, qdot)
 print(f"==>> tourQcost_complete: \n{tourQcost_complete}")
 
 
-def lininterp_tour(Q, num_points):
-    """
-    Linear interpolation of the tour path for visualization.
-    Q: (n, dof)
-    return: (n, num_points, dof)
-    """
-    Qinterp = np.empty((Q.shape[0] - 1, num_points, Q.shape[1]))
-    for i in range(Q.shape[0] - 1):
-        Qinterp[i] = np.linspace(Q[i], Q[i + 1], num_points)
-    return Qinterp.reshape(-1, Q.shape[1])
-
-
-Qfull = lininterp_tour(tourQval, num_points=20)
+Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
 # Qfull = planner.query_tour_planning(tourQval)
-jtdict = gen_joint_trajectory(Qfull)
+jtdict = gen_joint_trajectory(Qfull, time_from_start, name=PROBLEM_NAME)
 pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
 
@@ -588,49 +580,26 @@ patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
 yaml_write(patht, tsdict)
 
 
-# * 4th STAGE path reconstruction and refinement
-def interp(Q1, Q2, num_points):
-    """
-    Pairwise linear interpolation between corresponding rows of two sets of configurations.
-    Q1: (n, dof)
-    Q2: (n, dof)
-    num_points: number of interpolation points (including endpoints)
-    return: (n, n, num_points, dof)
-    """
-    # Reshape for broadcasting: (n, 1, 1, dof) and (1, n, 1, dof)
-    Q1_exp = Q1[:, np.newaxis, np.newaxis, :]
-    Q2_exp = Q2[np.newaxis, :, np.newaxis, :]
-    # Interpolation parameter: (1, 1, num_points, 1)
-    t = np.linspace(0, 1, num_points)[np.newaxis, np.newaxis, :, np.newaxis]
-    # Linear interpolation with full broadcasting
-    result = Q1_exp + (Q2_exp - Q1_exp) * t  # (n, n, num_points, dof)
-    # Propagate NaN: if Q1 or Q2 has NaN, result is NaN
-    result = np.where(np.isnan(Q1_exp) | np.isnan(Q2_exp), np.nan, result)
-    return result
-
-
-def center(Q1, Q2):
-    """
-    Compute the center configuration between two sets of configurations.
-    Q1: (n, dof)
-    Q2: (n, dof)
-    return: (n, dof)
-    """
-    # Compute the center while handling NaN values
-    Qcenter = np.where(np.isnan(Q1) | np.isnan(Q2), np.nan, (Q1 + Q2) / 2.0)
-    return Qcenter
-
+rl = RTSPLogger()
+rl.add_metadata("Problem Name", PROBLEM_NAME)
+rl.add_metadata("Number of Tasks", ntasks)
+rl.add_metadata("Robot", "UR5e")
+rl.add_metadata("Number of Reachable Tasks", X_reach_init.shape[0])
+rl.add_metadata("Number of Q Per Task", num_sols)
+rl.add_metadata("Number of E Per Pair", Ecost.shape[0])
+rl.add_metadata("Total Number of Reachable Q", Qreduced.shape[0])
+rl.add_metadata("Total Number of Reachable E", np.sum(np.isfinite(Ecost)))
+rl.add_method("Qfilter", "Qfilter_R")
+rl.add_method("Qfilter Data", f"r={2 * np.pi}")
+rl.add_method("Eestimation", "Eest_weighted_max_joint_diff")
+rl.add_method("Eestimation Data", f"Wwmj={Wwmj}")
+rl.add_method("GTSP Solver", "GLNS")
+rl.add_method("GTSP Solver Data", f"mode=slow, max_time=300")
+rl.add_result("Manhattan Cost", tourQcost_complete["manhattan"])
+rl.add_result("Euclidean Cost", tourQcost_complete["euclidean"])
+rl.add_result("Infinity Cost", tourQcost_complete["inf"])
+rl.add_result("Time Cost", tourQcost_complete["time"])
+rl.add_result("PerJoint Cost", tourQcost_complete["perjoint"])
+rl.print_log()
 
 plot_joint_trajectory(jtdict)
-# # t1 = 1
-# # t2 = 2
-# # idx = task_to_nn_pair.index((t1, t2))
-# print(f"==>> idx: \n{idx}")
-# # Qfrom = Qik_reach_init[t1]  # (num_sols, dof)
-# print(f"==>> Qfrom.shape: \n{Qfrom.shape}")
-# print(f"==>> Qfrom: \n{Qfrom}")
-# # Qto = Qik_reach_init[t2]  # (num_sols, dof)
-# print(f"==>> Qto.shape: \n{Qto.shape}")
-# print(f"==>> Qto: \n{Qto}")
-# # Qinterp = interp(Qfrom, Qto, num_points=20)
-# print(f"==>> Qinterp.shape: \n{Qinterp.shape}")
