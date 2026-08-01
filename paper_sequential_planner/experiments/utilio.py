@@ -378,6 +378,9 @@ def gen_joint_trajectory(traj, time_from_start, name):
 
 
 def gen_taskspace_tour(X, Ttour):
+    if isinstance(Ttour, list):
+        Ttour = np.array(Ttour)
+
     ts_dict = {}
     ts_dict["standard"] = "xyz_qxqyqzqw"
     ts_dict["is_points_ordered"] = False

@@ -56,7 +56,6 @@ dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 PROBLEM_NAME = "three_shelf_maxjointdiff_ww_"
 scene = SceneUR5eSpherizedThreeShelf()
-# PROBLEM_NAME = "single_stool_Tspaceonly"
 # scene = SceneUR5eSpherizedSingleStool()
 
 robkin = RobotUR5eKin()
@@ -202,15 +201,6 @@ task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
 )
 # print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 # print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
-
-# D = position_distance_matrix(H_reach_init)
-# Dint = D * 10000
-# tour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
-# Ttour = rotate_tour(tour, start_node=0)
-# tsdict = position_pairwise_distances(X_reach_init, Ttour)
-# patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
-# yaml_write(patht, tsdict)
-# raise
 
 
 def Qfilter_R(Q, q, Qs, r):
@@ -571,17 +561,19 @@ Ttour = Qtour // num_sols
 tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
 tourQcost_complete = traj_complete_cost(tourQval, qdot)
 
+# configuration write
 Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
 # Qfull = planner.query_tour_planning(tourQval)
 jtdict = gen_joint_trajectory(Qfull, time_from_start, name=PROBLEM_NAME)
 pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
 
+# taskspace write
 tsdict = gen_taskspace_tour(X_reach_init, Ttour)
 patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
 yaml_write(patht, tsdict)
 
-
+# logging
 rl = RTSPLogger()
 rl.data.pname = PROBLEM_NAME
 rl.data.robot = "UR5e"
