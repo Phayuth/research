@@ -3,7 +3,6 @@ import numpy as np
 import time
 import tqdm
 import torch
-from sklearn.metrics.pairwise import nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
 from paper_sequential_planner.scripts.geometric_poses import (
     H_to_X,
@@ -20,6 +19,16 @@ from paper_sequential_planner.scripts.geometric_config import (
     traj_complete_cost,
     traj_tour_from_lininterp,
     traj_tour_from_lininterp_qdot,
+)
+from paper_sequential_planner.scripts.geometric_rtsp import (
+    Qfilter_R,
+    Qfilter_similarity,
+    Qfilter_nn2c,
+    Qfilter_Knn2c,
+    Qfilter_Dnn2c,
+    Eest_colfree,
+    Eest_weighted_euclidean,
+    Eest_weighted_max_joint_diff,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
@@ -59,7 +68,6 @@ scene = SceneUR5eSpherizedThreeShelf()
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
 
-dtype = np.float32
 alt_num = 32
 unique_sols = 8
 num_sols = unique_sols * alt_num
@@ -180,46 +188,77 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
-# Warg = {"wse3_rot": 1.0}
-# tspace_mapping = Advanced_task_space_correlation(
-#     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
-# )
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
 
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
     tspace_mapping["task_to_nn_pair_len"],
 )
+print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
+print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
+print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
+
 D = position_pairwise_distances(H_reach_init)
 Dint = D * 10000
 Ttour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
+print(f"==>> Ttour: {Ttour}")
 
 # taskspace write
 tsdict = gen_taskspace_tour(X_reach_init, Ttour)
 patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
 yaml_write(patht, tsdict)
 
-Tour_rotated = rotate_tour(Ttour, start_node=0)
-Qik_reach_init_order = Qik_reach_init[Tour_rotated]
-print(f"==>> Qik_reach_init_order: \n{Qik_reach_init_order}")
+Ttour_rotated = rotate_tour(Ttour, start_node=0)
+Qik_reach_init_order = Qik_reach_init[Ttour_rotated]
 
+
+qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
+qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+Wwmj = qw / qdot
+Ewmj = Eest_weighted_max_joint_diff(
+    Qik_reach_init, Qikstate_reach_init, Wwmj, tspace_mapping
+)
+print(f"==>> Ewmj.shape: \n{Ewmj.shape}")
+
+ntasknow = Qik_reach_init.shape[0]  # 25
+nQ = Qik_reach_init.shape[1]  # 256
+
+# Qikstate_reach_init # check if valid as well
+for i in range(len(Ttour_rotated) - 1):
+    best_cost = np.array([np.inf] * nQ)
+    best_parent = np.array([-1] * nQ)
+
+    transpose = False
+    Ttour_rotated_i = Ttour_rotated[i]
+    Ttour_rotated_j = Ttour_rotated[i + 1]
+    if Ttour_rotated_i > Ttour_rotated_j:
+        Ttour_rotated_i, Ttour_rotated_j = Ttour_rotated_j, Ttour_rotated_i
+        transpose = True
+
+    IJ = task_to_nn_pair.index(((Ttour_rotated_i.item(), Ttour_rotated_j.item())))
+    print(f"==>> IJ: \n{IJ}")
+
+    E = Ewmj[IJ]  # (nQ, nQ)
+    if transpose:
+        E = E.T  # (nQ, nQ)
+
+    print(E)
+
+raise
 # randomly select one configuration for each task
 tourQval = Qik_reach_init_order[:, 0]
 qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
 tourQcost_complete = traj_complete_cost(tourQval, qdot)
+
 
 Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
 jtdict = gen_joint_trajectory(Qfull, time_from_start, name=PROBLEM_NAME)
 pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
 
+
+raise
 # logging
 rl = RTSPLogger()
 rl.data.pname = PROBLEM_NAME
@@ -228,7 +267,9 @@ rl.data.ntasks = ntasks
 rl.data.nrtasks = X_reach_init.shape[0]
 rl.data.nQpt = num_sols
 rl.data.nEpp = num_sols * num_sols
-rl.data.tnrQ = None
+rl.data.ntasks_comb = ntasks * (ntasks - 1) // 2
+rl.data.nE_comb = num_sols * (num_sols - 1) // 2
+rl.data.tnrQ = np.sum(np.sum(Qikstate_reach_init, axis=1))
 rl.data.tnrE = None
 
 rl.data.Qf = None

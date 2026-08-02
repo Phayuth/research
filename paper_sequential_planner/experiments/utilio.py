@@ -17,34 +17,34 @@ dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 
-def check_number_Q(Q):
+def check_number_Q(Qs):
     """
     Q must be state True/False
     """
-    if not np.issubdtype(Q.dtype, np.bool_):
+    if not np.issubdtype(Qs.dtype, np.bool_):
         raise ValueError("Q must be a boolean array")
 
-    nQvalpt = np.sum(Q, axis=1)
+    nQvalpt = np.sum(Qs, axis=1)
     nQvalAll = np.sum(nQvalpt)
     print("------------------------------------------------------------")
     print(f"There are {nQvalAll} valid nodes in total.")
-    print(f"Q is in shape {Q.shape}, nQval per task : \n{nQvalpt.T}")
+    print(f"Q is in shape {Qs.shape}, nQval per task : \n{nQvalpt.T}")
     print("------------------------------------------------------------")
 
 
-def check_number_E(E):
+def check_number_E(Es):
     """
     E must be state True/False
     """
-    if not np.issubdtype(E.dtype, np.bool_):
+    if not np.issubdtype(Es.dtype, np.bool_):
         raise ValueError("E must be a boolean array")
 
-    nEpair = E.shape[0]
-    nEvalpt = np.sum(E, axis=(1, 2))
+    nEpair = Es.shape[0]
+    nEvalpt = np.sum(Es, axis=(1, 2))
     nEvalAll = np.sum(nEvalpt)
     print("------------------------------------------------------------")
     print(f"There are {nEpair} pairs with {nEvalAll} valid edges in total.")
-    print(f"E is in shape {E.shape}, nEval per pair : \n{nEvalpt}")
+    print(f"E is in shape {Es.shape}, nEval per pair : \n{nEvalpt}")
     print("------------------------------------------------------------")
 
 
@@ -429,14 +429,66 @@ def plot_joint_trajectory(traj_dict, savepath=None):
 
 @dataclass
 class RTSPLog:
-    # metadata
+    # precompute data
     d = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    date: str = field(default=d, metadata={"label": "Date"})
-    pname: str = field(default=None, metadata={"label": "Problem Name"})
-    robot: str = field(default=None, metadata={"label": "Robot"})
-    ntasks: int = field(default=None, metadata={"label": "Number of Tasks"})
-    nQpt: int = field(default=None, metadata={"label": "Number of Q per Task"})
-    nEpp: int = field(default=None, metadata={"label": "Number of E per Pair"})
+
+    # metadata
+    date: str = field(
+        default=d,
+        metadata={
+            "label": "Date",
+            "info": "auto-generated",
+        },
+    )
+    pname: str = field(
+        default=None,
+        metadata={
+            "label": "Problem Name",
+            "info": "",
+        },
+    )
+    robot: str = field(
+        default=None,
+        metadata={
+            "label": "Robot",
+            "info": "",
+        },
+    )
+    ntasks: int = field(
+        default=None,
+        metadata={
+            "label": "Number of Tasks",
+            "info": "user defined",
+        },
+    )
+    nQpt: int = field(
+        default=None,
+        metadata={
+            "label": "Number of Q per Task",
+            "info": "",
+        },
+    )
+    nEpp: int = field(
+        default=None,
+        metadata={
+            "label": "Number of E per Pair",
+            "info": "",
+        },
+    )
+    ntasks_comb: int = field(
+        default=None,
+        metadata={
+            "label": "Number of Task Comibinations",
+            "info": "Unique Task combinations",
+        },
+    )
+    nE_comb: int = field(
+        default=None,
+        metadata={
+            "label": "Number of Edge Combinations",
+            "info": "Unique edge combinations",
+        },
+    )
     nrtasks: int = field(
         default=None,
         metadata={
@@ -445,10 +497,18 @@ class RTSPLog:
         },
     )
     tnrQ: int = field(
-        default=None, metadata={"label": "Total Number of Reachable Q"}
+        default=None,
+        metadata={
+            "label": "Total Number of Reachable Q",
+            "info": "(before filtering)",
+        },
     )
     tnrE: int = field(
-        default=None, metadata={"label": "Total Number of Reachable E"}
+        default=None,
+        metadata={
+            "label": "Total Number of Reachable E",
+            "info": "(before filtering)",
+        },
     )
 
     # methods
