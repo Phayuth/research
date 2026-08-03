@@ -229,7 +229,9 @@ def traj_tour_from_lininterp(Q, num_points, dt=0.1):
     time_from_start = np.arange(traj.shape[0]) * dt
     for i in range(Q.shape[0] - 1):
         traj[i] = np.linspace(Q[i], Q[i + 1], num_points)
-    return traj.reshape(-1, Q.shape[1]), time_from_start
+    traj = traj.reshape(-1, Q.shape[1])
+    time_from_start = np.arange(traj.shape[0]) * dt
+    return traj, time_from_start
 
 
 def traj_tour_from_lininterp_qdot(Q, qdot):
@@ -265,4 +267,9 @@ def traj_tour_from_lininterp_qdot(Q, qdot):
             time_from_start.append(
                 np.linspace(last_time, last_time + max_time, num_points)
             )
-    return np.vstack(traj), np.hstack(time_from_start)
+    traj = np.vstack(traj)
+    time_from_start = np.hstack(time_from_start)
+    return traj, time_from_start
+
+
+# def traj_tour_from_collisionfree_planner(Q, qdot):

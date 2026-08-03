@@ -216,6 +216,7 @@ def Eest_colfree(Q, Qs, cmax_d, tmap):
 
     Output:
     Ecf: edges collision-free distance
+       : implicitly provide infeasible check via np.inf in the edges
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -256,6 +257,7 @@ def Eest_weighted_euclidean(Q, Qs, W, tmap):
 
     Output:
     Eweu: edges heuristic distance based on weighted euclidean distance
+        : implicitly provide infeasible check via np.inf in the edges
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -289,6 +291,7 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
 
     Output:
     Ewmj: edges heuristic distance based on max joint difference
+        : implicitly provide infeasible check via np.inf in the edges
     """
     # get mapping
     task_to_nn_pair = tmap["task_to_nn_pair"]
@@ -309,10 +312,79 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
     return Ewmj
 
 
-def search_dijkstra_graph(E, tmap):
-    import networkx as nx
+def Qtour_RoboTSP_layer_search(Ttour, E, tmap):
+    """
+    RoboTSP process of selecting the best q for each task given the pre-computedtour.
 
-    NXG = nx.Graph()
+    Input:
+    Ttour: the tour of tasks, with loop back to start
+    E: edges cost matrix, must provide infeasible check via np.inf in the edges
+    tmap: mapping dict
 
-    NXG.add_weighted_edges_from()
-    pass
+    Output:
+    """
+    # get mapping
+    task_to_nn_dict = tmap["task_to_nn_dict"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+    ntasks = len(task_to_nn_dict.keys())  # already include start
+
+    # verify tour
+    # tour must start from 0 and end at 0 / loop back
+    # the length of tour must be equal to the number of tasks + 2 (start and end)
+    if Ttour[0] != 0 or Ttour[-1] != 0:
+        raise ValueError("Tour must start and end at 0 (loop back).")
+    if len(Ttour) != ntasks + 1:
+        raise ValueError(
+            f"Tour length must be equal to number of tasks + 2 (start and end). Expected {ntasks + 1}, got {len(Ttour)}."
+        )
+
+    # variables
+    nQ = E.shape[1]  # number of candidate configurations per task
+    nlayers = len(Ttour)  # number of tasks in the tour (including start and end)
+    best_cost = np.full((nlayers, nQ), np.inf)
+    best_cost[0, 0] = 0  # only the initial configuration is a valid source
+    best_parent = np.full((nlayers, nQ), -1, dtype=int)
+
+    # dynamic programming to find the best configuration for each task in the tour
+    for i in range(nlayers - 1):
+        transpose = False
+        prev_i = Ttour[i]
+        curr_i = Ttour[i + 1]
+
+        if prev_i > curr_i:
+            prev_i, curr_i = curr_i, prev_i  # swap to ensure prev_i < curr_i
+            transpose = True  # the distance matrix is transposed
+        I = task_to_nn_pair.index((prev_i, curr_i))  # get the index of dist mat
+
+        # distance matrix must provide infeasible check via np.inf in the edges
+        Eij = E[I] if not transpose else E[I].T
+
+        prev_cost = best_cost[i]
+        candidate_cost = prev_cost[:, np.newaxis] + Eij  # cost to come
+
+        # find the best parent and cost for each configuration in the current task
+        best_parent[i + 1] = np.argmin(candidate_cost, axis=0)
+        best_cost[i + 1] = np.min(candidate_cost, axis=0)
+
+    # verify that the last layer has a valid configuration
+    if not np.isfinite(best_cost[-1]).any():
+        raise RuntimeError("No feasible path found in the final layer")
+
+    # backtrack to find the best tour
+    # goal_id is the start configuration, it must be start off as 0
+    goal_id = int(
+        np.argmin(np.where(np.isfinite(best_cost[-1]), best_cost[-1], np.inf))
+    )
+    Qtour = [goal_id]
+    for layer in range(nlayers - 1, 0, -1):
+        goal_id = best_parent[layer, goal_id]
+        if goal_id < 0:
+            raise RuntimeError(f"Broken parent chain at layer {layer}")
+        Qtour.append(int(goal_id))
+
+    # reverse the path to get the correct order
+    Qtour = np.array(Qtour[::-1])
+
+    # Qtour is task id dependant, its index is only from 0 to nQ, not flattened id
+    return Qtour

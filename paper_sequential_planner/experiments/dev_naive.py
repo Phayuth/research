@@ -29,6 +29,7 @@ from paper_sequential_planner.scripts.geometric_rtsp import (
     Eest_colfree,
     Eest_weighted_euclidean,
     Eest_weighted_max_joint_diff,
+    Qtour_RoboTSP_layer_search,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
@@ -48,7 +49,8 @@ from paper_sequential_planner.experiments.utilio import (
     yaml_read,
     plot_joint_trajectory,
     tsp_solver,
-    rotate_tour,
+    tour_rotation,
+    tour_attach_loop_back,
     RTSPLogger,
 )
 
@@ -60,7 +62,7 @@ dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 
-PROBLEM_NAME = "three_shelf_naive"
+PROBLEM_NAME = "three_shelf_RoboTSP_maxjointdiff"
 scene = SceneUR5eSpherizedThreeShelf()
 # PROBLEM_NAME = "single_stool_Tspaceonly"
 # scene = SceneUR5eSpherizedSingleStool()
@@ -205,12 +207,10 @@ Ttour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
 print(f"==>> Ttour: {Ttour}")
 
 # taskspace write
-tsdict = gen_taskspace_tour(X_reach_init, Ttour)
-patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_taskspace_tour.yaml")
+Ttour_rotated = tour_rotation(Ttour, start_node=0)
+tsdict = gen_taskspace_tour(X_reach_init, Ttour_rotated)
+patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
 yaml_write(patht, tsdict)
-
-Ttour_rotated = rotate_tour(Ttour, start_node=0)
-Qik_reach_init_order = Qik_reach_init[Ttour_rotated]
 
 
 qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
@@ -221,44 +221,44 @@ Ewmj = Eest_weighted_max_joint_diff(
 )
 print(f"==>> Ewmj.shape: \n{Ewmj.shape}")
 
-ntasknow = Qik_reach_init.shape[0]  # 25
-nQ = Qik_reach_init.shape[1]  # 256
+Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
+print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
+print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
+Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
+selected = np.vstack([Ttour_rotated_loop, Qtour])
+print(f"==>> selected: \n{selected}")
 
-# Qikstate_reach_init # check if valid as well
-for i in range(len(Ttour_rotated) - 1):
-    best_cost = np.array([np.inf] * nQ)
-    best_parent = np.array([-1] * nQ)
+tourQval = []
+for i in range(selected.shape[1]):
+    taski = selected[0, i]
+    solj = selected[1, i]
+    q = Qik_reach_init[taski, solj]
+    tourQval.append(q)
+tourQval = np.array(tourQval)
+print(f"==>> tourQval: \n{tourQval}")
 
-    transpose = False
-    Ttour_rotated_i = Ttour_rotated[i]
-    Ttour_rotated_j = Ttour_rotated[i + 1]
-    if Ttour_rotated_i > Ttour_rotated_j:
-        Ttour_rotated_i, Ttour_rotated_j = Ttour_rotated_j, Ttour_rotated_i
-        transpose = True
-
-    IJ = task_to_nn_pair.index(((Ttour_rotated_i.item(), Ttour_rotated_j.item())))
-    print(f"==>> IJ: \n{IJ}")
-
-    E = Ewmj[IJ]  # (nQ, nQ)
-    if transpose:
-        E = E.T  # (nQ, nQ)
-
-    print(E)
-
-raise
-# randomly select one configuration for each task
-tourQval = Qik_reach_init_order[:, 0]
+# no collision consider yet
 qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
 tourQcost_complete = traj_complete_cost(tourQval, qdot)
-
-
-Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
-jtdict = gen_joint_trajectory(Qfull, time_from_start, name=PROBLEM_NAME)
-pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_TSpaceonly_joint_trajectory.yaml")
+Qtour_traj, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
+jtdict = gen_joint_trajectory(Qtour_traj, time_from_start, name=PROBLEM_NAME)
+pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
 
+# collision-free
+tourQval_cf = planner.query_tour_planning(tourQval)
+tourQcost_cf_complete = traj_complete_cost(tourQval_cf, qdot)
+Qtour_cf_traj, time_from_start_cf = traj_tour_from_lininterp_qdot(
+    tourQval_cf, qdot
+)
+jtdict_cf = gen_joint_trajectory(
+    Qtour_cf_traj, time_from_start_cf, name=PROBLEM_NAME
+)
+pathj_cf = os.path.join(
+    dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory_collisionfree.yaml"
+)
+yaml_write(pathj_cf, jtdict_cf)
 
-raise
 # logging
 rl = RTSPLogger()
 rl.data.pname = PROBLEM_NAME
@@ -284,8 +284,17 @@ rl.data.l2 = tourQcost_complete["euclidean"]
 rl.data.linf = tourQcost_complete["inf"]
 rl.data.time = tourQcost_complete["time"]
 rl.data.l1pj = tourQcost_complete["perjoint"]
+
+rl.data.l1cf = tourQcost_cf_complete["manhattan"]
+rl.data.l2cf = tourQcost_cf_complete["euclidean"]
+rl.data.linfcf = tourQcost_cf_complete["inf"]
+rl.data.timecf = tourQcost_cf_complete["time"]
+rl.data.l1pjcf = tourQcost_cf_complete["perjoint"]
 rl.print_log()
 
 logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
 rl.save_log(logpath)
 plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")
+plot_joint_trajectory(
+    jtdict_cf, savepath=logpath + "_joint_trajectory_collisionfree.png"
+)

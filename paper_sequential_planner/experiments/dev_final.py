@@ -49,7 +49,7 @@ from paper_sequential_planner.experiments.utilio import (
     yaml_read,
     plot_joint_trajectory,
     tsp_solver,
-    rotate_tour,
+    tour_rotation,
     RTSPLogger,
 )
 
@@ -259,20 +259,19 @@ result = call_glns_solver(
     problem_name=PROBLEM_NAME,
     args={"mode": "slow", "max_time": 300},
 )
-Qtour = read_glns_file(
+Qtourflatten = read_glns_file(
     PROBLEM_NAME,
     Qid_true,
     Qid_true_cont,
 )
-Ttour = Qtour // num_sols
+Ttour = Qtourflatten // num_sols
 
-tourQval = Qik_reach_init.reshape(-1, dof)[Qtour]
-tourQcost_complete = traj_complete_cost(tourQval, qdot)
+Qtour = Qik_reach_init.reshape(-1, dof)[Qtourflatten]
+tourQcost_complete = traj_complete_cost(Qtour, qdot)
 
-# configuration write
-Qfull, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
-# Qfull = planner.query_tour_planning(tourQval)
-jtdict = gen_joint_trajectory(Qfull, time_from_start, name=PROBLEM_NAME)
+# no collision consider yet
+Qtour_traj, time_from_start = traj_tour_from_lininterp_qdot(Qtour, qdot)
+jtdict = gen_joint_trajectory(Qtour_traj, time_from_start, name=PROBLEM_NAME)
 pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
 yaml_write(pathj, jtdict)
 
@@ -280,6 +279,20 @@ yaml_write(pathj, jtdict)
 tsdict = gen_taskspace_tour(X_reach_init, Ttour)
 patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
 yaml_write(patht, tsdict)
+
+# collision-free
+tourQval_cf = planner.query_tour_planning(Qtour)
+tourQcost_cf_complete = traj_complete_cost(tourQval_cf, qdot)
+Qtour_cf_traj, time_from_start_cf = traj_tour_from_lininterp_qdot(
+    tourQval_cf, qdot
+)
+jtdict_cf = gen_joint_trajectory(
+    Qtour_cf_traj, time_from_start_cf, name=PROBLEM_NAME
+)
+pathj_cf = os.path.join(
+    dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory_collisionfree.yaml"
+)
+yaml_write(pathj_cf, jtdict_cf)
 
 # logging
 rl = RTSPLogger()
@@ -304,8 +317,13 @@ rl.data.l2 = tourQcost_complete["euclidean"]
 rl.data.linf = tourQcost_complete["inf"]
 rl.data.time = tourQcost_complete["time"]
 rl.data.l1pj = tourQcost_complete["perjoint"]
-rl.print_log()
 
+rl.data.l1cf = tourQcost_cf_complete["manhattan"]
+rl.data.l2cf = tourQcost_cf_complete["euclidean"]
+rl.data.linfcf = tourQcost_cf_complete["inf"]
+rl.data.timecf = tourQcost_cf_complete["time"]
+rl.data.l1pjcf = tourQcost_cf_complete["perjoint"]
+rl.print_log()
 logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
 rl.save_log(logpath)
 plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")

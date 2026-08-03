@@ -280,7 +280,7 @@ def read_glns_file(problem_name, Qid_true, Qid_true_cont):
     tour_glns = np.array(tour_glns)
     tour_indices = np.searchsorted(Qid_true_cont, tour_glns)
     tour_indices_og = Qid_true[tour_indices]
-    tour_indices_og_rotated = rotate_tour(tour_indices_og, start_node=0)
+    tour_indices_og_rotated = tour_rotation(tour_indices_og, start_node=0)
 
     # print debug info
     print("------------------------------------------------------------")
@@ -333,7 +333,7 @@ def tsp_solver(dists, method):
     return tour, cost
 
 
-def rotate_tour(tour_indices_og, start_node):
+def tour_rotation(tour_indices_og, start_node):
     """
     Rotate the tour so that it starts with the specified start_node.
     """
@@ -346,6 +346,17 @@ def rotate_tour(tour_indices_og, start_node):
         (tour_indices_og[start_index:], tour_indices_og[:start_index])
     )
     return rotated_tour
+
+
+def tour_attach_loop_back(tour):
+    """
+    Attach the last node back to the first node to form a loop.
+    """
+    if len(tour) < 2:
+        raise ValueError(
+            "Tour must have at least two nodes to attach a loop back."
+        )
+    return np.append(tour, tour[0])
 
 
 def yaml_write(path, data):
