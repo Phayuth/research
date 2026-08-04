@@ -269,7 +269,7 @@ rl.data.nQpt = num_sols
 rl.data.nEpp = num_sols * num_sols
 rl.data.ntasks_comb = ntasks * (ntasks - 1) // 2
 rl.data.nE_comb = num_sols * (num_sols - 1) // 2
-rl.data.tnrQ = np.sum(np.sum(Qikstate_reach_init, axis=1))
+rl.data.tnrQ = np.sum(np.sum(Qikstate_reach_init, axis=1)).item()
 rl.data.tnrE = None
 
 rl.data.Qf = None

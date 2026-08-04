@@ -569,7 +569,7 @@ class SceneUR5eSpherizedThreeShelf(SceneUR5eSpherized):
 
 class SceneOMPLPlanner:
 
-    def __init__(self, collision_checker):
+    def __init__(self, collision_checker, *args, **kwargs):
         from ompl import base as ob
         from ompl import geometric as og
         from ompl import util as ou
@@ -578,34 +578,54 @@ class SceneOMPLPlanner:
         self.og = og
         self.ou = ou
 
-        ou.RNG.setSeed(42)
         self.collision_checker = collision_checker
+        self._lm = np.array(
+            [
+                [-2 * np.pi, 2 * np.pi],
+                [-2 * np.pi, 2 * np.pi],
+                [-np.pi, np.pi],
+                [-2 * np.pi, 2 * np.pi],
+                [-2 * np.pi, 2 * np.pi],
+                [-2 * np.pi, 2 * np.pi],
+            ]
+        )
+        self._p = kwargs.get("planner", "ABITstar")
+        self._r = kwargs.get("range", None)
+        self._to = kwargs.get("timeout", 10.0)
+        self._sd = kwargs.get("seed", 42)
+        self.timeout = kwargs.get("timeout", self._to)
+        self.limits = kwargs.get("limits", self._lm)
+        self.dof = 6  # UR5e
 
-        self.space = ob.RealVectorStateSpace(6)
-        self.bounds = ob.RealVectorBounds(6)
-        self.limit6 = [
-            2 * np.pi,
-            2 * np.pi,
-            np.pi,
-            2 * np.pi,
-            2 * np.pi,
-            2 * np.pi,
-        ]
-        for i in range(6):
-            self.bounds.setLow(i, -self.limit6[i])
-            self.bounds.setHigh(i, self.limit6[i])
-        self.bounds.setLow(1, -np.pi)
-        self.bounds.setHigh(1, 0)
+        ou.RNG.setSeed(self._sd)
+        self.space = ob.RealVectorStateSpace(self.dof)
+        self.bounds = ob.RealVectorBounds(self.dof)
+        for i in range(self.dof):
+            self.bounds.setLow(i, self.limits[i, 0])
+            self.bounds.setHigh(i, self.limits[i, 1])
         self.space.setBounds(self.bounds)
 
         self.ss = og.SimpleSetup(self.space)
         self.ss.setStateValidityChecker(
             ob.StateValidityCheckerFn(self.isStateValid)
         )
-        # self.planner = og.BITstar(self.ss.getSpaceInformation())
-        self.planner = og.ABITstar(self.ss.getSpaceInformation())
-        # self.planner = og.AITstar(self.ss.getSpaceInformation())
-        # self.planner.setRange(0.1)
+        if self._p == "BITstar":
+            self.planner = og.BITstar(self.ss.getSpaceInformation())
+        elif self._p == "ABITstar":
+            self.planner = og.ABITstar(self.ss.getSpaceInformation())
+        elif self._p == "AITstar":
+            self.planner = og.AITstar(self.ss.getSpaceInformation())
+        elif self._p == "RRTstar":
+            self.planner = og.RRTstar(self.ss.getSpaceInformation())
+        elif self._p == "RRTConnect":
+            self.planner = og.RRTConnect(self.ss.getSpaceInformation())
+
+        if self._r is not None:
+            self.planner.setRange(self._r)
+
+        obj = ob.PathLengthOptimizationObjective(self.ss.getSpaceInformation())
+        self.ss.setOptimizationObjective(obj)
+
         self.ss.setPlanner(self.planner)
 
     def isStateValid(self, state):
@@ -614,31 +634,31 @@ class SceneOMPLPlanner:
         col = self.collision_checker(q).detach().cpu().numpy().item()
         return not col
 
-    def query_planning(self, start_list, goal_list):
+    def query_planning(self, qs, qg):
         # Important!
         # Clear previous planning data to ensure fresh planning because caching
         self.ss.clear()
 
         start = self.ob.State(self.space)
-        start[0] = start_list[0]
-        start[1] = start_list[1]
-        start[2] = start_list[2]
-        start[3] = start_list[3]
-        start[4] = start_list[4]
-        start[5] = start_list[5]
+        start[0] = qs[0]
+        start[1] = qs[1]
+        start[2] = qs[2]
+        start[3] = qs[3]
+        start[4] = qs[4]
+        start[5] = qs[5]
         goal = self.ob.State(self.space)
-        goal[0] = goal_list[0]
-        goal[1] = goal_list[1]
-        goal[2] = goal_list[2]
-        goal[3] = goal_list[3]
-        goal[4] = goal_list[4]
-        goal[5] = goal_list[5]
+        goal[0] = qg[0]
+        goal[1] = qg[1]
+        goal[2] = qg[2]
+        goal[3] = qg[3]
+        goal[4] = qg[4]
+        goal[5] = qg[5]
 
-        dist = np.linalg.norm(np.array(goal_list) - np.array(start_list))
+        dist = np.linalg.norm(np.array(qg) - np.array(qs))
 
         self.ss.setStartAndGoalStates(start, goal)
-        status = self.ss.solve(10.0)
-        print("Plan from ", start_list, " to ", goal_list, "estimate cost:", dist)
+        status = self.ss.solve(self.timeout)
+        print("Plan from ", qs, " to ", qg, "estimate cost:", dist)
         (
             print("EXACT")
             if status.getStatus() == status.EXACT_SOLUTION
@@ -658,6 +678,69 @@ class SceneOMPLPlanner:
                 pi = path.getState(i)
                 pathlist.append([pi[0], pi[1], pi[2], pi[3], pi[4], pi[5]])
             return pathlist, path_cost
+        else:
+            print("No solution found")
+            return None
+
+    def query_planning_with_goalset(self, qs, Qg):
+        # Important!
+        # Clear previous planning data to ensure fresh planning because caching
+        self.ss.clear()
+
+        start = self.ob.State(self.space)
+        start[0] = qs[0]
+        start[1] = qs[1]
+        start[2] = qs[2]
+        start[3] = qs[3]
+        start[4] = qs[4]
+        start[5] = qs[5]
+        self.ss.setStartState(start)
+
+        goal = self.ob.GoalStates(self.ss.getSpaceInformation())
+        for i in range(Qg.shape[0]):
+            goal_state = self.ob.State(self.space)
+            goal_state[0] = Qg[i, 0]
+            goal_state[1] = Qg[i, 1]
+            goal_state[2] = Qg[i, 2]
+            goal_state[3] = Qg[i, 3]
+            goal_state[4] = Qg[i, 4]
+            goal_state[5] = Qg[i, 5]
+            goal.addState(goal_state)
+        self.ss.setGoal(goal)
+
+        dist = np.linalg.norm(Qg - qs, axis=1)
+
+        status = self.ss.solve(self.timeout)
+        print("Plan from ", qs, " to ", Qg, "estimate cost:", dist)
+        (
+            print("EXACT")
+            if status.getStatus() == status.EXACT_SOLUTION
+            else print("Invalid result")
+        )
+        if status.getStatus() == status.EXACT_SOLUTION:
+            self.ss.simplifySolution()
+            path = self.ss.getSolutionPath()
+            path_cost = path.length()
+
+            print("Found solution:")
+            print(f"Path cost: {path_cost}")
+            print(self.ss.getSolutionPath())
+
+            # extract path
+            pathlist = []
+            for i in range(path.getStateCount()):
+                pi = path.getState(i)
+                pathlist.append([pi[0], pi[1], pi[2], pi[3], pi[4], pi[5]])
+
+            # find goal index
+            i = None
+            for j, g in enumerate(Qg):
+                if np.allclose(pathlist[-1], g, atol=1e-6):
+                    i = j
+                    break
+            goalid = i
+
+            return pathlist, path_cost, goalid
         else:
             print("No solution found")
             return None

@@ -61,7 +61,7 @@ dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 
-PROBLEM_NAME = "three_shelf_maxjointdiff_ww_"
+PROBLEM_NAME = "three_shelf_GTSPFull_maxjointdiff"
 scene = SceneUR5eSpherizedThreeShelf()
 # scene = SceneUR5eSpherizedSingleStool()
 
@@ -282,6 +282,8 @@ yaml_write(patht, tsdict)
 
 # collision-free
 tourQval_cf = planner.query_tour_planning(Qtour)
+print(f"==>> tourQval_cf: \n{tourQval_cf}")
+
 tourQcost_cf_complete = traj_complete_cost(tourQval_cf, qdot)
 Qtour_cf_traj, time_from_start_cf = traj_tour_from_lininterp_qdot(
     tourQval_cf, qdot
@@ -327,3 +329,6 @@ rl.print_log()
 logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
 rl.save_log(logpath)
 plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")
+plot_joint_trajectory(
+    jtdict_cf, savepath=logpath + "_joint_trajectory_collisionfree.png"
+)
