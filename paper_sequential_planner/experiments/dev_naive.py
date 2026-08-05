@@ -61,11 +61,15 @@ dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
+problem_dict = [
+    ["airbus_shopfloor_RoboTSP_maxjointdiff", SceneUR5eSpherizedAirbusShopFloor],
+    ["three_shelf_RoboTSP_maxjointdiff", SceneUR5eSpherizedThreeShelf],
+    ["single_stool_RoboTSP_maxjointdiff", SceneUR5eSpherizedSingleStool],
+]
+problem_selected = 2
 
-PROBLEM_NAME = "three_shelf_RoboTSP_maxjointdiff"
-scene = SceneUR5eSpherizedThreeShelf()
-# PROBLEM_NAME = "single_stool_Tspaceonly"
-# scene = SceneUR5eSpherizedSingleStool()
+PROBLEM_NAME = problem_dict[problem_selected][0]
+scene = problem_dict[problem_selected][1]()
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -164,7 +168,6 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
-# qinit = np.array([-1.973, -1.094, -1.986, 0.024, 1.701, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
@@ -190,7 +193,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = Naive_task_space_correlation(H_reach_init)
+tspace_mapping = KRNN_task_space_correlation(
+    H_reach_init,
+    w_rot=0.0,
+    nnr=0.15,
+    nnk=10,
+)
 
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],

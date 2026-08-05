@@ -388,9 +388,12 @@ def gen_joint_trajectory(traj, time_from_start, name):
     return traj_dict
 
 
-def gen_taskspace_tour(X, Ttour):
+def gen_taskspace_tour(X, Ttour, Xframeoffset=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]):
     if isinstance(Ttour, list):
         Ttour = np.array(Ttour)
+
+    if isinstance(Xframeoffset, list):
+        Xframeoffset = np.array(Xframeoffset)
 
     ts_dict = {}
     ts_dict["standard"] = "xyz_qxqyqzqw"
@@ -398,6 +401,7 @@ def gen_taskspace_tour(X, Ttour):
     ts_dict["N"] = X.shape[0]
     ts_dict["order"] = Ttour.tolist()
     ts_dict["points"] = X.tolist()
+    ts_dict["frame_offset"] = Xframeoffset.tolist()
     return ts_dict
 
 
