@@ -50,25 +50,27 @@ from paper_sequential_planner.experiments.utilio import (
     plot_joint_trajectory,
     tsp_solver,
     tour_rotation,
+    tour_attach_loop_back,
     RTSPLogger,
+    dir_logs,
 )
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
-dir_rsrc = os.environ["RSRC_DIR"]
-dir_urdf = os.path.join(dir_rsrc, "urdfs")
-dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
-dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
+problem_dict = [
+    ["airbus_shopfloor_hGTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
+    ["three_shelf_hGTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
+    ["single_stool_hGTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
+]
+problem_selected = 2
 
-PROBLEM_NAME = "three_shelf_GTSPFull_maxjointdiff"
-scene = SceneUR5eSpherizedThreeShelf()
-# scene = SceneUR5eSpherizedSingleStool()
+PROBLEM_NAME = problem_dict[problem_selected][0]
+scene = problem_dict[problem_selected][1](ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
 
-dtype = np.float32
 alt_num = 32
 unique_sols = 8
 num_sols = unique_sols * alt_num
@@ -163,7 +165,6 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
-# qinit = np.array([-1.973, -1.094, -1.986, 0.024, 1.701, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
@@ -189,13 +190,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = KRNN_task_space_correlation(
+#     H_reach_init,
+#     w_rot=0.0,
+#     nnr=0.15,
+#     nnk=10,
+# )
 # Warg = {"wse3_rot": 1.0}
 # tspace_mapping = Advanced_task_space_correlation(
 #     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
@@ -229,26 +230,26 @@ Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
 
 # # choose filter method
 # Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
-Qreduced = Q1red_r
+# Qreduced = Q1red_r
+Qreduced = Qikstate_reach_init  # no filter
 check_number_Q(Qreduced)
 
 
-# cmax_d = 2 * np.pi
-cmax_d = None  # disable cmax_d filtering
-Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
+# # cmax_d = 2 * np.pi
+# cmax_d = None  # disable cmax_d filtering
+# Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
 
-Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
+# Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
+# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
 
-qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
-qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
+# qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
 Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
 
-# * 3rd STAGE GTSP problem formulation and solving
 # write, solve, and read GTSP problem
 Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
-
 Qid_true, Qid_true_cont = write_glns_file(
     problem_name=PROBLEM_NAME,
     task_to_nn_pair=task_to_nn_pair,
@@ -257,44 +258,31 @@ Qid_true, Qid_true_cont = write_glns_file(
 )
 result = call_glns_solver(
     problem_name=PROBLEM_NAME,
-    args={"mode": "slow", "max_time": 300},
+    args={"mode": "slow", "max_time": 3000},
 )
 Qtourflatten = read_glns_file(
     PROBLEM_NAME,
     Qid_true,
     Qid_true_cont,
 )
+Qtourflatten_loop = tour_attach_loop_back(Qtourflatten)
+print(f"==>> Qtourflatten_loop: {Qtourflatten_loop}")
+Qtour = Qik_reach_init.reshape(-1, dof)[Qtourflatten_loop]
+tourQcosts = traj_complete_cost(Qtour, qdot)
+
+# taskspace tour
 Ttour = Qtourflatten // num_sols
-
-Qtour = Qik_reach_init.reshape(-1, dof)[Qtourflatten]
-tourQcost_complete = traj_complete_cost(Qtour, qdot)
-
-# no collision consider yet
-Qtour_traj, time_from_start = traj_tour_from_lininterp_qdot(Qtour, qdot)
-jtdict = gen_joint_trajectory(Qtour_traj, time_from_start, name=PROBLEM_NAME)
-pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
-yaml_write(pathj, jtdict)
-
-# taskspace write
 tsdict = gen_taskspace_tour(X_reach_init, Ttour)
-patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
-yaml_write(patht, tsdict)
+
+# no collision consider
+Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(Qtour, qdot)
+jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 
 # collision-free
 tourQval_cf = planner.query_tour_planning(Qtour)
-print(f"==>> tourQval_cf: \n{tourQval_cf}")
-
-tourQcost_cf_complete = traj_complete_cost(tourQval_cf, qdot)
-Qtour_cf_traj, time_from_start_cf = traj_tour_from_lininterp_qdot(
-    tourQval_cf, qdot
-)
-jtdict_cf = gen_joint_trajectory(
-    Qtour_cf_traj, time_from_start_cf, name=PROBLEM_NAME
-)
-pathj_cf = os.path.join(
-    dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory_collisionfree.yaml"
-)
-yaml_write(pathj_cf, jtdict_cf)
+tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
+Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
+jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
 
 # logging
 rl = RTSPLogger()
@@ -312,23 +300,31 @@ rl.data.Qf_d = f"r={2*np.pi}"
 rl.data.Eest = "Eest_weighted_max_joint_diff"
 rl.data.Eest_d = f"Wwmj={Wwmj}"
 rl.data.GTSP_svr = "GLNS"
-rl.data.GTSP_svr_d = "mode=slow, max_time=300"
+rl.data.GTSP_svr_d = "mode=slow, max_time=3000"
 
-rl.data.l1 = tourQcost_complete["manhattan"]
-rl.data.l2 = tourQcost_complete["euclidean"]
-rl.data.linf = tourQcost_complete["inf"]
-rl.data.time = tourQcost_complete["time"]
-rl.data.l1pj = tourQcost_complete["perjoint"]
+rl.data.l1 = tourQcosts["manhattan"]
+rl.data.l2 = tourQcosts["euclidean"]
+rl.data.linf = tourQcosts["inf"]
+rl.data.time = tourQcosts["time"]
+rl.data.l1pj = tourQcosts["perjoint"]
 
-rl.data.l1cf = tourQcost_cf_complete["manhattan"]
-rl.data.l2cf = tourQcost_cf_complete["euclidean"]
-rl.data.linfcf = tourQcost_cf_complete["inf"]
-rl.data.timecf = tourQcost_cf_complete["time"]
-rl.data.l1pjcf = tourQcost_cf_complete["perjoint"]
+rl.data.l1cf = tourQcosts_cf["manhattan"]
+rl.data.l2cf = tourQcosts_cf["euclidean"]
+rl.data.linfcf = tourQcosts_cf["inf"]
+rl.data.timecf = tourQcosts_cf["time"]
+rl.data.l1pjcf = tourQcosts_cf["perjoint"]
 rl.print_log()
-logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
-rl.save_log(logpath)
-plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")
-plot_joint_trajectory(
-    jtdict_cf, savepath=logpath + "_joint_trajectory_collisionfree.png"
+
+# logging to file
+pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}/joint_trajectory.yaml")
+yaml_write(pathj, jtdict)
+patht = os.path.join(dir_logs, f"{PROBLEM_NAME}/taskspace_tour.yaml")
+yaml_write(patht, tsdict)
+pathj_cf = os.path.join(
+    dir_logs, f"{PROBLEM_NAME}/joint_trajectory_collisionfree.yaml"
 )
+yaml_write(pathj_cf, jtdict_cf)
+logpath = os.path.join(dir_logs, f"{PROBLEM_NAME}/rtsp_log")
+rl.save_log(logpath)
+plot_joint_trajectory(jtdict, logpath + "_joint_trajectory.png")
+plot_joint_trajectory(jtdict_cf, logpath + "_joint_trajectory_collisionfree.png")

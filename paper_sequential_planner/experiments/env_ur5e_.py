@@ -396,7 +396,8 @@ class SceneUR5eSpherizedAirbusShopFloor(SceneUR5eSpherized):
 
 class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
+        self.ts_choice = kwargs.get("ts_choice", "normal")
         super().__init__()
 
     def load_static_collision(self):
@@ -421,7 +422,15 @@ class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
-        fyaml = os.path.join(dir_rtsp, "single_stool_taskspace_poses.yaml")
+        if self.ts_choice == "mini":
+            s = "single_stool_mini_taskspace_poses.yaml"
+        elif self.ts_choice == "smaller":
+            s = "single_stool_smaller_taskspace_poses.yaml"
+        elif self.ts_choice == "fewer":
+            s = "single_stool_smaller_fewer_taskspace_poses.yaml"
+        elif self.ts_choice == "normal":
+            s = "single_stool_taskspace_poses.yaml"
+        fyaml = os.path.join(dir_rtsp, s)
         with open(fyaml, "r") as f:
             data = yaml.safe_load(f)
 

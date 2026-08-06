@@ -1,3 +1,4 @@
+from importlib.resources import path
 import os
 import yaml
 import numpy as np
@@ -8,6 +9,7 @@ from prettytable import PrettyTable
 from datetime import datetime
 import fast_tsp
 from python_tsp import exact as pytsp_exact, heuristics as pytsp_heuristics
+from pathlib import Path
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
@@ -15,6 +17,7 @@ dir_rsrc = os.environ["RSRC_DIR"]
 dir_urdf = os.path.join(dir_rsrc, "urdfs")
 dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
 dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
+dir_logs = os.path.join(dir_rtsp, "logs")
 
 
 def check_number_Q(Qs):
@@ -359,7 +362,16 @@ def tour_attach_loop_back(tour):
     return np.append(tour, tour[0])
 
 
+def txt_write(path, data):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        f.write(str(data))
+
+
 def yaml_write(path, data):
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
@@ -622,8 +634,7 @@ class RTSPLogger:
 
     def save_log(self, path):
         # human-readable table
-        with open(path + ".txt", "w") as f:
-            f.write(str(self.tb))
+        txt_write(path + ".txt", self.tb)
 
         # yaml table
         yaml_write(path + ".yaml", self.data.__dict__)
@@ -631,6 +642,6 @@ class RTSPLogger:
 
 if __name__ == "__main__":
     PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
-    pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
+    pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}_joint_trajectory.yaml")
     jtdict = yaml_read(pathj)
     plot_joint_trajectory(jtdict)

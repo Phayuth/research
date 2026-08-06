@@ -52,24 +52,21 @@ from paper_sequential_planner.experiments.utilio import (
     tour_rotation,
     tour_attach_loop_back,
     RTSPLogger,
+    dir_logs,
 )
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
-dir_rsrc = os.environ["RSRC_DIR"]
-dir_urdf = os.path.join(dir_rsrc, "urdfs")
-dir_rtsp = os.path.join(dir_rsrc, "rtsp_env")
-dir_glns = os.path.join(dir_rtsp, "gtsp_glns")
 
 problem_dict = [
-    ["airbus_shopfloor_RoboTSP_maxjointdiff", SceneUR5eSpherizedAirbusShopFloor],
-    ["three_shelf_RoboTSP_maxjointdiff", SceneUR5eSpherizedThreeShelf],
-    ["single_stool_RoboTSP_maxjointdiff", SceneUR5eSpherizedSingleStool],
+    ["airbus_shopfloor_RoboTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
+    ["three_shelf_RoboTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
+    ["single_stool_RoboTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
 ]
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1]()
+scene = problem_dict[problem_selected][1](ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -193,13 +190,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = KRNN_task_space_correlation(
+#     H_reach_init,
+#     w_rot=0.0,
+#     nnr=0.15,
+#     nnk=10,
+# )
 
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
@@ -212,23 +209,21 @@ print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
 
 D = position_pairwise_distances(H_reach_init)
 Dint = D * 10000
-Ttour, cost = tsp_solver(Dint.astype(np.int64), method="local_solver")
+Ttour, cost = tsp_solver(Dint.astype(np.int64), method="exact_branch_and_bound")
 print(f"==>> Ttour: {Ttour}")
 
 # taskspace write
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
 tsdict = gen_taskspace_tour(X_reach_init, Ttour_rotated)
-patht = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_taskspace_tour.yaml")
-yaml_write(patht, tsdict)
 
-
-qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
-qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+# qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
+qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
+# qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
+qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
 Ewmj = Eest_weighted_max_joint_diff(
     Qik_reach_init, Qikstate_reach_init, Wwmj, tspace_mapping
 )
-print(f"==>> Ewmj.shape: \n{Ewmj.shape}")
 
 Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
 print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
@@ -246,27 +241,16 @@ for i in range(selected.shape[1]):
 tourQval = np.array(tourQval)
 print(f"==>> tourQval: \n{tourQval}")
 
-# no collision consider yet
-qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
-tourQcost_complete = traj_complete_cost(tourQval, qdot)
-Qtour_traj, time_from_start = traj_tour_from_lininterp_qdot(tourQval, qdot)
-jtdict = gen_joint_trajectory(Qtour_traj, time_from_start, name=PROBLEM_NAME)
-pathj = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory.yaml")
-yaml_write(pathj, jtdict)
+# no collision consider
+tourQcosts = traj_complete_cost(tourQval, qdot)
+Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
+jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 
 # collision-free
 tourQval_cf = planner.query_tour_planning(tourQval)
-tourQcost_cf_complete = traj_complete_cost(tourQval_cf, qdot)
-Qtour_cf_traj, time_from_start_cf = traj_tour_from_lininterp_qdot(
-    tourQval_cf, qdot
-)
-jtdict_cf = gen_joint_trajectory(
-    Qtour_cf_traj, time_from_start_cf, name=PROBLEM_NAME
-)
-pathj_cf = os.path.join(
-    dir_rtsp, f"{PROBLEM_NAME}_joint_trajectory_collisionfree.yaml"
-)
-yaml_write(pathj_cf, jtdict_cf)
+tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
+Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
+jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
 
 # logging
 rl = RTSPLogger()
@@ -283,27 +267,34 @@ rl.data.tnrE = None
 
 rl.data.Qf = None
 rl.data.Qf_d = None
-rl.data.Eest = None
-rl.data.Eest_d = None
+rl.data.Eest = "Eest_weighted_max_joint_diff"
+rl.data.Eest_d = "qdot = [1,1,1,1,1,1], qw = [1,1,1,1,1,1]"
 rl.data.GTSP_svr = None
 rl.data.GTSP_svr_d = None
 
-rl.data.l1 = tourQcost_complete["manhattan"]
-rl.data.l2 = tourQcost_complete["euclidean"]
-rl.data.linf = tourQcost_complete["inf"]
-rl.data.time = tourQcost_complete["time"]
-rl.data.l1pj = tourQcost_complete["perjoint"]
+rl.data.l1 = tourQcosts["manhattan"]
+rl.data.l2 = tourQcosts["euclidean"]
+rl.data.linf = tourQcosts["inf"]
+rl.data.time = tourQcosts["time"]
+rl.data.l1pj = tourQcosts["perjoint"]
 
-rl.data.l1cf = tourQcost_cf_complete["manhattan"]
-rl.data.l2cf = tourQcost_cf_complete["euclidean"]
-rl.data.linfcf = tourQcost_cf_complete["inf"]
-rl.data.timecf = tourQcost_cf_complete["time"]
-rl.data.l1pjcf = tourQcost_cf_complete["perjoint"]
+rl.data.l1cf = tourQcosts_cf["manhattan"]
+rl.data.l2cf = tourQcosts_cf["euclidean"]
+rl.data.linfcf = tourQcosts_cf["inf"]
+rl.data.timecf = tourQcosts_cf["time"]
+rl.data.l1pjcf = tourQcosts_cf["perjoint"]
 rl.print_log()
 
-logpath = os.path.join(dir_rtsp, f"{PROBLEM_NAME}_rtsp_log")
-rl.save_log(logpath)
-plot_joint_trajectory(jtdict, savepath=logpath + "_joint_trajectory.png")
-plot_joint_trajectory(
-    jtdict_cf, savepath=logpath + "_joint_trajectory_collisionfree.png"
+# logging to file
+patht = os.path.join(dir_logs, f"{PROBLEM_NAME}/taskspace_tour.yaml")
+yaml_write(patht, tsdict)
+pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}/joint_trajectory.yaml")
+yaml_write(pathj, jtdict)
+pathj_cf = os.path.join(
+    dir_logs, f"{PROBLEM_NAME}/joint_trajectory_collisionfree.yaml"
 )
+yaml_write(pathj_cf, jtdict_cf)
+logpath = os.path.join(dir_logs, f"{PROBLEM_NAME}/rtsp_log")
+rl.save_log(logpath)
+plot_joint_trajectory(jtdict, logpath + "_joint_trajectory.png")
+plot_joint_trajectory(jtdict_cf, logpath + "_joint_trajectory_collisionfree.png")
