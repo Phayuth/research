@@ -1,6 +1,10 @@
 import os
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from paper_sequential_planner.experiments.utilio import (
+    tsp_solver,
+)
+from itertools import permutations
 
 np.random.seed(42)
 np.set_printoptions(precision=2, suppress=True, linewidth=200)
@@ -184,6 +188,30 @@ def Advanced_task_space_correlation(H, Q, Qs, W):
     wse3_rot = W["wse3_rot"]
     Dse3 = SE3_pairwise_distances(H, w_rot=wse3_rot)
     print(f"==>> Dse3.shape: \n{Dse3.shape}")
+
+
+"""
+Pre-determine the order of taskspace poses based on different ways.
+If I choose to do so first, then I can solve the node selection later.
+BUT if I solve GTSP as the whole, this step is not necessary.
+"""
+
+
+def taskspace_tsp_position_distance_order(H, tsp_method="exact_branch_and_bound"):
+    D = position_pairwise_distances(H) * 10000
+    Ttour, cost = tsp_solver(D.astype(np.int64), method=tsp_method)
+    return Ttour  # there can be only one tour from the solver
+
+
+def taskspace_brute_permutation_order(H):
+    n = H.shape[0]
+    if n > 10:
+        raise ValueError("Too many! it can crash the system.")
+
+    # here we ensure 0 is fixed first, so we only need to permute the rest
+    items = range(n)
+    Ttour_list = [(0,) + p for p in permutations(items[1:])]
+    return Ttour_list  # list of permutations
 
 
 """

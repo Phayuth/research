@@ -11,7 +11,8 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
-    position_pairwise_distances,
+    taskspace_tsp_position_distance_order,
+    taskspace_brute_permutation_order,
 )
 from paper_sequential_planner.scripts.geometric_config import (
     weighted_nan_euclidean_distances,
@@ -48,7 +49,6 @@ from paper_sequential_planner.experiments.utilio import (
     yaml_write,
     yaml_read,
     plot_joint_trajectory,
-    tsp_solver,
     tour_rotation,
     tour_attach_loop_back,
     RTSPLogger,
@@ -207,10 +207,11 @@ print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
 print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
 
-D = position_pairwise_distances(H_reach_init)
-Dint = D * 10000
-Ttour, cost = tsp_solver(Dint.astype(np.int64), method="exact_branch_and_bound")
-print(f"==>> Ttour: {Ttour}")
+Ttour = taskspace_tsp_position_distance_order(
+    H_reach_init,
+    tsp_method="exact_branch_and_bound",
+)
+print(f"==>> Ttour: \n{Ttour}")
 
 # taskspace write
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
@@ -256,15 +257,15 @@ print(f"==>> roboTSP_best_timecost: \n{roboTSP_best_timecost}")
 # jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
 
 # loop through all tasks and solution to check for global optimality
-from itertools import permutations
-
 print(f"============The full permutation search for global optimality===========")
+# items = list(range(0, 9))
+# perms = list(permutations(items))
+# l = len(perms)
+# print(f"There are {l} permutations to check for global optimality.")
 
-items = list(range(0, 9))
-perms = list(permutations(items))
-l = len(perms)
-print(f"There are {l} permutations to check for global optimality.")
+perms = taskspace_brute_permutation_order(H_reach_init)
 
+hcost = []
 best_tour = None
 best_cost = np.inf
 pbar = tqdm.tqdm(perms, desc="Processing permutations")
@@ -284,6 +285,7 @@ for p in pbar:
     tourQval = np.array(tourQval)
 
     tourQcosts = traj_complete_cost(tourQval, qdot)
+    hcost.append(tourQcosts["time"])
     if tourQcosts["time"] < best_cost:
         best_cost = tourQcosts["time"]
         best_tour = p
