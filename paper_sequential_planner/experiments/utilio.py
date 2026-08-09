@@ -173,7 +173,6 @@ def gen_gtsp_set_section(nQredfinalpt, Qid_true_cont):
 
 def write_glns_file(problem_name, task_to_nn_pair, E, Q):
     problem_path = os.path.join(dir_glns, f"{problem_name}.gtsp")
-    print(f"==>> Writing GLNS file to {problem_path} !")
 
     # determine the number of dimensions and gtsp sets
     nQpt = np.sum(Q, axis=1)
@@ -188,14 +187,123 @@ def write_glns_file(problem_name, task_to_nn_pair, E, Q):
     Qid_true = np.where(Q.flatten())[0]  # take only the True nodes
     Qid_true_cont = np.arange(Qid_true.shape[0]) + 1  # GTSP node id start from 1
 
+    print(f"== Writing GLNS file to {problem_path} !")
     head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
+    print(f"|-> GTSP header generated")
     ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
+    print(f"|-> GTSP edge weight section generated")
     set = gen_gtsp_set_section(nQpt, Qid_true_cont)
+    print(f"|-> GTSP set section generated")
     gtsp = f"{head}\n\n{ed}\n\n{set}"
     with open(problem_path, "w") as f:
         f.write(gtsp)
 
-    print(f"==>> GTSP file written to {problem_path} !")
+    print(f"|-> GTSP file written to {problem_path} !")
+    print(f"=========================================")
+    return Qid_true, Qid_true_cont
+
+
+def gen_gtsp_ew_section_stream(
+    f,
+    Qid_true,
+    num_sols,
+    task_to_nn_pair,
+    Ecost,
+    chunk_size=1024,
+):
+    """
+    Stream the GTSP edge-weight section directly to an open file handle.
+
+    This avoids building the full n x n matrix and the full section string in
+    memory. It still writes a dense FULL_MATRIX section, so the output file can
+    remain very large, but peak RAM usage is much lower than the in-memory
+    writer above.
+    """
+    node_tasks = Qid_true // num_sols
+    node_sols = Qid_true % num_sols
+    n_nodes = len(Qid_true)
+
+    task_to_nn_pair_arr = np.array(task_to_nn_pair)
+    num_tasks = task_to_nn_pair_arr.max() + 1
+    task_pair_lookup = np.full((num_tasks, num_tasks), -1, dtype=np.int32)
+    for idx, (i, j) in enumerate(task_to_nn_pair_arr):
+        task_pair_lookup[i, j] = idx
+        task_pair_lookup[j, i] = idx
+
+    f.write("EDGE_WEIGHT_SECTION\n")
+
+    for row_start in range(0, n_nodes, chunk_size):
+        row_end = min(row_start + chunk_size, n_nodes)
+        for i_pos in range(row_start, row_end):
+            ti = node_tasks[i_pos]
+            si = node_sols[i_pos]
+
+            row_vals = np.full(n_nodes, 1000, dtype=np.int64)
+            row_vals[i_pos] = 0
+
+            for j_pos in range(n_nodes):
+                if i_pos == j_pos:
+                    continue
+
+                tj = node_tasks[j_pos]
+                if ti == tj:
+                    continue
+
+                tp_idx = task_pair_lookup[ti, tj]
+                if tp_idx < 0:
+                    continue
+
+                sj = node_sols[j_pos]
+                if ti < tj:
+                    cost = Ecost[tp_idx, si, sj]
+                else:
+                    cost = Ecost[tp_idx, sj, si]
+
+                row_vals[j_pos] = int(cost * 1000)
+
+            f.write(" ".join(str(int(x)) for x in row_vals))
+            f.write("\n")
+
+
+def write_glns_file_stream(problem_name, task_to_nn_pair, E, Q, chunk_size=1024):
+    """
+    Streamed GLNS writer that keeps the existing writer untouched.
+
+    Use this for large instances where the dense in-memory matrix version
+    becomes too expensive.
+    """
+    problem_path = os.path.join(dir_glns, f"{problem_name}.gtsp")
+
+    nQpt = np.sum(Q, axis=1)
+    nQ = np.sum(Q)
+    ntasks, num_sols, dof = Q.shape
+    dimension = nQ
+    gtsp_sets = ntasks
+
+    Qid_true = np.where(Q.flatten())[0]
+    Qid_true_cont = np.arange(Qid_true.shape[0]) + 1
+
+    print(f"== Writing GLNS file to {problem_path} !")
+    head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
+    print(f"|-> GTSP header generated")
+    set = gen_gtsp_set_section(nQpt, Qid_true_cont)
+    print(f"|-> GTSP set section generated")
+
+    with open(problem_path, "w") as f:
+        f.write(f"{head}\n\n")
+        gen_gtsp_ew_section_stream(
+            f,
+            Qid_true,
+            num_sols,
+            task_to_nn_pair,
+            E,
+            chunk_size=chunk_size,
+        )
+        print(f"|-> GTSP edge weight section generated")
+        f.write(f"\n\n{set}")
+
+    print(f"|-> GTSP file written to {problem_path} !")
+    print(f"=========================================")
     return Qid_true, Qid_true_cont
 
 
@@ -307,7 +415,24 @@ def read_tsp_file():
 
 
 def tsp_solver(dists, method):
-    if method == "local_solver":
+    # check if the distance matrix is square
+    if dists.shape[0] != dists.shape[1]:
+        raise ValueError("Distance matrix must be square.")
+
+    # check the number of nodes
+    nodes = dists.shape[0]
+    if nodes > 10:
+        if method in [
+            "exact_brute_force",
+            "exact_dynamic_programming",
+            "exact_branch_and_bound",
+        ]:
+            print(f"Too many nodes ({nodes}) for method {method}.")
+            print("Exact methods are not suitable for problems of 30-50+ nodes.")
+            print("It gonna crash the PC. Use a heuristic or local solver.")
+            raise ValueError("Recommended to use heuristic")
+
+    if method == "local":
         tour = fast_tsp.find_tour(dists)
         cost = fast_tsp.compute_cost(tour, dists)
     elif method == "greedy_nearest_neighbor":

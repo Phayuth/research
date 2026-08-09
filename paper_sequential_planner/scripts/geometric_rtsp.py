@@ -203,6 +203,10 @@ def Qfilter_Favor(Q, Qs, tmap):
     pass
 
 
+def Qfilter_ClusterTSP_iter_reduce(Q, Qs, tmap):
+    pass
+
+
 def Eest_colfree(Q, Qs, cmax_d, tmap):
     """
     Input:
@@ -355,7 +359,12 @@ def Qtour_RoboTSP_layer_search(Ttour, E, tmap):
         if prev_i > curr_i:
             prev_i, curr_i = curr_i, prev_i  # swap to ensure prev_i < curr_i
             transpose = True  # the distance matrix is transposed
-        I = task_to_nn_pair.index((prev_i, curr_i))  # get the index of dist mat
+
+        try:  # make sure the pair exists in the mapping
+            # get the index of dist mat
+            I = task_to_nn_pair.index((prev_i, curr_i))
+        except ValueError:
+            raise ValueError(f"No dist mat found for pair ({prev_i}, {curr_i})")
 
         # distance matrix must provide infeasible check via np.inf in the edges
         Eij = E[I] if not transpose else E[I].T

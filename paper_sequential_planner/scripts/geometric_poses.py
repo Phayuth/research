@@ -197,7 +197,7 @@ BUT if I solve GTSP as the whole, this step is not necessary.
 """
 
 
-def taskspace_tsp_position_distance_order(H, tsp_method="exact_branch_and_bound"):
+def taskspace_tsp_position_distance_order(H, tsp_method):
     D = position_pairwise_distances(H) * 10000
     Ttour, cost = tsp_solver(D.astype(np.int64), method=tsp_method)
     return Ttour  # there can be only one tour from the solver
@@ -206,12 +206,12 @@ def taskspace_tsp_position_distance_order(H, tsp_method="exact_branch_and_bound"
 def taskspace_brute_permutation_order(H):
     n = H.shape[0]
     if n > 10:
-        raise ValueError("Too many! it can crash the system.")
+        raise ValueError(f"Hitted a 10 nodes limit. It can crash the system!")
 
     # here we ensure 0 is fixed first, so we only need to permute the rest
     items = range(n)
     Ttour_list = [(0,) + p for p in permutations(items[1:])]
-    return Ttour_list  # list of permutations
+    return Ttour_list  # list of permutations of tours
 
 
 """

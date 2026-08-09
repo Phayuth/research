@@ -15,8 +15,6 @@ from paper_sequential_planner.scripts.geometric_poses import (
     taskspace_brute_permutation_order,
 )
 from paper_sequential_planner.scripts.geometric_config import (
-    weighted_nan_euclidean_distances,
-    weighted_nan_max_joint_diff_distances,
     traj_complete_cost,
     traj_tour_from_lininterp,
     traj_tour_from_lininterp_qdot,
@@ -66,79 +64,57 @@ problem_dict = [
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="mini")
+scene = problem_dict[problem_selected][1](ts_choice="smaller")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
 
-alt_num = 32
-unique_sols = 8
-num_sols = unique_sols * alt_num
-dof = 6
+unique_sols8 = 8
+dof6 = 6
+limit6 = np.array(
+    [
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-np.pi, np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+    ]
+)  # if the table is under, q2 is limited to [-pi, 0]
+# limit6[1, 0] = -np.pi
+# limit6[1, 1] = 0
 
 
-def wspace_ik_extended(robot, Xtspace):
-    # this is general from hardware, this has 32 redundant solutions
-    limit6 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-np.pi, np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    # if the table is under, q2 is limited to [-pi, 0]
-    # limit6[1, 0] = -np.pi
-    # limit6[1, 1] = 0
-
+# ============= Normal IK and Validity Check =============
+def wspace_ik_normal(robot, Xtspace):
     ntasks = Xtspace.shape[0]
-    Qaik = np.full((ntasks, num_sols, dof), np.nan)
-
+    Qaik = np.full((ntasks, unique_sols8, dof6), np.nan)
     Htasks = Xlist_to_Hlist(Xtspace)
     for taski in range(ntasks):
         nik, q_sols = robot.solve_aik(Htasks[taski])
         if nik == 0:
             Qaik[taski] = np.nan
         for qi, q in enumerate(q_sols):
-            q = q + 1e-2  # to avoid numerical issues in find_alt_config2
-            alt_qs = find_alt_config2(q, limit6, filterOriginalq=False)
-            Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
+            Qaik[taski, qi] = q
     return Qaik
 
 
-def queue_Qaik_batch_collision(Qaik, robscene):
+def batch_Qaik_normal_collision(Qaik, robscene):
     # Qaik shape: (ntasks, num_sols, dof)
     ntasks = Qaik.shape[0]
-    Qmin_rep = np.empty((ntasks, unique_sols, dof))
+    Qmin_rep = np.empty((ntasks, unique_sols8, dof6))
     for taski in range(ntasks):
-        for solj in range(unique_sols):
-            i = solj * alt_num
-            j = (solj + 1) * alt_num
-            Q = Qaik[taski, i:j]  # (alt_num, dof)
-            q = Q[0]
+        for solj in range(unique_sols8):
+            q = Qaik[taski, solj]  # (dof,)
             Qmin_rep[taski, solj] = q
-    Qmin_flat = Qmin_rep.reshape(-1, dof)  # (ntasks*unique_sols, dof)
+    Qmin_flat = Qmin_rep.reshape(-1, dof6)  # (ntasks*unique_sols, dof)
     col_states = robscene.collision_check(Qmin_flat).detach().cpu().numpy()
-    col_states_rep = col_states.reshape(ntasks, unique_sols)
-    Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
-    Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
-    return Qaik_rep_col
+    col_states_rep = col_states.reshape(ntasks, unique_sols8)
+    return col_states_rep
 
 
-def wspace_ik_validity_extended(Qaik, robscene):
-    limit6 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-np.pi, np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    Qaik_rep_col = queue_Qaik_batch_collision(Qaik, robscene)  # batch colcheck
+def wspace_ik_validity_normal(Qaik, robscene):
+    Qaik_rep_col = batch_Qaik_normal_collision(Qaik, robscene)  # batch colcheck
     ntasks = Qaik.shape[0]
     num_sols = Qaik.shape[1]
     eps = 1e-9
@@ -163,6 +139,79 @@ def wspace_ik_validity_extended(Qaik, robscene):
     return Qaik_valid.astype(int)
 
 
+# ============= Normal IK and Validity Check =============
+
+
+# ============= Extended IK and Validity Check=============
+def wspace_ik_extended(robot, Xtspace):
+    # this is general from hardware, this has 32 redundant solutions
+    alt_num = 32
+    ntasks = Xtspace.shape[0]
+    num_sols = unique_sols8 * alt_num
+    Qaik = np.full((ntasks, num_sols, dof6), np.nan)
+
+    Htasks = Xlist_to_Hlist(Xtspace)
+    for taski in range(ntasks):
+        nik, q_sols = robot.solve_aik(Htasks[taski])
+        if nik == 0:
+            Qaik[taski] = np.nan
+        for qi, q in enumerate(q_sols):
+            q = q + 1e-2  # to avoid numerical issues in find_alt_config2
+            alt_qs = find_alt_config2(q, limit6, filterOriginalq=False)
+            Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
+    return Qaik
+
+
+def batch_Qaik_extended_collision(Qaik, robscene):
+    # Qaik shape: (ntasks, num_sols, dof)
+    ntasks = Qaik.shape[0]
+    alt_num = 32
+    num_sols = unique_sols8 * alt_num
+    Qmin_rep = np.empty((ntasks, unique_sols8, dof6))
+    for taski in range(ntasks):
+        for solj in range(unique_sols8):
+            i = solj * alt_num
+            j = (solj + 1) * alt_num
+            Q = Qaik[taski, i:j]  # (alt_num, dof)
+            q = Q[0]
+            Qmin_rep[taski, solj] = q
+    Qmin_flat = Qmin_rep.reshape(-1, dof6)  # (ntasks*unique_sols, dof)
+    col_states = robscene.collision_check(Qmin_flat).detach().cpu().numpy()
+    col_states_rep = col_states.reshape(ntasks, unique_sols8)
+    Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
+    Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
+    return Qaik_rep_col
+
+
+def wspace_ik_validity_extended(Qaik, robscene):
+    Qaik_rep_col = batch_Qaik_extended_collision(Qaik, robscene)  # batch colcheck
+    ntasks = Qaik.shape[0]
+    num_sols = Qaik.shape[1]
+    eps = 1e-9
+    Qaik_valid = np.full((ntasks, num_sols, 1), np.nan)
+    for taski in range(ntasks):
+        for solj in range(num_sols):
+            q = Qaik[taski, solj]
+            if np.isnan(q).any():
+                Qaik_valid[taski, solj] = -1  # No solution
+            else:
+                isCollsion = Qaik_rep_col[taski, solj]
+                if isCollsion:
+                    Qaik_valid[taski, solj] = -2  # In collision
+                else:
+                    is_in_limit = np.all(
+                        (q >= limit6[:, 0] - eps) & (q <= limit6[:, 1] + eps)
+                    )
+                    if not is_in_limit:
+                        Qaik_valid[taski, solj] = -3  # Out of limits
+                    else:
+                        Qaik_valid[taski, solj] = 1  # Valid solution
+    return Qaik_valid.astype(int)
+
+
+# ============= Extended IK and Validity Check=============
+
+
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
@@ -171,6 +220,9 @@ X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
 Qik = wspace_ik_extended(robkin, X)
 Qikstate = wspace_ik_validity_extended(Qik, scene)
+# Qik = wspace_ik_normal(robkin, X)
+# Qikstate = wspace_ik_validity_normal(Qik, scene)
+num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
 Xunreach = np.all(Qikstate != 1, axis=1).flatten()
@@ -190,14 +242,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_mapping = Naive_task_space_correlation(H_reach_init)
-# tspace_mapping = KRNN_task_space_correlation(
-#     H_reach_init,
-#     w_rot=0.0,
-#     nnr=0.15,
-#     nnk=10,
-# )
-
+# tspace_mapping = Naive_task_space_correlation(H_reach_init)
+tspace_mapping = KRNN_task_space_correlation(
+    H_reach_init,
+    w_rot=0.0,
+    nnr=0.15,
+    nnk=10,
+)
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
@@ -209,7 +260,7 @@ print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
 
 Ttour = taskspace_tsp_position_distance_order(
     H_reach_init,
-    tsp_method="exact_branch_and_bound",
+    tsp_method="local",
 )
 print(f"==>> Ttour: \n{Ttour}")
 
@@ -250,52 +301,53 @@ jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 roboTSP_best_timecost = tourQcosts["time"]
 print(f"==>> roboTSP_best_timecost: \n{roboTSP_best_timecost}")
 
-# # collision-free
-# tourQval_cf = planner.query_tour_planning(tourQval)
-# tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
-# Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
-# jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
+# collision-free
+tourQval_cf = planner.query_tour_planning(tourQval)
+tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
+Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
+jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
 
-# loop through all tasks and solution to check for global optimality
-print(f"============The full permutation search for global optimality===========")
-# items = list(range(0, 9))
-# perms = list(permutations(items))
-# l = len(perms)
-# print(f"There are {l} permutations to check for global optimality.")
+# # loop through all tasks and solution to check for global optimality
+# print(f"============The full permutation search for global optimality===========")
+# # items = list(range(0, 9))
+# # perms = list(permutations(items))
+# # l = len(perms)
+# # print(f"There are {l} permutations to check for global optimality.")
 
-perms = taskspace_brute_permutation_order(H_reach_init)
+# perms = taskspace_brute_permutation_order(H_reach_init)
 
-hcost = []
-best_tour = None
-best_cost = np.inf
-pbar = tqdm.tqdm(perms, desc="Processing permutations")
-for p in pbar:
-    Ttour = list(p)
-    Ttour_rotated = tour_rotation(Ttour, start_node=0)
-    Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
-    Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
-    selected = np.vstack([Ttour_rotated_loop, Qtour])
+# hcost = []
+# best_tour = None
+# best_cost = np.inf
+# pbar = tqdm.tqdm(perms, desc="Processing permutations")
+# for p in pbar:
+#     Ttour = list(p)
+#     Ttour_rotated = tour_rotation(Ttour, start_node=0)
+#     Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
+#     Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
+#     selected = np.vstack([Ttour_rotated_loop, Qtour])
 
-    tourQval = []
-    for i in range(selected.shape[1]):
-        taski = selected[0, i]
-        solj = selected[1, i]
-        q = Qik_reach_init[taski, solj]
-        tourQval.append(q)
-    tourQval = np.array(tourQval)
+#     tourQval = []
+#     for i in range(selected.shape[1]):
+#         taski = selected[0, i]
+#         solj = selected[1, i]
+#         q = Qik_reach_init[taski, solj]
+#         tourQval.append(q)
+#     tourQval = np.array(tourQval)
 
-    tourQcosts = traj_complete_cost(tourQval, qdot)
-    hcost.append(tourQcosts["time"])
-    if tourQcosts["time"] < best_cost:
-        best_cost = tourQcosts["time"]
-        best_tour = p
-    pbar.set_postfix(
-        {"prm": p, "cost": tourQcosts["time"], "best_cost": best_cost}
-    )
+#     tourQcosts = traj_complete_cost(tourQval, qdot)
+#     hcost.append(tourQcosts["time"])
+#     if tourQcosts["time"] < best_cost:
+#         best_cost = tourQcosts["time"]
+#         best_tour = p
+#     pbar.set_postfix(
+#         {"prm": p, "cost": tourQcosts["time"], "best_cost": best_cost}
+#     )
 
-print(f"==>> best_tour: \n{best_tour}")
-print(f"==>> best_cost: \n{best_cost}")
-raise
+# print(f"==>> best_tour: \n{best_tour}")
+# print(f"==>> best_cost: \n{best_cost}")
+# raise
+
 # logging
 rl = RTSPLogger()
 rl.data.pname = PROBLEM_NAME
@@ -312,7 +364,7 @@ rl.data.tnrE = None
 rl.data.Qf = None
 rl.data.Qf_d = None
 rl.data.Eest = "Eest_weighted_max_joint_diff"
-rl.data.Eest_d = "qdot = [1,1,1,1,1,1], qw = [1,1,1,1,1,1]"
+rl.data.Eest_d = f"Wwmj={Wwmj}"
 rl.data.GTSP_svr = None
 rl.data.GTSP_svr_d = None
 

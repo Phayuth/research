@@ -6,6 +6,61 @@ np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
+def weighted_nan_squared_euclidean_distances(X, Y=None, w=None, dtype=np.float32):
+    """
+    Fully vectorized weighted NaN-aware squared Euclidean distance.
+
+    Parameters
+    ----------
+    X : (n_samples_X, n_features)
+    Y : (n_samples_Y, n_features), optional
+    w : (n_features,), optional
+
+    Returns
+    -------
+    D : (n_samples_X, n_samples_Y)
+    """
+    X = np.asarray(X, dtype=dtype)
+
+    if Y is None:
+        Y = X
+    else:
+        Y = np.asarray(Y, dtype=dtype)
+
+    d = X.shape[1]
+
+    if w is None:
+        w = np.ones(d, dtype=dtype)
+    else:
+        w = np.asarray(w, dtype=dtype)
+
+    total_weight = w.sum()
+
+    # Valid entries
+    valid = (~np.isnan(X))[:, None, :] & (~np.isnan(Y))[None, :, :]
+
+    # Replace NaN by zero
+    X0 = np.nan_to_num(X)
+    Y0 = np.nan_to_num(Y)
+
+    # Pairwise differences
+    diff = X0[:, None, :] - Y0[None, :, :]
+
+    # Weighted squared differences
+    sqdist = np.sum(w * diff**2 * valid, axis=2)
+
+    # Sum of observed weights
+    observed = np.sum(w * valid, axis=2)
+
+    # Normalize exactly like sklearn
+    D = np.full_like(sqdist, np.nan, dtype=dtype)
+
+    mask = observed > 0
+    D[mask] = sqdist[mask] * total_weight / observed[mask]
+
+    return D
+
+
 def weighted_nan_euclidean_distances(X, Y=None, w=None, dtype=np.float32):
     """
     Fully vectorized weighted NaN-aware Euclidean distance.

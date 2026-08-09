@@ -11,7 +11,6 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
-    position_pairwise_distances,
 )
 from paper_sequential_planner.scripts.geometric_config import (
     traj_complete_cost,
@@ -43,6 +42,7 @@ from paper_sequential_planner.experiments.utilio import (
     write_glns_file,
     read_glns_file,
     call_glns_solver,
+    write_glns_file_stream,
     gen_joint_trajectory,
     gen_taskspace_tour,
     yaml_write,
@@ -66,79 +66,57 @@ problem_dict = [
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="mini")
+scene = problem_dict[problem_selected][1](ts_choice="fewer")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
 
-alt_num = 32
-unique_sols = 8
-num_sols = unique_sols * alt_num
-dof = 6
+unique_sols8 = 8
+dof6 = 6
+limit6 = np.array(
+    [
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-np.pi, np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+        [-2 * np.pi, 2 * np.pi],
+    ]
+)  # if the table is under, q2 is limited to [-pi, 0]
+# limit6[1, 0] = -np.pi
+# limit6[1, 1] = 0
 
 
-def wspace_ik_extended(robot, Xtspace):
-    # this is general from hardware, this has 32 redundant solutions
-    limit6 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-np.pi, np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    # if the table is under, q2 is limited to [-pi, 0]
-    # limit6[1, 0] = -np.pi
-    # limit6[1, 1] = 0
-
+# ============= Normal IK and Validity Check =============
+def wspace_ik_normal(robot, Xtspace):
     ntasks = Xtspace.shape[0]
-    Qaik = np.full((ntasks, num_sols, dof), np.nan)
-
+    Qaik = np.full((ntasks, unique_sols8, dof6), np.nan)
     Htasks = Xlist_to_Hlist(Xtspace)
     for taski in range(ntasks):
         nik, q_sols = robot.solve_aik(Htasks[taski])
         if nik == 0:
             Qaik[taski] = np.nan
         for qi, q in enumerate(q_sols):
-            q = q + 1e-2  # to avoid numerical issues in find_alt_config2
-            alt_qs = find_alt_config2(q, limit6, filterOriginalq=False)
-            Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
+            Qaik[taski, qi] = q
     return Qaik
 
 
-def queue_Qaik_batch_collision(Qaik, robscene):
+def batch_Qaik_normal_collision(Qaik, robscene):
     # Qaik shape: (ntasks, num_sols, dof)
     ntasks = Qaik.shape[0]
-    Qmin_rep = np.empty((ntasks, unique_sols, dof))
+    Qmin_rep = np.empty((ntasks, unique_sols8, dof6))
     for taski in range(ntasks):
-        for solj in range(unique_sols):
-            i = solj * alt_num
-            j = (solj + 1) * alt_num
-            Q = Qaik[taski, i:j]  # (alt_num, dof)
-            q = Q[0]
+        for solj in range(unique_sols8):
+            q = Qaik[taski, solj]  # (dof,)
             Qmin_rep[taski, solj] = q
-    Qmin_flat = Qmin_rep.reshape(-1, dof)  # (ntasks*unique_sols, dof)
+    Qmin_flat = Qmin_rep.reshape(-1, dof6)  # (ntasks*unique_sols, dof)
     col_states = robscene.collision_check(Qmin_flat).detach().cpu().numpy()
-    col_states_rep = col_states.reshape(ntasks, unique_sols)
-    Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
-    Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
-    return Qaik_rep_col
+    col_states_rep = col_states.reshape(ntasks, unique_sols8)
+    return col_states_rep
 
 
-def wspace_ik_validity_extended(Qaik, robscene):
-    limit6 = np.array(
-        [
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-np.pi, np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-            [-2 * np.pi, 2 * np.pi],
-        ]
-    )
-    Qaik_rep_col = queue_Qaik_batch_collision(Qaik, robscene)  # batch colcheck
+def wspace_ik_validity_normal(Qaik, robscene):
+    Qaik_rep_col = batch_Qaik_normal_collision(Qaik, robscene)  # batch colcheck
     ntasks = Qaik.shape[0]
     num_sols = Qaik.shape[1]
     eps = 1e-9
@@ -163,14 +141,90 @@ def wspace_ik_validity_extended(Qaik, robscene):
     return Qaik_valid.astype(int)
 
 
+# ============= Normal IK and Validity Check =============
+
+
+# ============= Extended IK and Validity Check=============
+def wspace_ik_extended(robot, Xtspace):
+    # this is general from hardware, this has 32 redundant solutions
+    alt_num = 32
+    ntasks = Xtspace.shape[0]
+    num_sols = unique_sols8 * alt_num
+    Qaik = np.full((ntasks, num_sols, dof6), np.nan)
+
+    Htasks = Xlist_to_Hlist(Xtspace)
+    for taski in range(ntasks):
+        nik, q_sols = robot.solve_aik(Htasks[taski])
+        if nik == 0:
+            Qaik[taski] = np.nan
+        for qi, q in enumerate(q_sols):
+            q = q + 1e-2  # to avoid numerical issues in find_alt_config2
+            alt_qs = find_alt_config2(q, limit6, filterOriginalq=False)
+            Qaik[taski, qi * alt_num : (qi + 1) * alt_num] = alt_qs
+    return Qaik
+
+
+def batch_Qaik_extended_collision(Qaik, robscene):
+    # Qaik shape: (ntasks, num_sols, dof)
+    ntasks = Qaik.shape[0]
+    alt_num = 32
+    num_sols = unique_sols8 * alt_num
+    Qmin_rep = np.empty((ntasks, unique_sols8, dof6))
+    for taski in range(ntasks):
+        for solj in range(unique_sols8):
+            i = solj * alt_num
+            j = (solj + 1) * alt_num
+            Q = Qaik[taski, i:j]  # (alt_num, dof)
+            q = Q[0]
+            Qmin_rep[taski, solj] = q
+    Qmin_flat = Qmin_rep.reshape(-1, dof6)  # (ntasks*unique_sols, dof)
+    col_states = robscene.collision_check(Qmin_flat).detach().cpu().numpy()
+    col_states_rep = col_states.reshape(ntasks, unique_sols8)
+    Qaik_rep = np.repeat(col_states_rep[:, :, np.newaxis], alt_num, axis=2)
+    Qaik_rep_col = Qaik_rep.reshape(ntasks, num_sols)  # (ntasks, num_sols)
+    return Qaik_rep_col
+
+
+def wspace_ik_validity_extended(Qaik, robscene):
+    Qaik_rep_col = batch_Qaik_extended_collision(Qaik, robscene)  # batch colcheck
+    ntasks = Qaik.shape[0]
+    num_sols = Qaik.shape[1]
+    eps = 1e-9
+    Qaik_valid = np.full((ntasks, num_sols, 1), np.nan)
+    for taski in range(ntasks):
+        for solj in range(num_sols):
+            q = Qaik[taski, solj]
+            if np.isnan(q).any():
+                Qaik_valid[taski, solj] = -1  # No solution
+            else:
+                isCollsion = Qaik_rep_col[taski, solj]
+                if isCollsion:
+                    Qaik_valid[taski, solj] = -2  # In collision
+                else:
+                    is_in_limit = np.all(
+                        (q >= limit6[:, 0] - eps) & (q <= limit6[:, 1] + eps)
+                    )
+                    if not is_in_limit:
+                        Qaik_valid[taski, solj] = -3  # Out of limits
+                    else:
+                        Qaik_valid[taski, solj] = 1  # Valid solution
+    return Qaik_valid.astype(int)
+
+
+# ============= Extended IK and Validity Check=============
+
+
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
-Qik = wspace_ik_extended(robkin, X)
-Qikstate = wspace_ik_validity_extended(Qik, scene)
+# Qik = wspace_ik_extended(robkin, X)
+# Qikstate = wspace_ik_validity_extended(Qik, scene)
+Qik = wspace_ik_normal(robkin, X)
+Qikstate = wspace_ik_validity_normal(Qik, scene)
+num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
 Xunreach = np.all(Qikstate != 1, axis=1).flatten()
@@ -197,18 +251,14 @@ tspace_mapping = Naive_task_space_correlation(H_reach_init)
 #     nnr=0.15,
 #     nnk=10,
 # )
-# Warg = {"wse3_rot": 1.0}
-# tspace_mapping = Advanced_task_space_correlation(
-#     H_reach_init, Qik_reach_init, Qikstate_reach_init, Warg
-# )
-
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
     tspace_mapping["task_to_nn_pair_len"],
 )
-# print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
-# print(f"==>> task_to_nn_pair with {task_to_nn_pair_len} pair: \n{task_to_nn_pair}")
+print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
+print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
+print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
 
 
 Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
@@ -267,7 +317,7 @@ Qtourflatten = read_glns_file(
 )
 Qtourflatten_loop = tour_attach_loop_back(Qtourflatten)
 print(f"==>> Qtourflatten_loop: {Qtourflatten_loop}")
-Qtour = Qik_reach_init.reshape(-1, dof)[Qtourflatten_loop]
+Qtour = Qik_reach_init.reshape(-1, dof6)[Qtourflatten_loop]
 tourQcosts = traj_complete_cost(Qtour, qdot)
 
 # taskspace tour
