@@ -1,8 +1,7 @@
 import os
 import numpy as np
-import time
 import tqdm
-import torch
+import matplotlib.pyplot as plt
 from paper_sequential_planner.scripts.geometric_torus import find_alt_config2
 from paper_sequential_planner.scripts.geometric_poses import (
     H_to_X,
@@ -11,21 +10,16 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
     Advanced_task_space_correlation,
+    taskspace_tsp_position_distance_order,
+    taskspace_brute_permutation_order,
 )
 from paper_sequential_planner.scripts.geometric_config import (
     traj_complete_cost,
-    traj_tour_from_lininterp,
     traj_tour_from_lininterp_qdot,
 )
 from paper_sequential_planner.scripts.geometric_rtsp import (
-    Qfilter_R,
-    Qfilter_similarity,
-    Qfilter_nn2c,
-    Qfilter_Knn2c,
-    Qfilter_Dnn2c,
-    Eest_colfree,
-    Eest_weighted_euclidean,
     Eest_weighted_max_joint_diff,
+    Qtour_RoboTSP_layer_search,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
@@ -35,38 +29,29 @@ from paper_sequential_planner.experiments.env_ur5e_ import (
     SceneUR5eSpherizedSingleStool,
 )
 from paper_sequential_planner.experiments.utilio import (
-    check_number_Q,
-    check_number_E,
-    check_num_edges_unique,
-    check_num_supercluster_edges,
-    write_glns_file,
-    read_glns_file,
-    call_glns_solver,
-    write_glns_file_stream,
     gen_joint_trajectory,
     gen_taskspace_tour,
     yaml_write,
     yaml_read,
-    plot_joint_trajectory,
-    tsp_solver,
+    txt_write,
     tour_rotation,
     tour_attach_loop_back,
-    RTSPLogger,
     dir_logs,
 )
+from prettytable import PrettyTable
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
 problem_dict = [
-    ["airbus_shopfloor_hGTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
-    ["three_shelf_hGTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
-    ["single_stool_hGTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
+    ["airbus_shopfloor_RoboTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
+    ["three_shelf_RoboTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
+    ["single_stool_RoboTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
 ]
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="fewer")
+scene = problem_dict[problem_selected][1](ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -220,10 +205,10 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
-# Qik = wspace_ik_extended(robkin, X)
-# Qikstate = wspace_ik_validity_extended(Qik, scene)
-Qik = wspace_ik_normal(robkin, X)
-Qikstate = wspace_ik_validity_normal(Qik, scene)
+Qik = wspace_ik_extended(robkin, X)
+Qikstate = wspace_ik_validity_extended(Qik, scene)
+# Qik = wspace_ik_normal(robkin, X)
+# Qikstate = wspace_ik_validity_normal(Qik, scene)
 num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
@@ -244,13 +229,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = KRNN_task_space_correlation(
+#     H_reach_init,
+#     w_rot=0.0,
+#     nnr=0.15,
+#     nnk=10,
+# )
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
@@ -260,120 +245,211 @@ print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
 print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
 print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
 
-Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
+Ttour = taskspace_tsp_position_distance_order(
+    H_reach_init,
+    tsp_method="local",
+)
+print(f"==>> Ttour: \n{Ttour}")
 
-# Q2red_s = Qfilter_similarity(
-#     Qik_reach_init, qinit, Qs=Qikstate_reach_init, thresh=0.0001
-# )
-# Q3red_nn2c = Qfilter_nn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, tmap=tspace_mapping
-# )
+# taskspace write
+Ttour_rotated = tour_rotation(Ttour, start_node=0)
+tsdict = gen_taskspace_tour(X_reach_init, Ttour_rotated)
 
-# Q4red_Knn2c = Qfilter_Knn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, k=50, tmap=tspace_mapping
-# )
-
-# Q5red_Dnn2c = Qfilter_Dnn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, d=5, tmap=tspace_mapping
-# )
-
-# # choose filter method
-# Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
-# Qreduced = Q1red_r
-Qreduced = Qikstate_reach_init  # no filter
-check_number_Q(Qreduced)
-
-
-# # cmax_d = 2 * np.pi
-# cmax_d = None  # disable cmax_d filtering
-# Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
-
-# Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
-
+# qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
 qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
 # qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
 qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
-Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
+Ewmj = Eest_weighted_max_joint_diff(
+    Qik_reach_init, Qikstate_reach_init, Wwmj, tspace_mapping
+)
 
-# write, solve, and read GTSP problem
-Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
-Qid_true, Qid_true_cont = write_glns_file(
-    problem_name=PROBLEM_NAME,
-    task_to_nn_pair=task_to_nn_pair,
-    E=Ecost,
-    Q=Qreduced,
-)
-result = call_glns_solver(
-    problem_name=PROBLEM_NAME,
-    args={"mode": "slow", "max_time": 3000},
-)
-Qtourflatten = read_glns_file(
-    PROBLEM_NAME,
-    Qid_true,
-    Qid_true_cont,
-)
-Qtourflatten_loop = tour_attach_loop_back(Qtourflatten)
-print(f"==>> Qtourflatten_loop: {Qtourflatten_loop}")
-Qtour = Qik_reach_init.reshape(-1, dof6)[Qtourflatten_loop]
-tourQcosts = traj_complete_cost(Qtour, qdot)
+Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
+print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
+print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
+Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
+selected = np.vstack([Ttour_rotated_loop, Qtour])
+print(f"==>> selected: \n{selected}")
 
-# taskspace tour
-Ttour = Qtourflatten // num_sols
-tsdict = gen_taskspace_tour(X_reach_init, Ttour)
+tourQval = []
+for i in range(selected.shape[1]):
+    taski = selected[0, i]
+    solj = selected[1, i]
+    q = Qik_reach_init[taski, solj]
+    tourQval.append(q)
+tourQval = np.array(tourQval)
+print(f"==>> tourQval: \n{tourQval}")
 
 # no collision consider
-Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(Qtour, qdot)
+tourQcosts = traj_complete_cost(tourQval, qdot)
+Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
 jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 
-# collision-free
-tourQval_cf = planner.query_tour_planning(Qtour)
-tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
-Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
-jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
+roboTSP_best_timecost = tourQcosts["time"]
+print(f"==>> roboTSP_best_timecost: \n{roboTSP_best_timecost}")
 
-# logging
-rl = RTSPLogger()
-rl.data.pname = PROBLEM_NAME
-rl.data.robot = "UR5e"
-rl.data.ntasks = ntasks
-rl.data.nrtasks = X_reach_init.shape[0]
-rl.data.nQpt = num_sols
-rl.data.nEpp = num_sols * num_sols
-rl.data.tnrQ = Qreduced.shape[0]
-rl.data.tnrE = np.sum(np.isfinite(Ecost)).item()
 
-rl.data.Qf = "Qfilter_R"
-rl.data.Qf_d = f"r={2*np.pi}"
-rl.data.Eest = "Eest_weighted_max_joint_diff"
-rl.data.Eest_d = f"Wwmj={Wwmj}"
-rl.data.GTSP_svr = "GLNS"
-rl.data.GTSP_svr_d = "mode=slow, max_time=3000"
+def full_permutation_search():
+    print(f"====The full permutation search for global optimality=======")
+    perms = taskspace_brute_permutation_order(H_reach_init)
+    perms_idx = list(range(len(perms)))
 
-rl.data.l1 = tourQcosts["manhattan"]
-rl.data.l2 = tourQcosts["euclidean"]
-rl.data.linf = tourQcosts["inf"]
-rl.data.time = tourQcosts["time"]
-rl.data.l1pj = tourQcosts["perjoint"]
+    dict_data = {
+        "metadata": {},
+        "data": {},
+    }
+    dict_data["metadata"]["problem_name"] = PROBLEM_NAME
+    dict_data["metadata"]["number_of_tasks"] = ntasks
+    dict_data["metadata"]["number_of_permutations"] = len(perms)
 
-rl.data.l1cf = tourQcosts_cf["manhattan"]
-rl.data.l2cf = tourQcosts_cf["euclidean"]
-rl.data.linfcf = tourQcosts_cf["inf"]
-rl.data.timecf = tourQcosts_cf["time"]
-rl.data.l1pjcf = tourQcosts_cf["perjoint"]
-rl.print_log()
+    best_tour = None
+    best_cost = np.inf
+    pbar = tqdm.tqdm(
+        zip(perms_idx, perms), total=len(perms), desc="Proc permutations"
+    )
 
-# logging to file
-pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}/joint_trajectory.yaml")
-yaml_write(pathj, jtdict)
-patht = os.path.join(dir_logs, f"{PROBLEM_NAME}/taskspace_tour.yaml")
-yaml_write(patht, tsdict)
-pathj_cf = os.path.join(
-    dir_logs, f"{PROBLEM_NAME}/joint_trajectory_collisionfree.yaml"
-)
-yaml_write(pathj_cf, jtdict_cf)
-logpath = os.path.join(dir_logs, f"{PROBLEM_NAME}/rtsp_log")
-rl.save_log(logpath)
-plot_joint_trajectory(jtdict, logpath + "_joint_trajectory.png")
-plot_joint_trajectory(jtdict_cf, logpath + "_joint_trajectory_collisionfree.png")
+    for i, p in pbar:
+        Ttour = list(p)
+        Ttour_rotated = tour_rotation(Ttour, start_node=0)
+        Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
+        Qtour = Qtour_RoboTSP_layer_search(
+            Ttour_rotated_loop, Ewmj, tspace_mapping
+        )
+        selected = np.vstack([Ttour_rotated_loop, Qtour])
+
+        tourQval = []
+        for j in range(selected.shape[1]):
+            taski = selected[0, j]
+            solj = selected[1, j]
+            q = Qik_reach_init[taski, solj]
+            tourQval.append(q)
+        tourQval = np.array(tourQval)
+        tourQcosts = traj_complete_cost(tourQval, qdot)
+
+        dict_data["data"][f"idx_{i}"] = {}
+        dict_data["data"][f"idx_{i}"]["id"] = i
+        dict_data["data"][f"idx_{i}"]["permutation"] = list(p)
+        dict_data["data"][f"idx_{i}"]["cost"] = tourQcosts
+
+        if tourQcosts["time"] < best_cost:
+            best_cost = tourQcosts["time"]
+            best_tour = p
+
+        pbar.set_postfix(
+            {"prm": p, "cost": tourQcosts["time"], "best_cost": best_cost}
+        )
+
+    print(f"==>> best_tour: \n{best_tour}")
+    print(f"==>> best_cost: \n{best_cost}")
+    pathperm = os.path.join(dir_logs, f"{PROBLEM_NAME}/permutations.yaml")
+    yaml_write(pathperm, dict_data)
+
+
+def analyze_permutation_results():
+    PROBLEM_NAME = "single_stool_RoboTSP_mjd_minits"
+    pathperm = os.path.join(dir_logs, f"{PROBLEM_NAME}/permutations.yaml")
+    data_dict = yaml_read(pathperm)
+
+    timecost = [
+        data_dict["data"][f"idx_{i}"]["cost"]["time"]
+        for i in range(len(data_dict["data"]))
+    ]
+
+    # time cost graphs per permutation
+    fig, ax = plt.subplots()
+    ax.plot(timecost, marker="o", linestyle="-")
+    ax.set_xlabel("Permutation Index")
+    ax.set_ylabel("Time Cost")
+    ax.set_title(f"Time Cost for Permutations - {PROBLEM_NAME}")
+    ax.set_xlim(0, len(timecost) - 1)
+
+    # histogram of time costs
+    fig2, ax2 = plt.subplots()
+    ax2.hist(timecost, bins=100, edgecolor="black")
+    ax2.set_xlabel("Time Cost")
+    ax2.set_ylabel("Number of permutations")
+    ax2.set_title("Distribution of Time Costs")
+
+    # CDF of time costs
+    sorted_costs = np.sort(timecost)
+    cdf = np.arange(1, len(timecost) + 1) / len(timecost)
+    fig3, ax3 = plt.subplots()
+    ax3.plot(sorted_costs, cdf)
+    ax3.set_xlabel("Time Cost")
+    ax3.set_ylabel("P(Time Cost ≤ x)")
+    ax3.set_title("CDF of Time Costs")
+    ax3.grid()
+
+    # CDF of time costs (10th percentile)
+    fig4, ax4 = plt.subplots()
+    ax4.plot(sorted_costs, cdf)
+    ax4.set_xlim(sorted_costs[0], np.percentile(sorted_costs, 10))
+    ax4.set_xlabel("Time Cost")
+    ax4.set_ylabel("P(Time Cost ≤ x)")
+    ax4.set_title("CDF of Time Costs (10th Percentile)")
+    ax4.grid()
+
+    plt.show()
+
+    args = np.argsort(timecost)
+    tb = PrettyTable()
+    tb.title = f"Sorted Time Costs"
+    tb.field_names = ["Permutation Index", "Permutation", "Time Cost"]
+    for i in args:
+        perm = data_dict["data"][f"idx_{i}"]["permutation"]
+        cost = data_dict["data"][f"idx_{i}"]["cost"]["time"]
+        tb.add_row([i, perm, cost])
+    print(tb)
+
+    # pathtb = os.path.join(dir_logs, f"{PROBLEM_NAME}/permutations_table.txt")
+    # txt_write(pathtb, str(tb))
+
+    true_optimum = np.min(timecost)
+
+    sample_ratios = [
+        0.001,
+        0.005,
+        0.01,
+        0.05,
+        0.10,
+        0.15,
+        0.20,
+        0.25,
+        0.30,
+        0.35,
+        0.40,
+        0.45,
+        0.50,
+        0.55,
+        0.60,
+        0.65,
+        0.70,
+        0.75,
+        0.80,
+        0.85,
+        0.90,
+        0.95,
+        1.00,
+    ]
+    trials = 1000
+
+    for ratio in sample_ratios:
+        sample_size = int(ratio * len(timecost))  # how many samples to draw
+        bests = []
+        for _ in range(trials):
+            # randomly sample given size 1000 times and record the best time cost
+            sample = np.random.choice(timecost, sample_size, replace=False)
+            bests.append(sample.min())
+        bests = np.array(bests)
+
+        print(
+            f"{ratio*100:.1f}%: "
+            f"mean={bests.mean():.3f}, "
+            f"best={bests.min():.3f}, "
+            f"worst={bests.max():.3f}"
+        )
+
+
+if __name__ == "__main__":
+    # full_permutation_search()
+    analyze_permutation_results()

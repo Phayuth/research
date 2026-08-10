@@ -64,7 +64,7 @@ problem_dict = [
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="smaller")
+scene = problem_dict[problem_selected][1](ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -242,13 +242,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
+tspace_mapping = Naive_task_space_correlation(H_reach_init)
+# tspace_mapping = KRNN_task_space_correlation(
+#     H_reach_init,
+#     w_rot=0.0,
+#     nnr=0.15,
+#     nnk=10,
+# )
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
@@ -298,55 +298,11 @@ tourQcosts = traj_complete_cost(tourQval, qdot)
 Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
 jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 
-roboTSP_best_timecost = tourQcosts["time"]
-print(f"==>> roboTSP_best_timecost: \n{roboTSP_best_timecost}")
-
 # collision-free
 tourQval_cf = planner.query_tour_planning(tourQval)
 tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
 Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
 jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
-
-# # loop through all tasks and solution to check for global optimality
-# print(f"============The full permutation search for global optimality===========")
-# # items = list(range(0, 9))
-# # perms = list(permutations(items))
-# # l = len(perms)
-# # print(f"There are {l} permutations to check for global optimality.")
-
-# perms = taskspace_brute_permutation_order(H_reach_init)
-
-# hcost = []
-# best_tour = None
-# best_cost = np.inf
-# pbar = tqdm.tqdm(perms, desc="Processing permutations")
-# for p in pbar:
-#     Ttour = list(p)
-#     Ttour_rotated = tour_rotation(Ttour, start_node=0)
-#     Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
-#     Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
-#     selected = np.vstack([Ttour_rotated_loop, Qtour])
-
-#     tourQval = []
-#     for i in range(selected.shape[1]):
-#         taski = selected[0, i]
-#         solj = selected[1, i]
-#         q = Qik_reach_init[taski, solj]
-#         tourQval.append(q)
-#     tourQval = np.array(tourQval)
-
-#     tourQcosts = traj_complete_cost(tourQval, qdot)
-#     hcost.append(tourQcosts["time"])
-#     if tourQcosts["time"] < best_cost:
-#         best_cost = tourQcosts["time"]
-#         best_tour = p
-#     pbar.set_postfix(
-#         {"prm": p, "cost": tourQcosts["time"], "best_cost": best_cost}
-#     )
-
-# print(f"==>> best_tour: \n{best_tour}")
-# print(f"==>> best_cost: \n{best_cost}")
-# raise
 
 # logging
 rl = RTSPLogger()

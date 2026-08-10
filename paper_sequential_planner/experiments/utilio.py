@@ -494,7 +494,7 @@ def txt_write(path, data):
         f.write(str(data))
 
 
-def yaml_write(path, data):
+def yaml_write(path, data, listonelist=False):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
