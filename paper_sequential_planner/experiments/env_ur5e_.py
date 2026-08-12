@@ -422,12 +422,8 @@ class SceneUR5eSpherizedSingleStool(SceneUR5eSpherized):
         return box_in_base, boxsz_in_base
 
     def load_taskspace_poses(self):
-        if self.ts_choice == "mini":
-            s = "single_stool_mini_taskspace_poses.yaml"
-        elif self.ts_choice == "smaller":
-            s = "single_stool_smaller_taskspace_poses.yaml"
-        elif self.ts_choice == "fewer":
-            s = "single_stool_smaller_fewer_taskspace_poses.yaml"
+        if "vary" in self.ts_choice:
+            s = f"single_stool_{self.ts_choice}_taskspace_poses.yaml"
         elif self.ts_choice == "normal":
             s = "single_stool_taskspace_poses.yaml"
         fyaml = os.path.join(dir_rtsp, s)

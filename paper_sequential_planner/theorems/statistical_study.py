@@ -38,20 +38,21 @@ from paper_sequential_planner.experiments.utilio import (
     tour_attach_loop_back,
     dir_logs,
 )
+from itertools import permutations
 from prettytable import PrettyTable
 
 np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
-problem_dict = [
-    ["airbus_shopfloor_RoboTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
-    ["three_shelf_RoboTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
-    ["single_stool_RoboTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
-]
-problem_selected = 2
+# problem_dict = [
+#     ["airbus_shopfloor_RoboTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
+#     ["three_shelf_RoboTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
+#     ["single_stool_RoboTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
+# ]
+# problem_selected = 2
 
-PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="mini")
+PROBLEM_NAME = "single_stool_RoboTSP_mjd_minits"
+scene = SceneUR5eSpherizedSingleStool(ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -284,7 +285,6 @@ print(f"==>> tourQval: \n{tourQval}")
 tourQcosts = traj_complete_cost(tourQval, qdot)
 Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
 jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
-
 roboTSP_best_timecost = tourQcosts["time"]
 print(f"==>> roboTSP_best_timecost: \n{roboTSP_best_timecost}")
 

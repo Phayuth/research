@@ -64,7 +64,7 @@ problem_dict = [
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="mini")
+scene = problem_dict[problem_selected][1](ts_choice="vary24")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -242,13 +242,13 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-tspace_mapping = Naive_task_space_correlation(H_reach_init)
-# tspace_mapping = KRNN_task_space_correlation(
-#     H_reach_init,
-#     w_rot=0.0,
-#     nnr=0.15,
-#     nnk=10,
-# )
+# tspace_mapping = Naive_task_space_correlation(H_reach_init)
+tspace_mapping = KRNN_task_space_correlation(
+    H_reach_init,
+    w_rot=0.0,
+    nnr=0.15,
+    nnk=10,
+)
 task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
     tspace_mapping["task_to_nn_dict"],
     tspace_mapping["task_to_nn_pair"],
@@ -263,7 +263,7 @@ Ttour = taskspace_tsp_position_distance_order(
     tsp_method="local",
 )
 print(f"==>> Ttour: \n{Ttour}")
-
+raise
 # taskspace write
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
 tsdict = gen_taskspace_tour(X_reach_init, Ttour_rotated)

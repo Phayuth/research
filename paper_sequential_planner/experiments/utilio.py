@@ -171,7 +171,7 @@ def gen_gtsp_set_section(nQredfinalpt, Qid_true_cont):
     return "\n".join(lines)
 
 
-def write_glns_file(problem_name, task_to_nn_pair, E, Q):
+def write_gtsp_file(problem_name, task_to_nn_pair, E, Q, write_to_disk=True):
     problem_path = os.path.join(dir_glns, f"{problem_name}.gtsp")
 
     # determine the number of dimensions and gtsp sets
@@ -187,19 +187,19 @@ def write_glns_file(problem_name, task_to_nn_pair, E, Q):
     Qid_true = np.where(Q.flatten())[0]  # take only the True nodes
     Qid_true_cont = np.arange(Qid_true.shape[0]) + 1  # GTSP node id start from 1
 
-    print(f"== Writing GLNS file to {problem_path} !")
-    head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
-    print(f"|-> GTSP header generated")
-    ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
-    print(f"|-> GTSP edge weight section generated")
-    set = gen_gtsp_set_section(nQpt, Qid_true_cont)
-    print(f"|-> GTSP set section generated")
-    gtsp = f"{head}\n\n{ed}\n\n{set}"
-    with open(problem_path, "w") as f:
-        f.write(gtsp)
-
-    print(f"|-> GTSP file written to {problem_path} !")
-    print(f"=========================================")
+    if write_to_disk:
+        print(f"== Writing GLNS file to {problem_path} !")
+        head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
+        print(f"|-> GTSP header generated")
+        ed = gen_gtsp_ew_section(Qid_true, num_sols, task_to_nn_pair, E)
+        print(f"|-> GTSP edge weight section generated")
+        set = gen_gtsp_set_section(nQpt, Qid_true_cont)
+        print(f"|-> GTSP set section generated")
+        gtsp = f"{head}\n\n{ed}\n\n{set}"
+        with open(problem_path, "w") as f:
+            f.write(gtsp)
+        print(f"|-> GTSP file written to {problem_path} !")
+        print(f"=========================================")
     return Qid_true, Qid_true_cont
 
 
@@ -265,9 +265,9 @@ def gen_gtsp_ew_section_stream(
             f.write("\n")
 
 
-def write_glns_file_stream(problem_name, task_to_nn_pair, E, Q, chunk_size=1024):
+def write_gtsp_file_stream(problem_name, task_to_nn_pair, E, Q, chunk_size=1024):
     """
-    Streamed GLNS writer that keeps the existing writer untouched.
+    Streamed GTSP writer that keeps the existing writer untouched.
 
     Use this for large instances where the dense in-memory matrix version
     becomes too expensive.
@@ -283,7 +283,7 @@ def write_glns_file_stream(problem_name, task_to_nn_pair, E, Q, chunk_size=1024)
     Qid_true = np.where(Q.flatten())[0]
     Qid_true_cont = np.arange(Qid_true.shape[0]) + 1
 
-    print(f"== Writing GLNS file to {problem_path} !")
+    print(f"== Writing GTSP file to {problem_path} !")
     head = gen_gtsp_header(problem_name, dimension, gtsp_sets)
     print(f"|-> GTSP header generated")
     set = gen_gtsp_set_section(nQpt, Qid_true_cont)
@@ -402,16 +402,51 @@ def read_glns_file(problem_name, Qid_true, Qid_true_cont):
     return tour_indices_og_rotated
 
 
-def write_tsp_file(problem_name, E, Q):
+def call_glkh_solver(
+    problem_name,
+    args=None,
+    check=True,
+    verbose=True,
+):
     pass
 
 
-def call_tsp_solver():
-    pass
+def read_glkh_file(problem_name, Qid_true, Qid_true_cont):
+    filename = os.path.join(dir_glns, f"{problem_name}.tour")
+    tour_glkh = []
+    reading_tour = False
+    with open(filename, "r") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            if line == "TOUR_SECTION":
+                reading_tour = True
+                continue
+            if not reading_tour:
+                continue
+            if line in {"-1", "EOF"}:
+                break
+            try:
+                tour_glkh.append(int(line))
+            except ValueError:
+                # Ignore non-integer lines if any extra metadata appears.
+                continue
 
+    # remap the tour flatten node id back to its original id
+    tour_glkh = np.array(tour_glkh)
+    print(Qid_true_cont)
+    tour_indices = np.searchsorted(Qid_true_cont, tour_glkh)
+    tour_indices_og = Qid_true[tour_indices]
+    tour_indices_og_rotated = tour_rotation(tour_indices_og, start_node=0)
 
-def read_tsp_file():
-    pass
+    # print debug info
+    print("------------------------------------------------------------")
+    print(f"GLKH Tour IDs (flattened): {tour_glkh}")
+    print(f"Tour indices in original node IDs: {tour_indices_og}")
+    print(f"Rotated tour indices: {tour_indices_og_rotated}")
+
+    return tour_indices_og_rotated
 
 
 def tsp_solver(dists, method):
@@ -766,7 +801,9 @@ class RTSPLogger:
 
 
 if __name__ == "__main__":
-    PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
-    pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}_joint_trajectory.yaml")
-    jtdict = yaml_read(pathj)
-    plot_joint_trajectory(jtdict)
+    # PROBLEM_NAME = "three_shelf_maxjointdiff_ww_newstart"
+    # pathj = os.path.join(dir_logs, f"{PROBLEM_NAME}_joint_trajectory.yaml")
+    # jtdict = yaml_read(pathj)
+    # plot_joint_trajectory(jtdict)
+
+    read_glkh_file("problem_mjd_minits_14337s81.43376")

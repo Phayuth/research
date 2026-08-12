@@ -39,10 +39,11 @@ from paper_sequential_planner.experiments.utilio import (
     check_number_E,
     check_num_edges_unique,
     check_num_supercluster_edges,
-    write_glns_file,
+    write_gtsp_file,
     read_glns_file,
+    read_glkh_file,
     call_glns_solver,
-    write_glns_file_stream,
+    write_gtsp_file_stream,
     gen_joint_trajectory,
     gen_taskspace_tour,
     yaml_write,
@@ -61,12 +62,12 @@ np.set_printoptions(precision=3, suppress=True, linewidth=200)
 problem_dict = [
     ["airbus_shopfloor_hGTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
     ["three_shelf_hGTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
-    ["single_stool_hGTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
+    ["single_stool_hGTSP_mjd_9_glkh", SceneUR5eSpherizedSingleStool],
 ]
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="fewer")
+scene = problem_dict[problem_selected][1](ts_choice="mini")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -220,10 +221,10 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
-# Qik = wspace_ik_extended(robkin, X)
-# Qikstate = wspace_ik_validity_extended(Qik, scene)
-Qik = wspace_ik_normal(robkin, X)
-Qikstate = wspace_ik_validity_normal(Qik, scene)
+Qik = wspace_ik_extended(robkin, X)
+Qikstate = wspace_ik_validity_extended(Qik, scene)
+# Qik = wspace_ik_normal(robkin, X)
+# Qikstate = wspace_ik_validity_normal(Qik, scene)
 num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
@@ -299,7 +300,7 @@ Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mappi
 
 # write, solve, and read GTSP problem
 Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges
-Qid_true, Qid_true_cont = write_glns_file(
+Qid_true, Qid_true_cont = write_gtsp_file(
     problem_name=PROBLEM_NAME,
     task_to_nn_pair=task_to_nn_pair,
     E=Ecost,

@@ -1,8 +1,5 @@
-import random
-import math
 import numpy as np
-import time
-import tqdm
+from itertools import permutations
 
 
 def random_shuffle_sampler(ntasks):
@@ -12,7 +9,74 @@ def random_shuffle_sampler(ntasks):
     return arr
 
 
-def random_backconstruct_sampler(ntasks, nn):
+def generate_permutations(n):
+    """
+    Generate all unique cyclic permutations with 0 fixed first.
+
+    Returns:
+        generator of permutations
+    """
+    for p in permutations(range(1, n)):
+        yield (0,) + p
+
+
+def nn_dict_to_adjmat(nn_dict):
+    ntasks = len(nn_dict)
+    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+
+    for task, neighbors in nn_dict.items():
+        for neighbor in neighbors:
+            adjmat[task, neighbor] = 1
+
+    return adjmat
+
+
+def forwardsearch_hamiltonian_cycle(adjMat):
+
+    # Check if it's valid to place vertex at current position
+    def isSafe(vertex, adjMat, path, pos):
+
+        # The vertex must be adjacent to the previous vertex
+        if adjMat[path[pos - 1]][vertex] == 0:
+            return False
+
+        # The vertex must not already be in the path
+        for i in range(pos):
+            if path[i] == vertex:
+                return False
+
+        return True
+
+    # Recursive backtracking to construct Hamiltonian Cycle
+    def hamCycleUtil(adjMat, path, pos, n):
+
+        # Base case: all vertices are in the path (reached the end)
+        if pos == n:
+            # Check if there's an edge from last to first vertex
+            return adjMat[path[pos - 1]][path[0]] == 1
+
+        # Try all possible vertices as next candidate
+        for v in range(1, n):
+            if isSafe(v, adjMat, path, pos):
+                path[pos] = v
+                if hamCycleUtil(adjMat, path, pos + 1, n):
+                    return True
+                # Backtrack if v doesn't lead to a solution
+                path[pos] = -1
+        return False
+
+    def hamCycle(adjMat):
+        n = len(adjMat)
+        path = [-1] * n
+        path[0] = 0  # Start path with vertex 0
+        if not hamCycleUtil(adjMat, path, 1, n):
+            return [-1]
+        return path
+
+    return hamCycle(adjMat)
+
+
+def forwardbacksearch(ntasks, nn):
     start_node = 0
 
     tour = [None] * ntasks  # the tour suppose to have the length of ntasks
@@ -20,9 +84,6 @@ def random_backconstruct_sampler(ntasks, nn):
     # tour[-1] = np.random.choice(nn[start_node]) if np.random.choice(nn
 
 
-# ---------------------------------------------------------
-# Example
-# ---------------------------------------------------------
 if __name__ == "__main__":
     r = random_shuffle_sampler(300)
     print(f"==>> r: \n{r}")
@@ -40,98 +101,11 @@ if __name__ == "__main__":
         8: [0, 1, 2, 3, 4, 5, 6, 7],
     }
 
-    # ntasks = 81
-    # nn = {
-    #     0: [49, 50, 58, 59, 60, 63, 64, 65, 69, 70],
-    #     1: [2, 3, 6, 7, 8, 11, 26, 27, 28, 36],
-    #     2: [1, 3, 4, 6, 7, 8, 26, 27, 28, 29],
-    #     3: [1, 2, 4, 5, 7, 8, 9, 27, 28, 29],
-    #     4: [2, 3, 5, 8, 9, 10, 27, 28, 29, 30],
-    #     5: [3, 4, 8, 9, 10, 15, 28, 29, 30, 40],
-    #     6: [1, 2, 3, 7, 8, 11, 12, 13, 26, 27],
-    #     7: [1, 2, 3, 6, 8, 9, 11, 12, 13, 27],
-    #     8: [2, 3, 4, 6, 7, 9, 12, 13, 14, 28],
-    #     9: [3, 4, 5, 7, 8, 10, 13, 14, 15, 29],
-    #     10: [3, 4, 5, 8, 9, 13, 14, 15, 29, 30],
-    #     11: [1, 6, 7, 8, 12, 13, 16, 17, 18, 21],
-    #     12: [6, 7, 8, 9, 11, 13, 14, 16, 17, 18],
-    #     13: [7, 8, 9, 11, 12, 14, 15, 17, 18, 19],
-    #     14: [7, 8, 9, 10, 12, 13, 15, 18, 19, 20],
-    #     15: [5, 8, 9, 10, 13, 14, 18, 19, 20, 25],
-    #     16: [11, 12, 13, 17, 18, 21, 22, 23, 31, 32],
-    #     17: [11, 12, 13, 16, 18, 19, 21, 22, 23, 32],
-    #     18: [12, 13, 14, 16, 17, 19, 22, 23, 24, 33],
-    #     19: [13, 14, 15, 17, 18, 20, 23, 24, 25, 34],
-    #     20: [13, 14, 15, 18, 19, 23, 24, 25, 34, 35],
-    #     21: [11, 16, 17, 18, 22, 23, 31, 32, 33, 41],
-    #     22: [16, 17, 18, 21, 23, 24, 31, 32, 33, 34],
-    #     23: [17, 18, 19, 21, 22, 24, 25, 32, 33, 34],
-    #     24: [18, 19, 20, 22, 23, 25, 32, 33, 34, 35],
-    #     25: [15, 18, 19, 20, 23, 24, 33, 34, 35, 45],
-    #     26: [1, 2, 3, 6, 7, 27, 28, 36, 37, 38],
-    #     27: [1, 2, 3, 7, 26, 28, 29, 36, 37, 38],
-    #     28: [2, 3, 4, 8, 26, 27, 29, 37, 38, 39],
-    #     29: [3, 4, 5, 9, 27, 28, 30, 38, 39, 40],
-    #     30: [3, 4, 5, 9, 10, 28, 29, 38, 39, 40],
-    #     31: [16, 17, 21, 22, 23, 32, 33, 41, 42, 43],
-    #     32: [17, 21, 22, 23, 31, 33, 34, 41, 42, 43],
-    #     33: [18, 22, 23, 24, 31, 32, 34, 42, 43, 44],
-    #     34: [19, 23, 24, 25, 32, 33, 35, 43, 44, 45],
-    #     35: [19, 20, 23, 24, 25, 33, 34, 43, 44, 45],
-    #     36: [1, 26, 27, 28, 37, 38, 46, 47, 48, 56],
-    #     37: [26, 27, 28, 29, 36, 38, 39, 46, 47, 48],
-    #     38: [27, 28, 29, 36, 37, 39, 40, 47, 48, 49],
-    #     39: [27, 28, 29, 30, 37, 38, 40, 48, 49, 50],
-    #     40: [5, 28, 29, 30, 38, 39, 48, 49, 50, 60],
-    #     41: [21, 31, 32, 33, 42, 43, 51, 52, 53, 76],
-    #     42: [31, 32, 33, 34, 41, 43, 44, 51, 52, 53],
-    #     43: [32, 33, 34, 41, 42, 44, 45, 52, 53, 54],
-    #     44: [32, 33, 34, 35, 42, 43, 45, 53, 54, 55],
-    #     45: [25, 33, 34, 35, 43, 44, 53, 54, 55, 80],
-    #     46: [36, 37, 38, 47, 48, 56, 57, 58, 61, 62],
-    #     47: [36, 37, 38, 46, 48, 49, 56, 57, 58, 62],
-    #     48: [37, 38, 39, 46, 47, 49, 57, 58, 59, 63],
-    #     49: [38, 39, 40, 47, 48, 50, 58, 59, 60, 64],
-    #     50: [0, 39, 40, 48, 49, 58, 59, 60, 64, 65],
-    #     51: [41, 42, 43, 52, 53, 71, 72, 76, 77, 78],
-    #     52: [41, 42, 43, 51, 53, 54, 72, 76, 77, 78],
-    #     53: [42, 43, 44, 51, 52, 54, 73, 77, 78, 79],
-    #     54: [43, 44, 45, 52, 53, 55, 74, 78, 79, 80],
-    #     55: [43, 44, 45, 53, 54, 74, 75, 78, 79, 80],
-    #     56: [36, 46, 47, 48, 57, 58, 61, 62, 63, 66],
-    #     57: [46, 47, 48, 49, 56, 58, 59, 61, 62, 63],
-    #     58: [47, 48, 49, 56, 57, 59, 60, 62, 63, 64],
-    #     59: [0, 48, 49, 50, 57, 58, 60, 63, 64, 65],
-    #     60: [0, 48, 49, 50, 58, 59, 63, 64, 65, 70],
-    #     61: [46, 47, 56, 57, 58, 62, 63, 66, 67, 68],
-    #     62: [47, 56, 57, 58, 61, 63, 64, 66, 67, 68],
-    #     63: [48, 57, 58, 59, 61, 62, 64, 67, 68, 69],
-    #     64: [0, 49, 58, 59, 60, 63, 65, 68, 69, 70],
-    #     65: [0, 49, 50, 59, 60, 63, 64, 68, 69, 70],
-    #     66: [56, 61, 62, 63, 67, 68, 71, 72, 73, 76],
-    #     67: [61, 62, 63, 64, 66, 68, 69, 71, 72, 73],
-    #     68: [62, 63, 64, 66, 67, 69, 70, 72, 73, 74],
-    #     69: [0, 63, 64, 65, 67, 68, 70, 73, 74, 75],
-    #     70: [0, 63, 64, 65, 68, 69, 73, 74, 75, 80],
-    #     71: [51, 52, 66, 67, 68, 72, 73, 76, 77, 78],
-    #     72: [52, 66, 67, 68, 71, 73, 74, 76, 77, 78],
-    #     73: [53, 67, 68, 69, 71, 72, 74, 77, 78, 79],
-    #     74: [54, 68, 69, 70, 72, 73, 75, 78, 79, 80],
-    #     75: [54, 55, 68, 69, 70, 73, 74, 78, 79, 80],
-    #     76: [41, 51, 52, 53, 66, 71, 72, 73, 77, 78],
-    #     77: [51, 52, 53, 71, 72, 73, 74, 76, 78, 79],
-    #     78: [52, 53, 54, 72, 73, 74, 76, 77, 79, 80],
-    #     79: [53, 54, 55, 72, 73, 74, 75, 77, 78, 80],
-    #     80: [45, 53, 54, 55, 70, 73, 74, 75, 78, 79],
-    # }
+    adjm = nn_dict_to_adjmat(nn)
+    print(f"==>> adjm: \n{adjm}")
 
-    start_node = 0
-    expected = math.factorial(ntasks - 1)
-    permutations = random_greedy_sampler(ntasks, nn, start_node)
-
-    print("Expected permutations:", expected)
-    print("Found permutations:   ", len(permutations))
-
-    # Print first 10
-    for p in list(permutations)[:10]:
-        print(p)
+    path = forwardsearch_hamiltonian_cycle(adjm)
+    if path[0] == -1:
+        print("Solution does not Exist")
+    else:
+        print(path)
