@@ -1,34 +1,95 @@
 import numpy as np
 from itertools import permutations
+from scipy.sparse import coo_matrix
+from scipy.sparse.linalg import eigsh
 
 
-def random_shuffle_sampler(ntasks):
-    arr = np.arange(1, ntasks)
+def generate_random_shuffle(n):
+    arr = np.arange(1, n)
     np.random.shuffle(arr)
     arr = np.insert(arr, 0, 0)  # insert start_node=0 at the beginning
     return arr
 
 
-def generate_permutations(n):
+def generate_block_permutations_first(n, blocks):
+    others = [i for i in range(1, n)]
+    for b in blocks:  # remove elements in blocks from others
+        others.remove(b)
+
+    for f in permutations(blocks):
+        for o in permutations(others):  # fresh generator per f
+            yield (0,) + f + o
+
+
+def generate_brute_force_permutations(n):
     """
     Generate all unique cyclic permutations with 0 fixed first.
+    Clockwise and counter-clockwise are considered the same.
+
+    Lazy generator, so we have to do something like:
+    p = generate_permutations(n)
+    while True:
+        try:
+            s = next(p)
+            print(s)
+        except StopIteration:
+            break
 
     Returns:
         generator of permutations
     """
     for p in permutations(range(1, n)):
-        yield (0,) + p
+        if p[0] < p[-1]:  # Remove the reverse-equivalent tour
+            yield (0,) + p
 
 
-def nn_dict_to_adjmat(nn_dict):
-    ntasks = len(nn_dict)
-    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+def generate_spectral_graph_permutations(edges, n, start=0):
+    """
+    Generate an ordering of n elements using spectral graph ordering.
 
-    for task, neighbors in nn_dict.items():
-        for neighbor in neighbors:
-            adjmat[task, neighbor] = 1
+    Parameters
+    ----------
+    edges : list of tuple
+        KNN edges, e.g. [(0,1), (0,2), (1,3), ...]
+    n : int
+        Total number of elements.
+    start : int
+        Element to place first.
 
-    return adjmat
+    Returns
+    -------
+    order : list
+        Permutation of [0, ..., n-1].
+    """
+
+    # build matrix
+    rows = []
+    cols = []
+    for i, j in edges:
+        rows.extend([i, j])
+        cols.extend([j, i])
+    data = np.ones(len(rows))
+    A = coo_matrix((data, (rows, cols)), shape=(n, n)).tocsr()
+
+    # Graph Laplacian L = D - A
+    degree = np.asarray(A.sum(axis=1)).ravel()
+    D = coo_matrix((degree, (np.arange(n), np.arange(n))), shape=(n, n)).tocsr()
+
+    L = D - A
+
+    # Second-smallest eigenvector (Fiedler vector)
+    _, eigenvectors = eigsh(L, k=2, which="SM")
+
+    fiedler = eigenvectors[:, 1]
+
+    # Sort nodes according to Fiedler values
+    order = np.argsort(fiedler).tolist()
+
+    # Rotate so that `start` is first
+    idx = order.index(start)
+    order = order[idx:] + order[:idx]
+
+    return order
 
 
 def forwardsearch_hamiltonian_cycle(adjMat):
@@ -76,17 +137,41 @@ def forwardsearch_hamiltonian_cycle(adjMat):
     return hamCycle(adjMat)
 
 
-def forwardbacksearch(ntasks, nn):
+def forwardbacksearch(n, nn):
     start_node = 0
 
-    tour = [None] * ntasks  # the tour suppose to have the length of ntasks
+    tour = [None] * n  # the tour suppose to have the length of ntasks
     tour[0] = start_node  # the first node is the start_node
-    # tour[-1] = np.random.choice(nn[start_node]) if np.random.choice(nn
+    tour[-1] = np.random.choice(nn[start_node])
+
+
+def nn_dict_to_adjmat(nn_dict):
+    ntasks = len(nn_dict)
+    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+
+    for task, neighbors in nn_dict.items():
+        for neighbor in neighbors:
+            adjmat[task, neighbor] = 1
+
+    return adjmat
 
 
 if __name__ == "__main__":
-    r = random_shuffle_sampler(300)
+    r = generate_random_shuffle(300)
     print(f"==>> r: \n{r}")
+
+    n = 9
+    blocks = (1, 2, 5)
+    p = generate_block_permutations_first(n, blocks)
+    i = 0
+    while True:
+        try:
+            s = next(p)
+            i += 1
+            print(s)
+        except StopIteration:
+            break
+    print(f"==>> total: {i}")
 
     ntasks = 9
     nn = {
@@ -109,3 +194,48 @@ if __name__ == "__main__":
         print("Solution does not Exist")
     else:
         print(path)
+
+    p = generate_brute_force_permutations(300)
+    d = next(p)
+    print(f"==>> d: \n{d}")
+
+    edges = [
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (0, 5),
+        (0, 6),
+        (0, 7),
+        (0, 8),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (1, 5),
+        (1, 6),
+        (1, 7),
+        (1, 8),
+        (2, 3),
+        (2, 4),
+        (2, 5),
+        (2, 6),
+        (2, 7),
+        (2, 8),
+        (3, 4),
+        (3, 5),
+        (3, 6),
+        (3, 7),
+        (3, 8),
+        (4, 5),
+        (4, 6),
+        (4, 7),
+        (4, 8),
+        (5, 6),
+        (5, 7),
+        (5, 8),
+        (6, 7),
+        (6, 8),
+        (7, 8),
+    ]
+    order = generate_spectral_graph_permutations(edges, n=9, start=0)
+    print(f"==>> order: \n{order}")
