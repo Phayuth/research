@@ -750,18 +750,40 @@ class RTSPLog:
     )
 
     # cpu compute time
-    Qft: float = field(
-        default=None, metadata={"label": "Qfilter Time", "info": "unit:s"}
-    )
-    Eestt: float = field(
-        default=None, metadata={"label": "Eestimation Time", "info": "unit:s"}
-    )
-    GTSPt: float = field(
-        default=None, metadata={"label": "GTSP Solver Time", "info": "unit:s"}
-    )
-    cft: float = field(
+    cputtotal: float = field(
         default=None,
-        metadata={"label": "Collision-Free Planner Time", "info": "unit:s"},
+        metadata={
+            "label": "Total CPU Time",
+            "info": "unit:s",
+        },
+    )
+    cputQf: float = field(
+        default=None,
+        metadata={
+            "label": "Qfilter Time",
+            "info": "unit:s",
+        },
+    )
+    cputEest: float = field(
+        default=None,
+        metadata={
+            "label": "Eestimation Time",
+            "info": "unit:s",
+        },
+    )
+    cputGTSP: float = field(
+        default=None,
+        metadata={
+            "label": "GTSP Solver Time",
+            "info": "unit:s",
+        },
+    )
+    cputcf: float = field(
+        default=None,
+        metadata={
+            "label": "Collision-Free Planner Time",
+            "info": "unit:s",
+        },
     )
 
 

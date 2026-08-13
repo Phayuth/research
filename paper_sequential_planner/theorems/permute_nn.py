@@ -1,7 +1,18 @@
 import numpy as np
-from itertools import permutations
+from itertools import permutations, product
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import eigsh
+
+
+def _nn_dict_to_adjmat(nn_dict):
+    ntasks = len(nn_dict)
+    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+
+    for task, neighbors in nn_dict.items():
+        for neighbor in neighbors:
+            adjmat[task, neighbor] = 1
+
+    return adjmat
 
 
 def generate_random_shuffle(n):
@@ -145,97 +156,199 @@ def forwardbacksearch(n, nn):
     tour[-1] = np.random.choice(nn[start_node])
 
 
-def nn_dict_to_adjmat(nn_dict):
-    ntasks = len(nn_dict)
-    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+def generate_block_permutations(n, blocks):
+    """
+    Lazily generate permutations where:
+      - 0 is always first.
+      - Blocks can appear in any order.
+      - Elements inside each block can appear in any order.
+      - A block remains contiguous.
+    """
 
-    for task, neighbors in nn_dict.items():
-        for neighbor in neighbors:
-            adjmat[task, neighbor] = 1
+    # ---------- validation ----------
+    expected = set(range(1, n))
+    elements = [x for block in blocks for x in block]
 
-    return adjmat
+    if set(elements) != expected:
+        raise ValueError("Blocks must contain every element from 1 to n-1.")
+
+    if len(elements) != len(set(elements)):
+        raise ValueError("Blocks contain duplicate elements.")
+
+    if not blocks:
+        yield (0,)
+        return
+
+    # ---------- recursive generation ----------
+
+    def generate(current, remaining_blocks):
+        # All blocks have been consumed
+        if not remaining_blocks:
+            yield tuple(current)
+            return
+
+        # Choose the next block
+        for block_index, block in enumerate(remaining_blocks):
+
+            next_remaining = (
+                remaining_blocks[:block_index]
+                + remaining_blocks[block_index + 1 :]
+            )
+
+            # Permute elements inside this block lazily
+            for block_perm in permutations(block):
+
+                # Append this block
+                current.extend(block_perm)
+
+                yield from generate(current, next_remaining)
+
+                # Backtrack
+                del current[-len(block_perm) :]
+
+    yield from generate([0], tuple(blocks))
+
+
+def generate_block_sequences(block, valid_edges, start=None):
+    """
+    Lazily generate valid permutations of one block.
+    Only expands a permutation if every newly created edge is in valid_edges.
+    """
+
+    block = set(block)
+
+    def dfs(path, remaining):
+        if not remaining:
+            yield tuple(path)
+            return
+
+        for node in remaining:
+
+            # Check edge before adding node
+            if path:
+                edge = (path[-1], node)
+
+                if edge not in valid_edges:
+                    continue  # PRUNE immediately
+
+            path.append(node)
+
+            yield from dfs(path, remaining - {node})
+
+            path.pop()
+
+    if start is not None:
+        yield from dfs([start], block - {start})
+    else:
+        for start_node in block:
+            yield from dfs([start_node], block - {start_node})
 
 
 if __name__ == "__main__":
-    r = generate_random_shuffle(300)
-    print(f"==>> r: \n{r}")
-
     n = 9
-    blocks = (1, 2, 5)
-    p = generate_block_permutations_first(n, blocks)
+    blocks = ((1, 2, 5), (3, 4, 6), (7, 8))
+    p = generate_block_permutations(n, blocks)
+
     i = 0
     while True:
         try:
             s = next(p)
-            i += 1
             print(s)
+            i += 1
         except StopIteration:
             break
     print(f"==>> total: {i}")
 
-    ntasks = 9
-    nn = {
-        0: [1, 2, 3, 4, 5, 6, 7, 8],
-        1: [0, 2, 3, 4, 5, 6, 7, 8],
-        2: [0, 1, 3, 4, 5, 6, 7, 8],
-        3: [0, 1, 2, 4, 5, 6, 7, 8],
-        4: [0, 1, 2, 3, 5, 6, 7, 8],
-        5: [0, 1, 2, 3, 4, 6, 7, 8],
-        6: [0, 1, 2, 3, 4, 5, 7, 8],
-        7: [0, 1, 2, 3, 4, 5, 6, 8],
-        8: [0, 1, 2, 3, 4, 5, 6, 7],
+    block = (1, 2, 5)
+
+    valid_edges = {
+        (1, 5),
+        (5, 2),
+        (2, 1),
+        (5, 1),
+        (2, 5),
+        (1, 2),
     }
 
-    adjm = nn_dict_to_adjmat(nn)
-    print(f"==>> adjm: \n{adjm}")
+    for p in generate_block_sequences(block, valid_edges):
+        print(p)
 
-    path = forwardsearch_hamiltonian_cycle(adjm)
-    if path[0] == -1:
-        print("Solution does not Exist")
-    else:
-        print(path)
+    # n = 9
+    # blocks = (1, 2, 5)
+    # p = generate_block_permutations_first(n, blocks)
+    # i = 0
+    # while True:
+    #     try:
+    #         s = next(p)
+    #         i += 1
+    #         print(s)
+    #     except StopIteration:
+    #         break
+    # print(f"==>> total: {i}")
 
-    p = generate_brute_force_permutations(300)
-    d = next(p)
-    print(f"==>> d: \n{d}")
+    # ntasks = 9
+    # nn = {
+    #     0: [1, 2, 3, 4, 5, 6, 7, 8],
+    #     1: [0, 2, 3, 4, 5, 6, 7, 8],
+    #     2: [0, 1, 3, 4, 5, 6, 7, 8],
+    #     3: [0, 1, 2, 4, 5, 6, 7, 8],
+    #     4: [0, 1, 2, 3, 5, 6, 7, 8],
+    #     5: [0, 1, 2, 3, 4, 6, 7, 8],
+    #     6: [0, 1, 2, 3, 4, 5, 7, 8],
+    #     7: [0, 1, 2, 3, 4, 5, 6, 8],
+    #     8: [0, 1, 2, 3, 4, 5, 6, 7],
+    # }
 
-    edges = [
-        (0, 1),
-        (0, 2),
-        (0, 3),
-        (0, 4),
-        (0, 5),
-        (0, 6),
-        (0, 7),
-        (0, 8),
-        (1, 2),
-        (1, 3),
-        (1, 4),
-        (1, 5),
-        (1, 6),
-        (1, 7),
-        (1, 8),
-        (2, 3),
-        (2, 4),
-        (2, 5),
-        (2, 6),
-        (2, 7),
-        (2, 8),
-        (3, 4),
-        (3, 5),
-        (3, 6),
-        (3, 7),
-        (3, 8),
-        (4, 5),
-        (4, 6),
-        (4, 7),
-        (4, 8),
-        (5, 6),
-        (5, 7),
-        (5, 8),
-        (6, 7),
-        (6, 8),
-        (7, 8),
-    ]
-    order = generate_spectral_graph_permutations(edges, n=9, start=0)
-    print(f"==>> order: \n{order}")
+    # adjm = _nn_dict_to_adjmat(nn)
+    # print(f"==>> adjm: \n{adjm}")
+
+    # path = forwardsearch_hamiltonian_cycle(adjm)
+    # if path[0] == -1:
+    #     print("Solution does not Exist")
+    # else:
+    #     print(path)
+
+    # p = generate_brute_force_permutations(300)
+    # d = next(p)
+    # print(f"==>> d: \n{d}")
+
+    # edges = [
+    #     (0, 1),
+    #     (0, 2),
+    #     (0, 3),
+    #     (0, 4),
+    #     (0, 5),
+    #     (0, 6),
+    #     (0, 7),
+    #     (0, 8),
+    #     (1, 2),
+    #     (1, 3),
+    #     (1, 4),
+    #     (1, 5),
+    #     (1, 6),
+    #     (1, 7),
+    #     (1, 8),
+    #     (2, 3),
+    #     (2, 4),
+    #     (2, 5),
+    #     (2, 6),
+    #     (2, 7),
+    #     (2, 8),
+    #     (3, 4),
+    #     (3, 5),
+    #     (3, 6),
+    #     (3, 7),
+    #     (3, 8),
+    #     (4, 5),
+    #     (4, 6),
+    #     (4, 7),
+    #     (4, 8),
+    #     (5, 6),
+    #     (5, 7),
+    #     (5, 8),
+    #     (6, 7),
+    #     (6, 8),
+    #     (7, 8),
+    # ]
+    # order = generate_spectral_graph_permutations(edges, n=9, start=0)
+    # print(f"==>> order: \n{order}")

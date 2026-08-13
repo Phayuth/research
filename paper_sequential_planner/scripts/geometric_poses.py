@@ -178,7 +178,7 @@ We must consider extra factors like
 """
 
 
-def Advanced_task_space_correlation(H, Q, Qs, W):
+def Cluster_task_space_correlation(H, Q, Qs, W):
     """
     H: (N, 4, 4) task space poses
     Q: (N, numik, dof) robot configurations

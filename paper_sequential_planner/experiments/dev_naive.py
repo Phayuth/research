@@ -10,7 +10,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
-    Advanced_task_space_correlation,
+    Cluster_task_space_correlation,
     taskspace_tsp_position_distance_order,
     taskspace_brute_permutation_order,
 )
@@ -211,7 +211,7 @@ def wspace_ik_validity_extended(Qaik, robscene):
 
 # ============= Extended IK and Validity Check=============
 
-
+cputtotal_start = time.time()
 # preliminary input data processing
 qinit = np.array([0, -np.pi / 2, -np.pi / 2, 0, 0, 0])
 Xinit = H_to_X(robkin.solve_fk(qinit))
@@ -242,28 +242,15 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
-task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
-    tspace_mapping["task_to_nn_dict"],
-    tspace_mapping["task_to_nn_pair"],
-    tspace_mapping["task_to_nn_pair_len"],
-)
-print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
-print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
-print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
+# tmap = Naive_task_space_correlation(H_reach_init)
+tmap = KRNN_task_space_correlation(H_reach_init, w_rot=0.0, nnr=0.15, nnk=10)
 
 Ttour = taskspace_tsp_position_distance_order(
     H_reach_init,
     tsp_method="local",
 )
 print(f"==>> Ttour: \n{Ttour}")
-raise
+
 # taskspace write
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
 tsdict = gen_taskspace_tour(X_reach_init, Ttour_rotated)
@@ -274,13 +261,13 @@ qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
 qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
 Ewmj = Eest_weighted_max_joint_diff(
-    Qik_reach_init, Qikstate_reach_init, Wwmj, tspace_mapping
+    Qik_reach_init, Qikstate_reach_init, Wwmj, tmap
 )
 
 Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
 print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
 print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
-Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tspace_mapping)
+Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tmap)
 selected = np.vstack([Ttour_rotated_loop, Qtour])
 print(f"==>> selected: \n{selected}")
 
@@ -299,10 +286,14 @@ Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
 jtdict = gen_joint_trajectory(Qtour_traj, time_fs, name=PROBLEM_NAME)
 
 # collision-free
+cputcf_start = time.time()
 tourQval_cf = planner.query_tour_planning(tourQval)
 tourQcosts_cf = traj_complete_cost(tourQval_cf, qdot)
 Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
 jtdict_cf = gen_joint_trajectory(Qtour_cf_traj, time_fs_cf, name=PROBLEM_NAME)
+
+cputcf = time.time() - cputcf_start
+cputtotal = time.time() - cputtotal_start
 
 # logging
 rl = RTSPLogger()
@@ -335,6 +326,12 @@ rl.data.l2cf = tourQcosts_cf["euclidean"]
 rl.data.linfcf = tourQcosts_cf["inf"]
 rl.data.timecf = tourQcosts_cf["time"]
 rl.data.l1pjcf = tourQcosts_cf["perjoint"]
+
+rl.data.cputtotal = cputtotal
+rl.data.cputQf = None
+rl.data.cputEest = None
+rl.data.cputGTSP = None
+rl.data.cputcf = cputcf
 rl.print_log()
 
 # logging to file

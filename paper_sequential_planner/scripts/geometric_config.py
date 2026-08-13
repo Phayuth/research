@@ -6,7 +6,7 @@ np.set_printoptions(precision=2, suppress=True, linewidth=200)
 rsrc = os.environ["RSRC_DIR"]
 
 
-def weighted_nan_squared_euclidean_distances(X, Y=None, w=None, dtype=np.float32):
+def weighted_nan_euclidean_squared_distances(X, Y=None, w=None, dtype=np.float32):
     """
     Fully vectorized weighted NaN-aware squared Euclidean distance.
 

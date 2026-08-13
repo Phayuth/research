@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.metrics.pairwise import nan_euclidean_distances
 from paper_sequential_planner.scripts.geometric_config import (
     weighted_nan_euclidean_distances,
+    weighted_nan_euclidean_squared_distances,
     weighted_nan_max_joint_diff_distances,
 )
 
@@ -203,8 +204,40 @@ def Qfilter_Favor(Q, Qs, tmap):
     pass
 
 
-def Qfilter_ClusterTSP_iter_reduce(Q, Qs, tmap):
-    pass
+def Qfilter_ClusterTSP(Q, Qs, tmap):
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+
+    num_sols = Q.shape[1]
+    ntasks = Q.shape[0]
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        E[idx] = weighted_nan_euclidean_squared_distances(Q[i], Q[j], W=None)
+
+    # dissimilarity of all nodes to home \delta 𝛿
+    Qdelta_to_home = np.ones((ntasks, num_sols)) * np.inf
+
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        if i != 0:  # ignore the node that is not home
+            continue
+        # i == 0 is home
+        Qj_valid = Qs[j]
+        Eij = E[idx]
+        E0 = Eij[0, :]  # distance from home to all nodes in task j
+        Qdelta_to_home[j, :] = np.where(Qj_valid, E0, np.inf)
+
+    # we have to many nodes, so compute the average at once is difficult
+    # so for every pair, we compute the average by sum the value that not np.inf
+    # and also count the number of not np.inf value
+    Qdelta_to_all = np.ones((ntasks, num_sols)) * np.inf
+    Qdelta_to_all_count = np.zeros((ntasks, num_sols), dtype=int)
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        Eij = E[idx]
+        Qj_valid = Qs[j]
+
+    # iterative process
+
+    return None
 
 
 def Eest_colfree(Q, Qs, cmax_d, tmap):

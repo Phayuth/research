@@ -10,7 +10,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
-    Advanced_task_space_correlation,
+    Cluster_task_space_correlation,
 )
 from paper_sequential_planner.scripts.geometric_config import (
     traj_complete_cost,
@@ -23,6 +23,7 @@ from paper_sequential_planner.scripts.geometric_rtsp import (
     Qfilter_nn2c,
     Qfilter_Knn2c,
     Qfilter_Dnn2c,
+    Qfilter_ClusterTSP,
     Eest_colfree,
     Eest_weighted_euclidean,
     Eest_weighted_max_joint_diff,
@@ -245,58 +246,33 @@ X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
 # taskspace relationship analysis
-# tspace_mapping = Naive_task_space_correlation(H_reach_init)
-tspace_mapping = KRNN_task_space_correlation(
-    H_reach_init,
-    w_rot=0.0,
-    nnr=0.15,
-    nnk=10,
-)
-task_to_nn_dict, task_to_nn_pair, task_to_nn_pair_len = (
-    tspace_mapping["task_to_nn_dict"],
-    tspace_mapping["task_to_nn_pair"],
-    tspace_mapping["task_to_nn_pair_len"],
-)
-print(f"==>> task_to_nn_dict: \n{task_to_nn_dict}")
-print(f"==>> task_to_nn_pair: \n{task_to_nn_pair}")
-print(f"==>> task_to_nn_pair_len: \n{task_to_nn_pair_len}")
+tmap = Naive_task_space_correlation(H_reach_init)
+# tmap = KRNN_task_space_correlation(H_reach_init, w_rot=0.0, nnr=0.15, nnk=10)
 
-Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qs=Qikstate_reach_init, r=2 * np.pi)
-
-# Q2red_s = Qfilter_similarity(
-#     Qik_reach_init, qinit, Qs=Qikstate_reach_init, thresh=0.0001
-# )
-# Q3red_nn2c = Qfilter_nn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, tmap=tspace_mapping
-# )
-
-# Q4red_Knn2c = Qfilter_Knn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, k=50, tmap=tspace_mapping
-# )
-
-# Q5red_Dnn2c = Qfilter_Dnn2c(
-#     Qik_reach_init, Qs=Qikstate_reach_init, d=5, tmap=tspace_mapping
-# )
-
-# # choose filter method
-# Qreduced = [Q1red_r, Q2red_s, Q3red_nn2c, Q4red_Knn2c, Q5red_Dnn2c][0]
-# Qreduced = Q1red_r
+# choose Q filter method
+# Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qikstate_reach_init, r=2 * np.pi)
+# Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, Qikstate_reach_init, 0.0001)
+# Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, Qikstate_reach_init, tmap)
+# Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, Qikstate_reach_init, 50, tmap)
+# Q5red_Dnn2c = Qfilter_Dnn2c(Qik_reach_init, Qikstate_reach_init, 5, tmap)
+Q6red_ctsp = Qfilter_ClusterTSP(Qik_reach_init, Qikstate_reach_init, tmap)
+# Qreduced = Q1red_r  # choose Qfilter_R for this example
 Qreduced = Qikstate_reach_init  # no filter
 check_number_Q(Qreduced)
 
-
+raise
 # # cmax_d = 2 * np.pi
 # cmax_d = None  # disable cmax_d filtering
-# Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tspace_mapping)
+# Ecf = Eest_colfree(Qik_reach_init, Qreduced, cmax_d, tmap)
 
 # Wweu = np.array([1, 1, 1, 1, 1, 1])  # weight for each joint
-# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tspace_mapping)
+# Eweu = Eest_weighted_euclidean(Qik_reach_init, Qreduced, Wweu, tmap)
 
 qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
 # qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
 qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
-Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tspace_mapping)
+Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qreduced, Wwmj, tmap)
 
 # write, solve, and read GTSP problem
 Ecost = np.where(np.isfinite(Ewmj), Ewmj, 1000)  # cost for infeasible edges

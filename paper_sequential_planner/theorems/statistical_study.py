@@ -9,7 +9,7 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
-    Advanced_task_space_correlation,
+    Cluster_task_space_correlation,
     taskspace_tsp_position_distance_order,
     taskspace_brute_permutation_order,
 )
