@@ -29,6 +29,7 @@ from paper_sequential_planner.scripts.geometric_rtsp import (
     Eest_weighted_euclidean,
     Eest_weighted_max_joint_diff,
     Qtour_RoboTSP_layer_search,
+    Qtour_RoboTSP_layer_search_topK,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
@@ -218,10 +219,10 @@ Xinit = H_to_X(robkin.solve_fk(qinit))
 H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
-Qik = wspace_ik_extended(robkin, X)
-Qikstate = wspace_ik_validity_extended(Qik, scene)
-# Qik = wspace_ik_normal(robkin, X)
-# Qikstate = wspace_ik_validity_normal(Qik, scene)
+# Qik = wspace_ik_extended(robkin, X)
+# Qikstate = wspace_ik_validity_extended(Qik, scene)
+Qik = wspace_ik_normal(robkin, X)
+Qikstate = wspace_ik_validity_normal(Qik, scene)
 num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
@@ -249,7 +250,6 @@ Ttour = taskspace_tsp_position_distance_order(
     H_reach_init,
     tsp_method="local",
 )
-print(f"==>> Ttour: \n{Ttour}")
 
 # taskspace write
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
@@ -265,12 +265,15 @@ Ewmj = Eest_weighted_max_joint_diff(
 )
 
 Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
-print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
 print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
+# print(f"==>> Ttour_rotated: \n{Ttour_rotated}")
+# print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
 Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tmap)
-selected = np.vstack([Ttour_rotated_loop, Qtour])
-print(f"==>> selected: \n{selected}")
+Qtourlist = Qtour_RoboTSP_layer_search_topK(Ttour_rotated_loop, Ewmj, tmap, K=25)
+# selected = np.vstack([Ttour_rotated_loop, Qtour])
+# print(f"==>> selected: \n{selected}")
 
+raise
 tourQval = []
 for i in range(selected.shape[1]):
     taski = selected[0, i]
@@ -279,7 +282,7 @@ for i in range(selected.shape[1]):
     tourQval.append(q)
 tourQval = np.array(tourQval)
 print(f"==>> tourQval: \n{tourQval}")
-
+raise
 # no collision consider
 tourQcosts = traj_complete_cost(tourQval, qdot)
 Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)

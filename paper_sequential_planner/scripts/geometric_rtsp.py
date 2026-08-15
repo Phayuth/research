@@ -6,6 +6,7 @@ from paper_sequential_planner.scripts.geometric_config import (
     weighted_nan_euclidean_squared_distances,
     weighted_nan_max_joint_diff_distances,
 )
+import pandas as pd
 
 dtype = np.float32
 
@@ -351,14 +352,12 @@ def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
 
 def Qtour_RoboTSP_layer_search(Ttour, E, tmap):
     """
-    RoboTSP process of selecting the best q for each task given the pre-computedtour.
+    RoboTSP process of selecting the best q for each task given the pre-computed tour.
 
     Input:
     Ttour: the tour of tasks, with loop back to start
     E: edges cost matrix, must provide infeasible check via np.inf in the edges
     tmap: mapping dict
-
-    Output:
     """
     # get mapping
     task_to_nn_dict = tmap["task_to_nn_dict"]
@@ -402,31 +401,145 @@ def Qtour_RoboTSP_layer_search(Ttour, E, tmap):
         # distance matrix must provide infeasible check via np.inf in the edges
         Eij = E[I] if not transpose else E[I].T
 
-        prev_cost = best_cost[i]
-        candidate_cost = prev_cost[:, np.newaxis] + Eij  # cost to come
+        prev_cost = best_cost[i][:, np.newaxis]  # reshape (nQ, 1) for broadcasting
+        candidate_cost = prev_cost + Eij  # addative cost to previous cost
 
         # find the best parent and cost for each configuration in the current task
         best_parent[i + 1] = np.argmin(candidate_cost, axis=0)
         best_cost[i + 1] = np.min(candidate_cost, axis=0)
 
-    # verify that the last layer has a valid configuration
+    # Last layer cost
     if not np.isfinite(best_cost[-1]).any():
-        raise RuntimeError("No feasible path found in the final layer")
+        raise RuntimeError("No feasible path found")
 
-    # backtrack to find the best tour
-    # goal_id is the start configuration, it must be start off as 0
-    goal_id = int(
-        np.argmin(np.where(np.isfinite(best_cost[-1]), best_cost[-1], np.inf))
-    )
-    Qtour = [goal_id]
-    for layer in range(nlayers - 1, 0, -1):
-        goal_id = best_parent[layer, goal_id]
-        if goal_id < 0:
-            raise RuntimeError(f"Broken parent chain at layer {layer}")
-        Qtour.append(int(goal_id))
+    def recover_path(goal_id):
+        # backtrack to find the best tour
+        # Qtour is task id dependent, its index is only from 0 to nQ, not flattened id
+        Qtour = [goal_id]
+        for layer in range(nlayers - 1, 0, -1):
+            goal_id = best_parent[layer, goal_id]
+            if goal_id < 0:
+                raise RuntimeError(f"Broken parent chain at layer {layer}")
+            Qtour.append(int(goal_id))
+        Qtour = np.array(Qtour[::-1])  # reverse the path to get the correct order
 
-    # reverse the path to get the correct order
-    Qtour = np.array(Qtour[::-1])
-
-    # Qtour is task id dependant, its index is only from 0 to nQ, not flattened id
+    goal_id = int(np.argmin(best_cost[-1]))
+    Qtour = recover_path(goal_id)
     return Qtour
+
+
+def Qtour_RoboTSP_layer_search_topK(Ttour, E, tmap, K):
+    """
+    RoboTSP process of selecting the best q for each task given the pre-computed tour.
+
+    Input:
+    Ttour: the tour of tasks, with loop back to start
+    E: edges cost matrix, must provide infeasible check via np.inf in the edges
+    tmap: mapping dict
+    K: number of top configurations to keep
+    """
+    # get mapping
+    task_to_nn_dict = tmap["task_to_nn_dict"]
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+    ntasks = len(task_to_nn_dict.keys())  # already include start
+
+    # verify tour
+    # tour must start from 0 and end at 0 / loop back
+    # the length of tour must be equal to the number of tasks + 2 (start and end)
+    if Ttour[0] != 0 or Ttour[-1] != 0:
+        raise ValueError("Tour must start and end at 0 (loop back).")
+    if len(Ttour) != ntasks + 1:
+        raise ValueError(
+            f"Tour length must be equal to number of tasks + 2 (start and end). Expected {ntasks + 1}, got {len(Ttour)}."
+        )
+
+    # variables
+    nQ = E.shape[1]  # number of candidate configurations per task
+    nlayers = len(Ttour)  # number of tasks in the tour (including start and end)
+    best_cost = np.full((nlayers, nQ, K), np.inf)
+    best_cost[0, 0, 0] = 0  # only the initial configuration is a valid source
+    best_parent = np.full((nlayers, nQ, K), -1, dtype=int)
+    best_parent_rank = np.full((nlayers, nQ, K), -1, dtype=int)  # track parentrank
+
+    # dynamic programming to find the best configuration for each task in the tour
+    for i in range(nlayers - 1):
+        transpose = False
+        prev_i = Ttour[i]
+        curr_i = Ttour[i + 1]
+
+        if prev_i > curr_i:
+            prev_i, curr_i = curr_i, prev_i  # swap to ensure prev_i < curr_i
+            transpose = True  # the distance matrix is transposed
+
+        try:  # make sure the pair exists in the mapping
+            # get the index of dist mat
+            I = task_to_nn_pair.index((prev_i, curr_i))
+        except ValueError:
+            raise ValueError(f"No dist mat found for pair ({prev_i}, {curr_i})")
+
+        # distance matrix must provide infeasible check via np.inf in the edges
+        Eij = E[I] if not transpose else E[I].T
+
+        prev_cost = best_cost[i][:, :, None]
+        candidate_cost = prev_cost + Eij[:, None, :]  # (nQ, K, 1)  # (nQ, 1, nQ)
+
+        # reshape:
+        # (previous_node, previous_rank, current_node)
+        # -> (previous_node * previous_rank, current_node)
+        flat_cost = candidate_cost.reshape(nQ * K, nQ)
+
+        # For each current node, get K smallest candidates
+        # partition is much faster than fully sorting everything.
+        kk = min(K, flat_cost.shape[0])
+        idx = np.argpartition(flat_cost, kth=kk - 1, axis=0)[:kk]
+
+        selected_cost = np.take_along_axis(flat_cost, idx, axis=0)
+        order = np.argsort(selected_cost, axis=0)  # Sort those K candidates
+        selected_cost = np.take_along_axis(selected_cost, order, axis=0)
+        idx = np.take_along_axis(idx, order, axis=0)
+
+        # Decode flattened parent index
+        parent_node = idx // K
+        parent_rank = idx % K
+
+        # Store
+        best_cost[i + 1, :, :kk] = selected_cost.T
+        best_parent[i + 1, :, :kk] = parent_node.T
+        best_parent_rank[i + 1, :, :kk] = parent_rank.T
+
+    # Last layer cost
+    final_cost = best_cost[-1].reshape(-1)
+    valid = np.isfinite(final_cost)
+    if not valid.any():
+        raise RuntimeError("No feasible path found")
+
+    valid_indices = np.where(valid)[0]
+    order = valid_indices[np.argsort(final_cost[valid_indices])]
+    order = order[:K]
+
+    def recover_path(final_flat_index):
+        goal_node = final_flat_index // K
+        goal_rank = final_flat_index % K
+        Qtour = np.empty(nlayers, dtype=int)
+        node = goal_node
+        rank = goal_rank
+        Qtour[-1] = node
+        for layer in range(nlayers - 1, 0, -1):
+            parent_node = best_parent[layer, node, rank]
+            parent_rank = best_parent_rank[layer, node, rank]
+            if parent_node < 0 or parent_rank < 0:
+                raise RuntimeError(f"Broken parent chain at layer {layer}")
+            node = parent_node
+            rank = parent_rank
+            Qtour[layer - 1] = node
+        return Qtour
+
+    Qtourlist = []
+    for idx in order:
+        Qtour = recover_path(idx)
+        Qtourlist.append(Qtour)
+        # cost = final_cost[idx]
+    Qtourlist = np.array(Qtourlist)
+    print(f"==>> Qtourlist: \n{Qtourlist}")
+    return Qtourlist

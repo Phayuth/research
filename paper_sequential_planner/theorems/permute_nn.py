@@ -3,6 +3,8 @@ from itertools import permutations, product
 from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import eigsh
 
+np.set_printoptions(precision=3, suppress=True, linewidth=200)
+
 
 def _nn_dict_to_adjmat(nn_dict):
     ntasks = len(nn_dict)
@@ -13,6 +15,13 @@ def _nn_dict_to_adjmat(nn_dict):
             adjmat[task, neighbor] = 1
 
     return adjmat
+
+
+def _adjmat_to_degmat(adjmat):
+    degmat = np.zeros_like(adjmat)
+    for i in range(adjmat.shape[0]):
+        degmat[i, i] = np.sum(adjmat[i])
+    return degmat
 
 
 def generate_random_shuffle(n):
@@ -54,14 +63,16 @@ def generate_brute_force_permutations(n):
             yield (0,) + p
 
 
-def generate_spectral_graph_permutations(edges, n, start=0):
+def generate_spectral_graph_permutations(adjmat, degmat, start=0):
     """
     Generate an ordering of n elements using spectral graph ordering.
 
     Parameters
     ----------
-    edges : list of tuple
-        KNN edges, e.g. [(0,1), (0,2), (1,3), ...]
+    adjmat : numpy.ndarray
+        Adjacency matrix of the graph.
+    degmat : numpy.ndarray
+        Degree matrix of the graph.
     n : int
         Total number of elements.
     start : int
@@ -72,24 +83,14 @@ def generate_spectral_graph_permutations(edges, n, start=0):
     order : list
         Permutation of [0, ..., n-1].
     """
-
-    # build matrix
-    rows = []
-    cols = []
-    for i, j in edges:
-        rows.extend([i, j])
-        cols.extend([j, i])
-    data = np.ones(len(rows))
-    A = coo_matrix((data, (rows, cols)), shape=(n, n)).tocsr()
-
     # Graph Laplacian L = D - A
-    degree = np.asarray(A.sum(axis=1)).ravel()
-    D = coo_matrix((degree, (np.arange(n), np.arange(n))), shape=(n, n)).tocsr()
-
-    L = D - A
+    L = degmat - adjmat
+    print(f"==>> L: \n{L}")
 
     # Second-smallest eigenvector (Fiedler vector)
     _, eigenvectors = eigsh(L, k=2, which="SM")
+    print(f"==>> _: \n{_}")
+    print(f"==>> eigenvectors: \n{eigenvectors}")
 
     fiedler = eigenvectors[:, 1]
 
@@ -287,22 +288,20 @@ if __name__ == "__main__":
     # print(f"==>> total: {i}")
 
     # ntasks = 9
-    # nn = {
-    #     0: [1, 2, 3, 4, 5, 6, 7, 8],
-    #     1: [0, 2, 3, 4, 5, 6, 7, 8],
-    #     2: [0, 1, 3, 4, 5, 6, 7, 8],
-    #     3: [0, 1, 2, 4, 5, 6, 7, 8],
-    #     4: [0, 1, 2, 3, 5, 6, 7, 8],
-    #     5: [0, 1, 2, 3, 4, 6, 7, 8],
-    #     6: [0, 1, 2, 3, 4, 5, 7, 8],
-    #     7: [0, 1, 2, 3, 4, 5, 6, 8],
-    #     8: [0, 1, 2, 3, 4, 5, 6, 7],
-    # }
+    nn = {
+        0: [1, 2, 3, 4, 5, 6, 7, 8],
+        1: [0, 2, 3, 4, 5, 6, 7, 8],
+        2: [0, 1, 3, 4, 5, 6, 7, 8],
+        3: [0, 1, 2, 4, 5, 6, 7, 8],
+        4: [0, 1, 2, 3, 5, 6, 7, 8],
+        5: [0, 1, 2, 3, 4, 6, 7, 8],
+        6: [0, 1, 2, 3, 4, 5, 7, 8],
+        7: [0, 1, 2, 3, 4, 5, 6, 8],
+        8: [0, 1, 2, 3, 4, 5, 6, 7],
+    }
+    A = _nn_dict_to_adjmat(nn)
 
-    # adjm = _nn_dict_to_adjmat(nn)
-    # print(f"==>> adjm: \n{adjm}")
-
-    # path = forwardsearch_hamiltonian_cycle(adjm)
+    # path = forwardsearch_hamiltonian_cycle(A)
     # if path[0] == -1:
     #     print("Solution does not Exist")
     # else:
@@ -312,43 +311,6 @@ if __name__ == "__main__":
     # d = next(p)
     # print(f"==>> d: \n{d}")
 
-    # edges = [
-    #     (0, 1),
-    #     (0, 2),
-    #     (0, 3),
-    #     (0, 4),
-    #     (0, 5),
-    #     (0, 6),
-    #     (0, 7),
-    #     (0, 8),
-    #     (1, 2),
-    #     (1, 3),
-    #     (1, 4),
-    #     (1, 5),
-    #     (1, 6),
-    #     (1, 7),
-    #     (1, 8),
-    #     (2, 3),
-    #     (2, 4),
-    #     (2, 5),
-    #     (2, 6),
-    #     (2, 7),
-    #     (2, 8),
-    #     (3, 4),
-    #     (3, 5),
-    #     (3, 6),
-    #     (3, 7),
-    #     (3, 8),
-    #     (4, 5),
-    #     (4, 6),
-    #     (4, 7),
-    #     (4, 8),
-    #     (5, 6),
-    #     (5, 7),
-    #     (5, 8),
-    #     (6, 7),
-    #     (6, 8),
-    #     (7, 8),
-    # ]
-    # order = generate_spectral_graph_permutations(edges, n=9, start=0)
-    # print(f"==>> order: \n{order}")
+    D = _adjmat_to_degmat(A)
+    order = generate_spectral_graph_permutations(A, D, start=0)
+    print(f"==>> order: \n{order}")
