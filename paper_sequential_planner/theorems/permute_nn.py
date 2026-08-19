@@ -245,6 +245,22 @@ def generate_block_sequences(block, valid_edges, start=None):
             yield from dfs([start_node], block - {start_node})
 
 
+def two_opt_swap(tour, i, k):
+    """
+    Perform a 2-opt swap on the tour between indices i and k.
+    """
+    new_tour = tour[:i] + tour[i : k + 1][::-1] + tour[k + 1 :]
+    return new_tour
+
+
+def three_opt_swap(tour, i, j, k):
+    """
+    Perform a 3-opt swap on the tour between indices i, j, and k.
+    """
+    new_tour = tour[:i] + tour[i:j][::-1] + tour[j:k][::-1] + tour[k:]
+    return new_tour
+
+
 if __name__ == "__main__":
     n = 9
     blocks = ((1, 2, 5), (3, 4, 6), (7, 8))
@@ -314,3 +330,9 @@ if __name__ == "__main__":
     D = _adjmat_to_degmat(A)
     order = generate_spectral_graph_permutations(A, D, start=0)
     print(f"==>> order: \n{order}")
+
+    order_two_opt = two_opt_swap(order, 2, 5)
+    print(f"==>> order_two_opt: \n{order_two_opt}")
+
+    order_three_opt = three_opt_swap(order, 2, 5, 8)
+    print(f"==>> order_three_opt: \n{order_three_opt}")

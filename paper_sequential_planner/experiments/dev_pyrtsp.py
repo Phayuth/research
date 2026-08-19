@@ -10,27 +10,41 @@ from paper_sequential_planner.scripts.geometric_poses import (
     Xlist_to_Hlist,
     Naive_task_space_correlation,
     KRNN_task_space_correlation,
+    Cluster_task_space_correlation,
     taskspace_tsp_position_distance_order,
     taskspace_brute_permutation_order,
+    nn_dict_to_adjmat,
 )
 from paper_sequential_planner.scripts.geometric_config import (
     traj_complete_cost,
+    traj_tour_from_lininterp,
     traj_tour_from_lininterp_qdot,
 )
 from paper_sequential_planner.scripts.geometric_rtsp import (
+    Qfilter_R,
+    Qfilter_similarity,
+    Qfilter_nn2c,
+    Qfilter_Knn2c,
+    Qfilter_Dnn2c,
+    Qfilter_ClusterTSP,
+    Eest_colfree,
+    Eest_weighted_euclidean,
     Eest_weighted_max_joint_diff,
     Qtour_RoboTSP_layer_search,
+    Qtour_RoboTSP_layer_search_topK,
 )
 from paper_sequential_planner.experiments.env_ur5e_ import (
     RobotUR5eKin,
     SceneOMPLPlanner,
+    SceneUR5eSpherizedThreeShelf,
     SceneUR5eSpherizedAirbusShopFloor,
     SceneUR5eSpherizedSingleStool,
-    SceneUR5eSpherizedThreePlanarBoard,
-    SceneUR5eSpherizedSingleBarStrict,
-    SceneUR5eSpherizedThreeShelf,
 )
 from paper_sequential_planner.experiments.utilio import (
+    check_number_Q,
+    check_number_E,
+    check_num_edges_unique,
+    check_num_supercluster_edges,
     gen_joint_trajectory,
     gen_taskspace_tour,
     yaml_write,
@@ -46,13 +60,11 @@ np.random.seed(42)
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
 problem_dict = [
-    ["airbus_shopfloor", SceneUR5eSpherizedAirbusShopFloor],
-    ["single_stool", SceneUR5eSpherizedSingleStool],
-    ["three_planar_board", SceneUR5eSpherizedThreePlanarBoard],
-    ["single_bar_strict", SceneUR5eSpherizedSingleBarStrict],
-    ["three_shelf", SceneUR5eSpherizedThreeShelf],
+    ["airbus_shopfloor_RoboTSP_mjd_minits", SceneUR5eSpherizedAirbusShopFloor],
+    ["three_shelf_RoboTSP_mjd_minits", SceneUR5eSpherizedThreeShelf],
+    ["single_stool_RoboTSP_mjd_minits", SceneUR5eSpherizedSingleStool],
 ]
-problem_selected = 1
+problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
 scene = problem_dict[problem_selected][1](ts_choice="vary24")
@@ -235,26 +247,58 @@ H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 # taskspace relationship analysis
 # tmap = Naive_task_space_correlation(H_reach_init)
 tmap = KRNN_task_space_correlation(H_reach_init, w_rot=0.0, nnr=0.15, nnk=10)
+adjmat = nn_dict_to_adjmat(tmap)
+print(f"==>> adjmat: \n{adjmat}")
 
-# RoboTSP find the tour based on the taskspace first
+raise
+# taskspace TSP ordering
 Ttour = taskspace_tsp_position_distance_order(H_reach_init, tsp_method="local")
 Ttour_rotated = tour_rotation(Ttour, start_node=0)
 Ttour_rotated_loop = tour_attach_loop_back(Ttour_rotated)
 print(f"==>> Ttour_rotated_loop: \n{Ttour_rotated_loop}")
 
-# RoboTSP compute the edge cost based on the jointspace
 # qdot = np.array([1.57] * 6)  # allowable joint velocity for each joint
 qdot = np.array([1.0] * 6)  # allowable joint velocity for each joint
 # qw = np.array([10, 10, 10, 1, 1, 0.1])  # move joint 1,2,3 less
 qw = np.array([1, 1, 1, 1, 1, 1])  # all joints equal, test exact solver
 Wwmj = qw / qdot
 Ewmj = Eest_weighted_max_joint_diff(Qik_reach_init, Qiks_reach_init, Wwmj, tmap)
-# RoboTSP layer dijkstra search
+
 Qtour = Qtour_RoboTSP_layer_search(Ttour_rotated_loop, Ewmj, tmap)
+Qtourlist = Qtour_RoboTSP_layer_search_topK(Ttour_rotated_loop, Ewmj, tmap, K=100)
 selected = np.vstack([Ttour_rotated_loop, Qtour])
 print(f"==>> selected: \n{selected}")
 
-# recover the configuration from the selected tour
+# determine the redundant intervals in the tour
+interval_unique = set()
+for p in Qtourlist:
+    for i in range(len(p) - 1):
+        li = i  # layer index -> use given tour to find the task index
+        lj = i + 1
+        soli = int(p[i])  # solution index of the task at layer li
+        solj = int(p[i + 1])
+        interval_unique.add((li, lj, soli, solj))
+print(f"==>> interval_unique: \n{interval_unique}")
+
+# call expensive collision-free planner and check cost per interval
+interval_costs = {}
+for interval in tqdm.tqdm(interval_unique):
+    # i,j is layer index, we must backtrack to find the task index
+    i, j, qi, qj = interval
+    # fake cost
+    interval_costs[interval] = np.random.rand() * 10
+print(f"==>> interval_costs: \n{interval_costs}")
+
+# repropagate the costs back to the Qtourlist
+Costlist = np.zeros((Qtourlist.shape[0], Qtourlist.shape[1] - 1))
+for pidx, p in enumerate(Qtourlist):
+    for i in range(len(p) - 1):
+        interval = (i, i + 1, int(p[i]), int(p[i + 1]))
+        Costlist[pidx, i] = interval_costs[interval]
+print(f"==>> Costlist: \n{Costlist}")
+Costlist_total = np.sum(Costlist, axis=1)
+print(f"==>> Costlist_total: \n{Costlist_total}")
+
 tourQval = []
 for i in range(selected.shape[1]):
     taski = selected[0, i]
@@ -268,6 +312,7 @@ print(f"==>> tourQval: \n{tourQval}")
 tourQcosts = traj_complete_cost(tourQval, qdot)
 Qtour_traj, time_fs = traj_tour_from_lininterp_qdot(tourQval, qdot)
 
+raise
 # collision-free
 cputcf_start = time.time()
 tourQval_cf = planner.query_tour_planning(tourQval)
@@ -277,6 +322,7 @@ Qtour_cf_traj, time_fs_cf = traj_tour_from_lininterp_qdot(tourQval_cf, qdot)
 cputcf = time.time() - cputcf_start
 cputtotal = time.time() - cputtotal_start
 
+raise
 # logging
 rl = RTSPLogger()
 rl.data.pname = PROBLEM_NAME

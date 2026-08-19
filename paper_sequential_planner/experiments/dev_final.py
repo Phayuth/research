@@ -68,7 +68,7 @@ problem_dict = [
 problem_selected = 2
 
 PROBLEM_NAME = problem_dict[problem_selected][0]
-scene = problem_dict[problem_selected][1](ts_choice="mini")
+scene = problem_dict[problem_selected][1](ts_choice="vary24")
 
 robkin = RobotUR5eKin()
 planner = SceneOMPLPlanner(scene.collision_check)
@@ -223,25 +223,25 @@ H = scene.H
 X = Hlist_to_Xlist(H)
 ntasks = X.shape[0]
 Qik = wspace_ik_extended(robkin, X)
-Qikstate = wspace_ik_validity_extended(Qik, scene)
+Qiks = wspace_ik_validity_extended(Qik, scene)
 # Qik = wspace_ik_normal(robkin, X)
-# Qikstate = wspace_ik_validity_normal(Qik, scene)
+# Qiks = wspace_ik_validity_normal(Qik, scene)
 num_sols = Qik.shape[1]
 
 # filter out the unreachable tasks
-Xunreach = np.all(Qikstate != 1, axis=1).flatten()
+Xunreach = np.all(Qiks != 1, axis=1).flatten()
 X_reach = X[~Xunreach]
 Qik_reach = Qik[~Xunreach]
-Qikstate_reach = Qikstate[~Xunreach]
+Qiks_reach = Qiks[~Xunreach]
 
 # concat the init to the reachable tasks
 qinit_ = np.full((1, Qik_reach.shape[1], Qik_reach.shape[2]), np.nan)
 qinit_[0, 0] = qinit
 Qik_reach_init = np.vstack((qinit_, Qik_reach))  # init & ntasks
-qinit_state_ = np.full((1, Qikstate_reach.shape[1], Qikstate_reach.shape[2]), -1)
-qinit_state_[0, 0] = 1
-Qikstate_reach_init = np.vstack((qinit_state_, Qikstate_reach))  # init & ntasks
-Qikstate_reach_init = np.where(Qikstate_reach_init == 1, True, False)  # T/F mask
+qinit_s_ = np.full((1, Qiks_reach.shape[1], Qiks_reach.shape[2]), -1)
+qinit_s_[0, 0] = 1
+Qiks_reach_init = np.vstack((qinit_s_, Qiks_reach))  # init & ntasks
+Qiks_reach_init = np.where(Qiks_reach_init == 1, True, False)  # T/F mask
 X_reach_init = np.vstack((Xinit, X_reach))  # init & ntasks
 H_reach_init = Xlist_to_Hlist(X_reach_init)  # init & ntasks
 
@@ -250,14 +250,15 @@ tmap = Naive_task_space_correlation(H_reach_init)
 # tmap = KRNN_task_space_correlation(H_reach_init, w_rot=0.0, nnr=0.15, nnk=10)
 
 # choose Q filter method
-# Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qikstate_reach_init, r=2 * np.pi)
-# Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, Qikstate_reach_init, 0.0001)
-# Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, Qikstate_reach_init, tmap)
-# Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, Qikstate_reach_init, 50, tmap)
-# Q5red_Dnn2c = Qfilter_Dnn2c(Qik_reach_init, Qikstate_reach_init, 5, tmap)
-Q6red_ctsp = Qfilter_ClusterTSP(Qik_reach_init, Qikstate_reach_init, tmap)
-# Qreduced = Q1red_r  # choose Qfilter_R for this example
-Qreduced = Qikstate_reach_init  # no filter
+# Q1red_r = Qfilter_R(Qik_reach_init, qinit, Qiks_reach_init, r=2 * np.pi)
+# Q2red_s = Qfilter_similarity(Qik_reach_init, qinit, Qiks_reach_init, 0.0001)
+# Q3red_nn2c = Qfilter_nn2c(Qik_reach_init, Qiks_reach_init, tmap)
+# Q4red_Knn2c = Qfilter_Knn2c(Qik_reach_init, Qiks_reach_init, 50, tmap)
+# Q5red_Dnn2c = Qfilter_Dnn2c(Qik_reach_init, Qiks_reach_init, 5, tmap)
+Q6red_ctsp = Qfilter_ClusterTSP(Qik_reach_init, Qiks_reach_init, tmap)
+Qreduced = Q6red_ctsp
+# Qreduced = Qiks_reach_init  # no filter
+print(f"==>> Qreduced.shape: \n{Qreduced.shape}")
 check_number_Q(Qreduced)
 
 raise

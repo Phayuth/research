@@ -205,40 +205,76 @@ def Qfilter_Favor(Q, Qs, tmap):
     pass
 
 
-def Qfilter_ClusterTSP(Q, Qs, tmap):
+def Qfilter_ClusterTSP(Q, Qs, tmap, W=None):
+    """
+    ASMETRANonMECH2021, A novel clustering-based Spatially Const RTSP, Wong
+
+    Filter candidate configurations by dissimilarity to home and all nodes.
+    dissimilarity phi = bi * 𝛿_home + (1 - bi) * 𝛿_all
+    Until there is one left for each task.
+    The measuring metric in paper is the weighted euclidean squared distance.
+    bias = bi + bihome = 1
+
+    Q: node
+    Qs: node validity from collision check (important)
+    tmap: mapping dict
+    W: weights for each joint
+    """
     task_to_nn_pair = tmap["task_to_nn_pair"]
     task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
 
     num_sols = Q.shape[1]
     ntasks = Q.shape[0]
-    E = np.empty((task_to_nn_pair_len, num_sols, num_sols))
-    for idx, (i, j) in enumerate(task_to_nn_pair):
-        E[idx] = weighted_nan_euclidean_squared_distances(Q[i], Q[j], W=None)
+    E = Eest_weighted_euclidean_squared(Q, Qs, W=W, tmap=tmap)
 
-    # dissimilarity of all nodes to home \delta 𝛿
+    # dissimilarity of all nodes to home 𝛿_home
     Qdelta_to_home = np.ones((ntasks, num_sols)) * np.inf
-
     for idx, (i, j) in enumerate(task_to_nn_pair):
         if i != 0:  # ignore the node that is not home
             continue
         # i == 0 is home
-        Qj_valid = Qs[j]
-        Eij = E[idx]
-        E0 = Eij[0, :]  # distance from home to all nodes in task j
-        Qdelta_to_home[j, :] = np.where(Qj_valid, E0, np.inf)
+        E0 = E[idx, 0, :]  # distance from home to nodes in taskj (top row only)
+        Qdelta_to_home[j, :] = E0
 
-    # we have to many nodes, so compute the average at once is difficult
-    # so for every pair, we compute the average by sum the value that not np.inf
-    # and also count the number of not np.inf value
-    Qdelta_to_all = np.ones((ntasks, num_sols)) * np.inf
-    Qdelta_to_all_count = np.zeros((ntasks, num_sols), dtype=int)
+    # dissimilarity of each node to all other nodes 𝛿_all
+    Qdelta_to_all = np.zeros((ntasks, num_sols))
+    nQsvalid = np.sum(Qs)  # number of valid nodes per task
     for idx, (i, j) in enumerate(task_to_nn_pair):
+        if i == 0:  # ignore the node that is home
+            continue
+
+        # sum over value that is not np.inf
+        # do one for i
         Eij = E[idx]
-        Qj_valid = Qs[j]
+        D = np.sum(Eij, where=np.isfinite(Eij), axis=1)  # sum in row for i->j
+        Qdelta_to_all[i, :] += D
 
-    # iterative process
+        # do one for j
+        D = np.sum(Eij, where=np.isfinite(Eij), axis=0)  # sum in col for j->i
+        Qdelta_to_all[j, :] += D
 
-    return None
+    # compute the mean dissimilarity to all other nodes
+    Qdelta_to_all_mean = Qdelta_to_all / nQsvalid
+
+    # dissimilarity phi = bi * 𝛿_home + (1 - bi) * 𝛿_all
+    # the paper use 0.9 * weighted_avg + 0.1 * home_D
+    phi = 0.9 * Qdelta_to_all_mean + 0.1 * Qdelta_to_home
+
+    # method1: select the node with the minimum phi for each task only
+    Qvalididx = np.argmin(phi, axis=1)  # the index 0 home is selected auto
+    Qvalid = np.full((ntasks, num_sols, 1), False, dtype=bool)
+    Qvalid[np.arange(ntasks), Qvalididx] = True
+
+    # method2: iterative selection of nodes as in the paper
+    # m = max(1, math.floor(math.log(len(Qi))))
+
+    # print debug info
+    print(f"==>> nQsvalid: \n{nQsvalid}")
+    print(f"==>> Qdelta_to_home: \n{Qdelta_to_home}")
+    print(f"==>> Qdelta_to_all: \n{Qdelta_to_all}")
+    print(f"==>> Qdelta_to_all_mean: \n{Qdelta_to_all_mean}")
+    print(f"==>> phi: \n{phi}")
+    return Qvalid
 
 
 def Eest_colfree(Q, Qs, cmax_d, tmap):
@@ -314,6 +350,40 @@ def Eest_weighted_euclidean(Q, Qs, W, tmap):
 
     Eweu = np.where(Estate, E, np.inf)
     return Eweu
+
+
+def Eest_weighted_euclidean_squared(Q, Qs, W, tmap):
+    """
+    Input:
+    Q: nodes
+    Qs: nodes validity
+    tmap: mapping dict
+    W: weight for each joint in form of relative displacement in taskspace
+
+    Compute:
+    Consider every edges to be valid
+
+    Output:
+    Eweusq: edges heuristic distance based on weighted euclidean distance
+        : implicitly provide infeasible check via np.inf in the edges
+    """
+    # get mapping
+    task_to_nn_pair = tmap["task_to_nn_pair"]
+    task_to_nn_pair_len = tmap["task_to_nn_pair_len"]
+
+    num_sols = Q.shape[1]
+    E = np.empty((task_to_nn_pair_len, num_sols, num_sols), dtype=dtype)
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        E[idx] = weighted_nan_euclidean_squared_distances(Q[i], Q[j], w=W)
+
+    Estate = np.ones_like(E, dtype=bool)  # True/False mask
+    # if Qs is not valid, then E is also invalid
+    for idx, (i, j) in enumerate(task_to_nn_pair):
+        QIJ = np.outer(Qs[i], Qs[j])  # (num_sols, num_sols)
+        Estate[idx] = Estate[idx] & QIJ  # update E state
+
+    Eweusq = np.where(Estate, E, np.inf)
+    return Eweusq
 
 
 def Eest_weighted_max_joint_diff(Q, Qs, W, tmap):
@@ -422,9 +492,13 @@ def Qtour_RoboTSP_layer_search(Ttour, E, tmap):
                 raise RuntimeError(f"Broken parent chain at layer {layer}")
             Qtour.append(int(goal_id))
         Qtour = np.array(Qtour[::-1])  # reverse the path to get the correct order
+        return Qtour
 
     goal_id = int(np.argmin(best_cost[-1]))
     Qtour = recover_path(goal_id)
+
+    # debug print
+    print(f"==>> Qtour: \n{Qtour} with cost: {best_cost[-1, goal_id]}")
     return Qtour
 
 
@@ -541,5 +615,9 @@ def Qtour_RoboTSP_layer_search_topK(Ttour, E, tmap, K):
         Qtourlist.append(Qtour)
         # cost = final_cost[idx]
     Qtourlist = np.array(Qtourlist)
-    print(f"==>> Qtourlist: \n{Qtourlist}")
+
+    # debug print
+    print(f"==>> Qtourlist:")
+    for ord, cost in zip(order, final_cost[order]):
+        print(f"{Qtourlist[ord]} with cost: {cost}")
     return Qtourlist

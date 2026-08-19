@@ -215,6 +215,28 @@ def taskspace_brute_permutation_order(H):
 
 
 """
+Graph to Matrix conversion
+"""
+
+
+def nn_dict_to_adjmat(tmap):
+    task_to_nn_dict = tmap["task_to_nn_dict"]
+    ntasks = len(task_to_nn_dict)
+    adjmat = np.zeros((ntasks, ntasks), dtype=int)
+    for task, neighbors in task_to_nn_dict.items():
+        for neighbor in neighbors:
+            adjmat[task, neighbor] = 1
+    return adjmat
+
+
+def adjmat_to_degmat(adjmat):
+    degmat = np.zeros_like(adjmat)
+    for i in range(adjmat.shape[0]):
+        degmat[i, i] = np.sum(adjmat[i])
+    return degmat
+
+
+"""
 # Pose format conversion
 # x = (x,y,z) # shape (3,)
 # X = (x,y,z, qx, qy, qz, qw) # shape (7,)
